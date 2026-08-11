@@ -34,6 +34,25 @@ export type MountHoles = {
 /** 部品の出どころ。共通の部品表か、担当者ごとの My部品か。 */
 export type PartSource = 'config' | 'my';
 
+/**
+ * 部品の外形線。CAD から取り込んだ図形を、部品の左下を原点とした mm 座標で持つ。
+ * JSON に書き出すので、キーは短くしてある。
+ */
+export type ShapeEntity =
+  /** 折れ線。pts は [x0,y0,x1,y1,...] */
+  | { t: 'p'; pts: number[]; c?: boolean }
+  /** 円 */
+  | { t: 'c'; x: number; y: number; r: number }
+  /** 円弧。角度はラジアン */
+  | { t: 'a'; x: number; y: number; r: number; a0: number; a1: number };
+
+export type DeviceShape = {
+  /** 取り込んだときの外接寸法。表示時はこれを外形サイズに合わせて拡縮する */
+  w: number;
+  h: number;
+  entities: ShapeEntity[];
+};
+
 /** 機器マスタの1件。レイアウトと BOM の両方がここを参照する。 */
 export type DeviceSpec = {
   id: string;
@@ -48,6 +67,8 @@ export type DeviceSpec = {
   owner?: string;
   /** 取付穴のピッチと径 */
   mountHoles?: MountHoles;
+  /** CAD から取り込んだ外形線。無ければただの四角で描く */
+  shape?: DeviceShape;
   /** w=幅, h=高さ, d=取付面からの突出（DINレール取付時はレール高さが別途加算される） */
   size: { w: number; h: number; d: number };
   /** 対応する取付方式。両対応の機器は案件ごとに選ばせる */

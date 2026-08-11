@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FACE_LABEL, faceSize } from '../data/faces';
+import { ShapeGeometry } from './ShapeGeometry';
 import { derivedMachining } from '../lib/machining';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
@@ -233,8 +234,19 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                 width={spec.size.w}
                 height={spec.size.h}
                 fill={colorOf(spec.category)}
+                fillOpacity={spec.shape ? 0.14 : 1}
               />
-              {labelFits && (
+              {spec.shape && (
+                // 部品の座標系は左下原点・Y上向きなので、拡縮と同時に Y を反転する
+                <g
+                  transform={`translate(${p.x} ${faceH - p.y}) scale(${
+                    spec.size.w / (spec.shape.w || 1)
+                  } ${-spec.size.h / (spec.shape.h || 1)})`}
+                >
+                  <ShapeGeometry shape={spec.shape} color={colorOf(spec.category)} />
+                </g>
+              )}
+              {labelFits && !spec.shape && (
                 <text
                   x={p.x + spec.size.w / 2}
                   y={toSvgY(faceH, p.y, spec.size.h) + spec.size.h / 2}

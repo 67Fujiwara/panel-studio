@@ -370,10 +370,17 @@ ul.tree.big .tree-label {
   padding: 2px 0;
 }
 .tree-branch-row .tree-branch {
-  flex: 1;
+  /* 幅を取り合って分類名が縦に折り返さないよう、内容ぶんだけにする */
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+}
+.tree-label {
+  white-space: nowrap;
 }
 .cat-name {
-  width: 180px;
+  flex: 1 1 120px;
+  min-width: 80px;
   padding: 3px 6px;
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -436,6 +443,27 @@ input[type='color'] {
 .mountpick {
   display: flex;
   gap: 14px;
+}
+.shaperow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.shaperow input[type='file'] {
+  font: inherit;
+  font-size: 11px;
+}
+.shaperow button {
+  margin-top: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+.shapepreview {
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
 }
 .swatch.my {
   background: linear-gradient(135deg, var(--accent), #9b59b6);

@@ -1,3 +1,6 @@
+import { useState } from 'react';
+import { extractShape, readDxfText } from '../lib/dxfImport';
+import { ShapePreview } from './ShapeGeometry';
 import { useStore } from '../store';
 import type { CategoryDef, DeviceSpec, MountType } from '../types';
 
@@ -55,6 +58,26 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
   const holes = part.mountHoles ?? { pitchX: 0, pitchY: 0, countX: 2, countY: 2, dia: 4.5 };
   const cut = part.panelCutout;
   const cl = part.clearance ?? {};
+  const color = categories.find((c) => c.id === part.category)?.color ?? '#7d8894';
+
+  const [shapeMsg, setShapeMsg] = useState('');
+
+  const importShape = async (file: File | undefined) => {
+    if (!file) return;
+    setShapeMsg('');
+    try {
+      const shape = extractShape(await readDxfText(file));
+      if (!shape) {
+        setShapeMsg('図形が見つかりませんでした。');
+        return;
+      }
+      // 取り込んだ外接寸法をそのまま外形サイズにする（あとから直せる）
+      update(part.id, { shape, size: { ...part.size, w: shape.w, h: shape.h } });
+      setShapeMsg(`${file.name} — 線 ${shape.entities.length} 本 / ${shape.w}×${shape.h}`);
+    } catch (e) {
+      setShapeMsg(`読み込めませんでした: ${String(e)}`);
+    }
+  };
 
   return (
     <div className="parteditor">
@@ -82,6 +105,28 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
             ))}
           </select>
         </label>
+      </div>
+
+      <h4>外形線（CAD から取り込む）</h4>
+      <p className="note">
+        DXF を読み込むと、ただの四角ではなく<b>実際の形</b>で描きます。寸法線・文字・
+        ハッチは落として、外形線だけを取り込みます。取り込んだ外接寸法が外形サイズになります。
+      </p>
+      <div className="shaperow">
+        <div>
+          <input
+            type="file"
+            accept=".dxf"
+            onChange={(e) => void importShape(e.target.files?.[0] ?? undefined)}
+          />
+          {shapeMsg && <p className="calc">{shapeMsg}</p>}
+          {part.shape && (
+            <button onClick={() => update(part.id, { shape: undefined })}>
+              形状を消して四角に戻す
+            </button>
+          )}
+        </div>
+        {part.shape && <ShapePreview shape={part.shape} color={color} />}
       </div>
 
       <h4>外形サイズ</h4>

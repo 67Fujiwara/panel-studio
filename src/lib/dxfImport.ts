@@ -1,5 +1,6 @@
 import Encoding from 'encoding-japanese';
 import DxfParser from 'dxf-parser';
+import type { DeviceShape, ShapeEntity } from '../types';
 
 /**
  * DXF から盤の寸法を拾うための読み込み。
@@ -136,3 +137,110 @@ export function findRectangles(text: string): { candidates: RectCandidate[]; ent
   );
   return { candidates, entityCount: entities.length };
 }
+
+/** 寸法線・文字など、部品の形とは関係のないものを落とすためのレイヤ名。 */
+const NOISE_LAYER = /dim|寸法|text|文字|hatch|ハッチ|center|中心線/i;
+const NOISE_TYPE = new Set(['DIMENSION', 'TEXT', 'MTEXT', 'HATCH', 'LEADER', 'ATTDEF', 'SOLID']);
+
+/**
+ * 部品1点の外形線を DXF から取り込む。
+ *
+ * 部品の DXF は盤の図面と違って1点ぶんだけが描かれているので、寸法線や文字を
+ * 落としたうえで全部を拾い、左下が原点になるよう平行移動する。
+ * ポリラインの膨らみ（bulge）は直線で近似する。
+ */
+export function extractShape(text: string): DeviceShape | null {
+  const parsed = new DxfParser().parseSync(text);
+  const entities = (parsed?.entities ?? []) as {
+    type: string;
+    layer?: string;
+    vertices?: Pt[];
+    center?: Pt;
+    radius?: number;
+    startAngle?: number;
+    endAngle?: number;
+    shape?: boolean;
+  }[];
+
+  const out: ShapeEntity[] = [];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const see = (x: number, y: number) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  };
+
+  for (const e of entities) {
+    if (NOISE_TYPE.has(e.type)) continue;
+    if (NOISE_LAYER.test(e.layer ?? '')) continue;
+
+    if (e.type === 'CIRCLE' && e.center && typeof e.radius === 'number') {
+      out.push({ t: 'c', x: e.center.x, y: e.center.y, r: e.radius });
+      see(e.center.x - e.radius, e.center.y - e.radius);
+      see(e.center.x + e.radius, e.center.y + e.radius);
+      continue;
+    }
+    if (
+      e.type === 'ARC' &&
+      e.center &&
+      typeof e.radius === 'number' &&
+      typeof e.startAngle === 'number' &&
+      typeof e.endAngle === 'number'
+    ) {
+      out.push({
+        t: 'a',
+        x: e.center.x,
+        y: e.center.y,
+        r: e.radius,
+        a0: e.startAngle,
+        a1: e.endAngle,
+      });
+      // 端点だけでは外接を取り違えるので、円としての範囲を見る（安全側）
+      see(e.center.x - e.radius, e.center.y - e.radius);
+      see(e.center.x + e.radius, e.center.y + e.radius);
+      continue;
+    }
+    if (e.vertices && e.vertices.length >= 2) {
+      const pts: number[] = [];
+      for (const v of e.vertices) {
+        if (!Number.isFinite(v.x) || !Number.isFinite(v.y)) continue;
+        pts.push(v.x, v.y);
+        see(v.x, v.y);
+      }
+      if (pts.length >= 4) {
+        const closed = e.vertices.length > 2 && (e.shape === true || same(e.vertices[0]!, e.vertices[e.vertices.length - 1]!));
+        out.push({ t: 'p', pts, ...(closed ? { c: true } : {}) });
+      }
+    }
+  }
+
+  if (out.length === 0 || !Number.isFinite(minX)) return null;
+
+  // 左下を原点に寄せて、小数を丸める
+  const shift = (x: number, y: number): [number, number] => [r2(x - minX), r2(y - minY)];
+  const entitiesOut: ShapeEntity[] = out.map((s) => {
+    if (s.t === 'c') {
+      const [x, y] = shift(s.x, s.y);
+      return { t: 'c', x, y, r: r2(s.r) };
+    }
+    if (s.t === 'a') {
+      const [x, y] = shift(s.x, s.y);
+      return { t: 'a', x, y, r: r2(s.r), a0: s.a0, a1: s.a1 };
+    }
+    const pts: number[] = [];
+    for (let i = 0; i < s.pts.length; i += 2) {
+      const [x, y] = shift(s.pts[i]!, s.pts[i + 1]!);
+      pts.push(x, y);
+    }
+    return { t: 'p', pts, ...(s.c ? { c: true } : {}) };
+  });
+
+  return { w: r2(maxX - minX), h: r2(maxY - minY), entities: entitiesOut };
+}
+
+const r2 = (v: number) => Number(v.toFixed(2));

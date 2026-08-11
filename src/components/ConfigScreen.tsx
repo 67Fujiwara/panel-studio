@@ -94,6 +94,7 @@ export function ConfigScreen() {
                           {p.mountHoles
                             ? ` / 取付穴 φ${p.mountHoles.dia} ${p.mountHoles.pitchX}×${p.mountHoles.pitchY}`
                             : ''}
+                          {p.shape ? ' / 形状あり' : ''}
                         </span>
                       </button>
                       {editing === p.id && <PartEditor part={p} categories={categories} />}
