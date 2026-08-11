@@ -1,4 +1,5 @@
 import { DEVICE_BY_ID } from '../data/devices';
+import { computeRails } from './layout';
 import type { BomLine, LayoutResult, Profile } from '../types';
 
 /** 配線ダクト・DINレールの定尺(mm)。社内の調達に合わせて変更する。 */
@@ -32,20 +33,10 @@ export function buildBom(layout: LayoutResult, profile: Profile): BomLine[] {
     });
   }
 
-  // --- DINレール（行ごとに1本、機器の占有幅から切断長を出す） ---
-  let railTotal = 0;
-  let railCount = 0;
-  for (const row of layout.rows) {
-    const inRow = layout.placed.filter((p) => p.row === row.index && p.mount === 'din');
-    if (inRow.length === 0) continue;
-    const left = Math.min(...inRow.map((p) => p.x));
-    const right = Math.max(
-      ...inRow.map((p) => p.x + (DEVICE_BY_ID.get(p.specId)?.size.w ?? 0)),
-    );
-    // 両端に少し余裕を持たせて切る
-    railTotal += Math.ceil(right - left) + 40;
-    railCount += 1;
-  }
+  // --- DINレール（段ごとに1本。DXF の作図と同じ計算を共有する） ---
+  const rails = computeRails(layout);
+  const railTotal = rails.reduce((s, r) => s + Math.ceil(r.length), 0);
+  const railCount = rails.length;
   if (railCount > 0) {
     lines.push({
       model: `DINレール TH35-7.5（切断 計${railTotal}mm / ${railCount}本）`,

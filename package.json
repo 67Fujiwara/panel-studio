@@ -11,11 +11,13 @@
     "build:single": "tsc -b && vite build --mode single && node scripts/finish-single.mjs"
   },
   "dependencies": {
+    "encoding-japanese": "^2.2.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@types/encoding-japanese": "^2.2.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",

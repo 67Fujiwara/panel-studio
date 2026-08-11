@@ -1,7 +1,14 @@
 import { create } from 'zustand';
 import { DEFAULT_PROFILE, SAMPLE_ENCLOSURES } from './data/enclosures';
 import { DEVICE_BY_ID } from './data/devices';
-import type { ClearanceSettings, DuctSettings, PanelSpec, PlacedDevice, Profile } from './types';
+import type {
+  ClearanceSettings,
+  DrawingSettings,
+  DuctSettings,
+  PanelSpec,
+  PlacedDevice,
+  Profile,
+} from './types';
 import type { LayoutItem } from './lib/layout';
 
 let seq = 0;
@@ -20,6 +27,8 @@ type State = {
   setDepth: (patch: Partial<PanelSpec['depth']>) => void;
   setDuct: (patch: Partial<DuctSettings>) => void;
   setClearance: (patch: Partial<ClearanceSettings>) => void;
+  setLayer: (key: keyof DrawingSettings['layers'], name: string) => void;
+  setTextHeight: (v: number) => void;
 
   addDevice: (specId: string, qty: number) => void;
   removeDevice: (specId: string) => void;
@@ -48,6 +57,17 @@ export const useStore = create<State>((set) => ({
     set((s) => ({ profile: { ...s.profile, duct: { ...s.profile.duct, ...patch } } })),
   setClearance: (patch) =>
     set((s) => ({ profile: { ...s.profile, clearance: { ...s.profile.clearance, ...patch } } })),
+
+  setLayer: (key, name) =>
+    set((s) => ({
+      profile: {
+        ...s.profile,
+        drawing: { ...s.profile.drawing, layers: { ...s.profile.drawing.layers, [key]: name } },
+      },
+    })),
+
+  setTextHeight: (textHeight) =>
+    set((s) => ({ profile: { ...s.profile, drawing: { ...s.profile.drawing, textHeight } } })),
 
   addDevice: (specId, qty) =>
     set((s) => {

@@ -38,12 +38,16 @@ export const SAMPLE_ENCLOSURES: PanelSpec[] = [
 /** DINレールの高さ。奥行き方向の干渉判定でこの分を機器に加算する。 */
 export const DIN_RAIL_HEIGHT = 7.5;
 
+/** DINレール(TH35)の幅。正面視ではこの高さの帯として描かれる。 */
+export const DIN_RAIL_WIDTH = 35;
+
 export const DEFAULT_PROFILE: Profile = {
   schemaVersion: 1,
   profileName: '標準',
   duct: {
     layout: 'horizontal-rows',
     width: 50,
+    rowHeightMode: 'auto',
     rowCount: 3,
     margin: { top: 30, bottom: 30, left: 30, right: 30 },
   },
@@ -52,6 +56,18 @@ export const DEFAULT_PROFILE: Profile = {
     deviceToDevice: { sameRow: 5, betweenRows: 10 },
     deviceToPlateEdge: 20,
     heatExtra: 20,
+  },
+  drawing: {
+    // 既存図面のレイヤ名が分かり次第ここを差し替える。
+    // コードを触らず My設定ファイルだけで変えられるようにしてある。
+    layers: {
+      plate: 'PANEL-PLATE',
+      duct: 'PANEL-DUCT',
+      device: 'PANEL-DEVICE',
+      text: 'PANEL-TEXT',
+      rail: 'PANEL-RAIL',
+    },
+    textHeight: 5,
   },
 };
 

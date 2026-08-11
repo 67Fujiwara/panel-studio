@@ -1,7 +1,7 @@
 import { DUCT_LAYOUT_LABEL, SAMPLE_ENCLOSURES } from '../data/enclosures';
 import { useStore } from '../store';
 import { computeRows, effectiveDepth } from '../lib/layout';
-import type { DuctLayoutId } from '../types';
+import type { DuctLayoutId, RowHeightMode } from '../types';
 
 function Num({
   label,
@@ -32,6 +32,23 @@ function Num({
   );
 }
 
+function Txt({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="num">
+      <span>{label}</span>
+      <input type="text" value={value} onChange={(e) => onChange(e.target.value)} />
+    </label>
+  );
+}
+
 export function SettingsPanel() {
   const panel = useStore((s) => s.panel);
   const profile = useStore((s) => s.profile);
@@ -40,8 +57,12 @@ export function SettingsPanel() {
   const setDepth = useStore((s) => s.setDepth);
   const setDuct = useStore((s) => s.setDuct);
   const setClearance = useStore((s) => s.setClearance);
+  const setLayer = useStore((s) => s.setLayer);
+  const setTextHeight = useStore((s) => s.setTextHeight);
+  const layers = profile.drawing.layers;
 
   const depth = effectiveDepth(panel);
+  const isEqual = profile.duct.rowHeightMode === 'equal';
   const rowH = computeRows(panel, profile.duct).rows[0]?.h ?? 0;
 
   return (
@@ -104,21 +125,41 @@ export function SettingsPanel() {
           ))}
         </select>
       </label>
+      <label className="sel">
+        <span>段の高さ</span>
+        <select
+          value={profile.duct.rowHeightMode}
+          onChange={(e) => setDuct({ rowHeightMode: e.target.value as RowHeightMode })}
+        >
+          <option value="auto">中身に合わせる（段ごとに可変）</option>
+          <option value="equal">全段そろえる（段数を指定）</option>
+        </select>
+      </label>
       <div className="grid2">
         <Num label="ダクト幅" value={profile.duct.width} onChange={(width) => setDuct({ width })} step={10} />
-        <Num
-          label="機器行の数"
-          value={profile.duct.rowCount}
-          onChange={(rowCount) => setDuct({ rowCount })}
-        />
+        {isEqual && (
+          <Num
+            label="機器行の数"
+            value={profile.duct.rowCount}
+            onChange={(rowCount) => setDuct({ rowCount })}
+          />
+        )}
       </div>
-      <p className={`calc${rowH <= 0 ? ' bad' : ''}`}>
-        機器行の高さ = {rowH > 0 ? rowH.toFixed(1) : '—'} mm
-      </p>
-      <p className="note">
-        v1 は全段を同じ高さで割り付けます。背の高い機器が入らない場合は段数を減らしてください。
-        <b>段ごとに高さを変える割り付けは Phase 1 で対応します。</b>
-      </p>
+      {isEqual ? (
+        <>
+          <p className={`calc${rowH <= 0 ? ' bad' : ''}`}>
+            機器行の高さ = {rowH > 0 ? rowH.toFixed(1) : '—'} mm
+          </p>
+          <p className="note">
+            全段を同じ高さで割り付けます。背の高い機器が入らない場合は段数を減らしてください。
+          </p>
+        </>
+      ) : (
+        <p className="note">
+          段に入った機器の背丈から段ごとに高さを決めます。段数は自動で決まるので指定不要です。
+          実際の盤に近いのはこちらです。
+        </p>
+      )}
       <h3>中板端からの余白</h3>
       <div className="grid2">
         <Num
@@ -197,6 +238,25 @@ export function SettingsPanel() {
           hint="10W以上"
           value={profile.clearance.heatExtra}
           onChange={(heatExtra) => setClearance({ heatExtra })}
+        />
+      </div>
+
+      <h2>DXF 出力</h2>
+      <p className="note">
+        設計時のモデル空間が 1:1 なので、<b>実寸 mm をそのまま出力</b>します（縮尺は PDF 化のときに掛ける運用）。
+        レイヤ名は既存図面の規則に合わせて変更してください。
+      </p>
+      <div className="grid2">
+        <Txt label="中板" value={layers.plate} onChange={(v) => setLayer('plate', v)} />
+        <Txt label="ダクト" value={layers.duct} onChange={(v) => setLayer('duct', v)} />
+        <Txt label="機器" value={layers.device} onChange={(v) => setLayer('device', v)} />
+        <Txt label="機器名" value={layers.text} onChange={(v) => setLayer('text', v)} />
+        <Txt label="DINレール" value={layers.rail} onChange={(v) => setLayer('rail', v)} />
+        <Num
+          label="文字高さ"
+          value={profile.drawing.textHeight}
+          onChange={setTextHeight}
+          step={0.5}
         />
       </div>
     </div>

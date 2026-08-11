@@ -77,14 +77,35 @@ export type DuctLayoutId =
   | 'zoned'
   | 'terminal-bottom';
 
+/**
+ * 機器行の高さの決め方。
+ * - equal: 全段を同じ高さで割り付ける（段数を指定）
+ * - auto : 段に入った機器の背丈から段ごとに高さを決める（実際の盤に近い）
+ */
+export type RowHeightMode = 'equal' | 'auto';
+
 export type DuctSettings = {
   layout: DuctLayoutId;
   /** ダクト幅 40/50/60/80/100 */
   width: number;
-  /** 機器行の数 */
+  rowHeightMode: RowHeightMode;
+  /** 機器行の数。equal のときだけ使う */
   rowCount: number;
   /** 中板端からの余白 */
   margin: Sides;
+};
+
+/** DXF 出力の設定。レイヤ名は社内規則に合わせて差し替えられるようにしておく。 */
+export type DrawingSettings = {
+  layers: {
+    plate: string;
+    duct: string;
+    device: string;
+    text: string;
+    rail: string;
+  };
+  /** 機器名の文字高さ(mm) */
+  textHeight: number;
 };
 
 export type ClearanceSettings = {
@@ -104,6 +125,7 @@ export type Profile = {
   profileName: string;
   duct: DuctSettings;
   clearance: ClearanceSettings;
+  drawing: DrawingSettings;
 };
 
 export type Rect = { x: number; y: number; w: number; h: number };
@@ -118,7 +140,7 @@ export type DeviceRow = {
 
 export type Violation = {
   uid: string;
-  kind: 'overflow' | 'depth' | 'clearance';
+  kind: 'overflow' | 'depth' | 'clearance' | 'overlap';
   message: string;
 };
 

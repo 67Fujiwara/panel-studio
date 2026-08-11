@@ -49,6 +49,18 @@ header .tag {
   color: var(--muted);
   font-size: 12px;
 }
+header button.primary {
+  margin-left: auto;
+  padding: 5px 14px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+header button.primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  color: #fff;
+}
 
 main {
   flex: 1;
@@ -146,6 +158,7 @@ h3 {
   font-style: normal;
 }
 input[type='number'],
+input[type='text'],
 select {
   width: 100%;
   padding: 5px 6px;
@@ -157,6 +170,7 @@ select {
   font-variant-numeric: tabular-nums;
 }
 input[type='number']:focus,
+input[type='text']:focus,
 select:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
