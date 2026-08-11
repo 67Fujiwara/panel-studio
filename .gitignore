@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+tsconfig.tsbuildinfo
+
+# メーカー配布の図面データは再配布禁止のため、リポジトリに含めない
+# （各自が N-TEC からダウンロードしてアプリに読み込む運用）
+*.dxf
+*.dwg

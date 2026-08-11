@@ -1,0 +1,379 @@
+:root {
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --line: #dfe4ea;
+  --text: #1d2530;
+  --muted: #6b7684;
+  --accent: #2f6fd0;
+  --accent-soft: #e8f0fb;
+  --duct: #cfd8e3;
+  --plate: #ffffff;
+  --bad: #c0392b;
+  --ok: #1f8a5f;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  font-size: 13px;
+  /* アプリシェルなので本文はスクロールさせず、各ペインの中だけをスクロールさせる */
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+header h1 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+header .tag {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 320px 1fr 320px;
+  /* 行を minmax(0,1fr) にしないと、中身の高さでグリッド行が伸びて
+     ページ全体がスクロールしてしまう */
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+}
+
+main > * {
+  min-height: 0;
+}
+
+aside {
+  overflow-y: auto;
+  background: var(--surface);
+  padding: 12px;
+}
+aside.left {
+  border-right: 1px solid var(--line);
+}
+aside.right {
+  border-left: 1px solid var(--line);
+}
+
+.panel + .panel {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.note {
+  margin: 6px 0 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.note b {
+  color: var(--text);
+}
+
+.calc {
+  margin: 8px 0;
+  padding: 6px 8px;
+  background: var(--accent-soft);
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.calc.bad {
+  background: #fdecea;
+  color: var(--bad);
+}
+.ok {
+  color: var(--ok);
+}
+
+/* --- 入力 --- */
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+.num,
+.sel {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+.num > span,
+.sel > span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.num em {
+  margin-left: 4px;
+  color: var(--accent);
+  font-style: normal;
+}
+input[type='number'],
+select {
+  width: 100%;
+  padding: 5px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+input[type='number']:focus,
+select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* --- 機器リスト --- */
+.dev {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 4px;
+}
+.dev.on {
+  background: var(--accent-soft);
+}
+.dev-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.dev-main strong {
+  font-size: 12px;
+}
+.dev-main span {
+  font-size: 10px;
+  color: var(--muted);
+}
+.dev-ctl {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.dev-ctl select {
+  width: auto;
+  padding: 2px 4px;
+  font-size: 11px;
+}
+.dev-ctl b {
+  min-width: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.mount-fixed {
+  font-size: 10px;
+  color: var(--muted);
+}
+button {
+  min-width: 22px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+button.reset {
+  width: 100%;
+  margin-top: 12px;
+  padding: 6px;
+}
+
+/* --- 盤面 --- */
+.canvas-wrap {
+  position: relative;
+  min-width: 0;
+  background: #e9edf1;
+}
+.canvas-wrap svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+.canvas-hint {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.plate {
+  fill: var(--plate);
+  stroke: #9aa5b1;
+  stroke-width: 2;
+}
+.grid line {
+  stroke: #eef1f4;
+  stroke-width: 1;
+}
+.duct {
+  fill: var(--duct);
+  stroke: #aeb9c6;
+  stroke-width: 1;
+}
+.device rect {
+  stroke: rgba(0, 0, 0, 0.35);
+  stroke-width: 1;
+  cursor: move;
+}
+.device text {
+  fill: #fff;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  font-family: inherit;
+}
+.device.selected rect {
+  stroke: #111;
+  stroke-width: 2.5;
+}
+.device.violation rect {
+  stroke: var(--bad);
+  stroke-width: 3;
+}
+.pin {
+  fill: #fff;
+  stroke: #333;
+  stroke-width: 1;
+}
+
+/* --- BOM --- */
+table.bom {
+  width: 100%;
+  border-collapse: collapse;
+}
+table.bom th {
+  text-align: left;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding: 4px 2px;
+}
+table.bom td {
+  padding: 5px 2px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+table.bom td strong {
+  display: block;
+  font-size: 12px;
+}
+table.bom td span {
+  font-size: 10px;
+  color: var(--muted);
+}
+table.bom tr.derived {
+  background: #f7f8fa;
+}
+table.bom .qty {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+table.bom .qty em {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  font-style: normal;
+}
+
+.violations {
+  margin: 6px 0;
+  padding-left: 18px;
+  color: var(--bad);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171a1f;
+    --surface: #1e2228;
+    --line: #2e343d;
+    --text: #e4e8ee;
+    --muted: #9aa4b2;
+    --accent: #6ba3ee;
+    --accent-soft: #21303f;
+    --duct: #39424e;
+    --plate: #262b33;
+  }
+  .canvas-wrap {
+    background: #12151a;
+  }
+  .grid line {
+    stroke: #2c323a;
+  }
+  .canvas-hint {
+    background: rgba(30, 34, 40, 0.85);
+  }
+  table.bom tr.derived {
+    background: #232830;
+  }
+  .calc.bad {
+    background: #3a2220;
+  }
+}
