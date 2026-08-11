@@ -118,25 +118,25 @@ function centerY(row: DeviceRow, spec: DeviceSpec) {
   return row.y + (row.h - spec.size.h) / 2;
 }
 
+/**
+ * 配置する順番のキュー。
+ *
+ * 並べ替えはしない。「＋ で増やした順」がそのまま並び順になる。
+ * 図の上で機器をドラッグすると、この順番が入れ替わって配置に反映される。
+ */
 function buildQueue(
   items: LayoutItem[],
   skip: Set<string>,
   c: ClearanceSettings,
   devices: DeviceLookup,
-  categoryOrder: string[],
 ): Entry[] {
-  const rank = (cat: string) => {
-    const i = categoryOrder.indexOf(cat);
-    return i < 0 ? categoryOrder.length : i;
-  };
   return items
     .filter((i) => !skip.has(i.uid))
     .map((i) => {
       const spec = devices.get(i.specId);
       return spec ? { item: i, spec, eff: effectiveClearance(spec, c) } : null;
     })
-    .filter((e): e is Entry => e !== null)
-    .sort((a, b) => rank(a.spec.category) - rank(b.spec.category));
+    .filter((e): e is Entry => e !== null);
 }
 
 /**
@@ -417,14 +417,13 @@ export function autoLayout(
   items: LayoutItem[],
   previous: PlacedDevice[],
   devices: DeviceLookup,
-  categoryOrder: string[],
 ): LayoutResult {
   const c = profile.clearance;
   const faceItems = items.filter((i) => i.face === face);
   const uids = new Set(faceItems.map((i) => i.uid));
   const pinned = previous.filter((p) => p.pinned && p.face === face && uids.has(p.uid));
   const pinnedUids = new Set(pinned.map((p) => p.uid));
-  const queue = buildQueue(faceItems, pinnedUids, c, devices, categoryOrder);
+  const queue = buildQueue(faceItems, pinnedUids, c, devices);
 
   const auto = profile.duct.rowHeightMode === 'auto';
   const result = auto

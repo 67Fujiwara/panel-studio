@@ -1,5 +1,22 @@
 import type { DeviceLookup } from './layout';
-import type { Machining, PlacedDevice } from '../types';
+import type { Machining, PlacedDevice, TapSize } from '../types';
+
+/** タップの下穴径。加工リストにはこの径で出す。 */
+export const TAP_DRILL: Record<TapSize, number> = { M3: 2.5, M4: 3.3, M5: 4.2, M6: 5.0 };
+
+export const TAP_SIZES: TapSize[] = ['M3', 'M4', 'M5', 'M6'];
+
+/** 加工1件の呼び名。タップ穴は呼びで、バカ穴は径で表す。 */
+export function machiningLabel(m: Machining): string {
+  if (m.kind === 'notch') return `${m.w}×${m.h} 角穴`;
+  return m.tap ? `${m.tap} タップ（下穴 φ${m.dia}）` : `φ${m.dia} 穴`;
+}
+
+/** 集計用の短い呼び名。 */
+export function machiningKey(m: Machining): string {
+  if (m.kind === 'notch') return `${m.w}×${m.h} 角穴`;
+  return m.tap ? `${m.tap} タップ` : `φ${m.dia} 穴`;
+}
 
 const round = (v: number) => Number(v.toFixed(1));
 
@@ -78,7 +95,7 @@ export const isDerived = (m: Machining) => m.id.startsWith('cut-') || m.id.start
 export function summarizeMachining(items: Machining[]): { label: string; qty: number }[] {
   const map = new Map<string, number>();
   for (const m of items) {
-    const key = m.kind === 'hole' ? `φ${m.dia} 穴` : `${m.w}×${m.h} 角穴`;
+    const key = machiningKey(m);
     map.set(key, (map.get(key) ?? 0) + 1);
   }
   return [...map].map(([label, qty]) => ({ label, qty })).sort((a, b) => b.qty - a.qty);

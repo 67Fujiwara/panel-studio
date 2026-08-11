@@ -49,15 +49,33 @@ export function bomToCsv(lines: BomLine[], s: BomSettings): string {
 
 /** 加工リスト。穴あけ・切り欠きの座標を面ごとに出す。 */
 export function machiningToCsv(items: Machining[], s: BomSettings): string {
-  const header = ['面', '種類', 'X', 'Y', '径/幅', '高さ', '備考'];
+  const header = ['面', '種類', 'X', 'Y', '径/幅', '高さ', 'ねじ', '備考'];
   const rows: string[] = [];
   if (s.withHeader) rows.push(toRow(header, s.delimiter));
   for (const m of items) {
     rows.push(
       toRow(
         m.kind === 'hole'
-          ? [FACE_LABEL(m.face), '穴あけ', String(m.x), String(m.y), String(m.dia), '', m.note ?? '']
-          : [FACE_LABEL(m.face), '切り欠き', String(m.x), String(m.y), String(m.w), String(m.h), m.note ?? ''],
+          ? [
+              FACE_LABEL(m.face),
+              m.tap ? 'タップ' : '穴あけ',
+              String(m.x),
+              String(m.y),
+              String(m.dia),
+              '',
+              m.tap ?? '',
+              m.note ?? '',
+            ]
+          : [
+              FACE_LABEL(m.face),
+              '切り欠き',
+              String(m.x),
+              String(m.y),
+              String(m.w),
+              String(m.h),
+              '',
+              m.note ?? '',
+            ],
         s.delimiter,
       ),
     );

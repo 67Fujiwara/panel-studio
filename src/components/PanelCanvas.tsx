@@ -38,6 +38,9 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const manual = useStore((s) => s.machining);
   const underlay = useStore((s) => s.underlays[face]);
   const setUnderlay = useStore((s) => s.setUnderlay);
+  const moveItem = useStore((s) => s.moveItem);
+  const selectCut = useStore((s) => s.selectCut);
+  const selectedCut = useStore((s) => s.selectedCut);
 
   // 面や盤サイズが変わったら全体が入るように戻す
   useEffect(() => {
@@ -46,10 +49,37 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
 
   const colorOf = (cat: string) => categories.find((c) => c.id === cat)?.color ?? '#7d8894';
   const violatingUids = new Set(layout.violations.map((v) => v.uid));
-  const cutouts = [
-    ...derivedMachining(layout.placed, devices),
-    ...manual.filter((m) => m.face === face),
-  ];
+  const autoCuts = derivedMachining(layout.placed, devices);
+  const manualCuts = manual.filter((m) => m.face === face);
+
+  /** 画面上の座標を面の座標(mm, 左下原点)に直す。viewBox の余白も含めて正確に変換する。 */
+  const toFace = (clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    const ctm = svg?.getScreenCTM();
+    if (!svg || !ctm) return { x: 0, y: 0 };
+    const p = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
+    return { x: p.x, y: faceH - p.y };
+  };
+
+  /** ドラッグ中の位置から「どの機器の直前に入れるか」を決める。 */
+  const insertBefore = (clientX: number, clientY: number, dragUid: string) => {
+    const at = toFace(clientX, clientY);
+    const rows = layout.rows;
+    let targetRow = 0;
+    if (rows.length > 0) {
+      const hit = rows.find((r) => at.y >= r.y && at.y <= r.y + r.h);
+      if (hit) targetRow = hit.index;
+      else if (at.y < rows[rows.length - 1]!.y) targetRow = rows[rows.length - 1]!.index;
+    }
+    const others = layout.placed
+      .filter((p) => p.uid !== dragUid)
+      .sort((a, b) => a.row - b.row || a.x - b.x);
+    const before = others.find((p) => {
+      const w = devices.get(p.specId)?.size.w ?? 0;
+      return p.row > targetRow || (p.row === targetRow && at.x < p.x + w / 2);
+    });
+    return before?.uid ?? null;
+  };
 
   /** 画面上の px を mm に変換する係数 */
   const mmPerPx = useCallback(() => {
@@ -73,9 +103,16 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   };
 
   const panRef = useRef<{ x: number; y: number } | null>(null);
-  const dragRef = useRef<{ uid: string; startX: number; startY: number; ox: number; oy: number } | null>(
-    null,
-  );
+  const dragRef = useRef<{
+    uid: string;
+    startX: number;
+    startY: number;
+    ox: number;
+    oy: number;
+    /** Shift 併用のときは並べ替えではなく座標を自由に動かす */
+    free: boolean;
+    lastBefore: string | null | undefined;
+  } | null>(null);
 
   const onPointerDownBg = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
@@ -88,19 +125,29 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     const k = mmPerPx();
     if (dragRef.current) {
       const d = dragRef.current;
-      const dx = (e.clientX - d.startX) * k;
-      const dy = (e.clientY - d.startY) * k;
-      const placed = layout.placed.find((p) => p.uid === d.uid);
-      const spec = placed && devices.get(placed.specId);
-      if (!placed || !spec) return;
-      const nx = Math.round((d.ox + dx) / SNAP) * SNAP;
-      // SVG は Y 下向きなので、面の座標では符号が反転する
-      const ny = Math.round((d.oy - dy) / SNAP) * SNAP;
-      pin({
-        ...placed,
-        x: Math.max(0, Math.min(faceW - spec.size.w, nx)),
-        y: Math.max(0, Math.min(faceH - spec.size.h, ny)),
-      });
+      if (d.free) {
+        // Shift 併用: 座標を自由に動かして固定する
+        const dx = (e.clientX - d.startX) * k;
+        const dy = (e.clientY - d.startY) * k;
+        const placed = layout.placed.find((p) => p.uid === d.uid);
+        const spec = placed && devices.get(placed.specId);
+        if (!placed || !spec) return;
+        const nx = Math.round((d.ox + dx) / SNAP) * SNAP;
+        // SVG は Y 下向きなので、面の座標では符号が反転する
+        const ny = Math.round((d.oy - dy) / SNAP) * SNAP;
+        pin({
+          ...placed,
+          x: Math.max(0, Math.min(faceW - spec.size.w, nx)),
+          y: Math.max(0, Math.min(faceH - spec.size.h, ny)),
+        });
+        return;
+      }
+      // 既定: 他の機器の間へ入れ込む。並び順が変わると配置がその場で組み直される
+      const before = insertBefore(e.clientX, e.clientY, d.uid);
+      if (before !== d.lastBefore) {
+        d.lastBefore = before;
+        moveItem(d.uid, before);
+      }
       return;
     }
     if (panRef.current) {
@@ -229,6 +276,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                   startY: e.clientY,
                   ox: p.x,
                   oy: p.y,
+                  free: e.shiftKey,
+                  lastBefore: undefined,
                 };
                 (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
               }}
@@ -278,13 +327,30 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
 
         {/* 加工（穴・切り欠き）。機器の上に重ねて描き、隠れないようにする */}
         <g className="cutouts">
-          {cutouts.map((m) =>
+          {autoCuts.map((m) =>
             m.kind === 'hole' ? (
               <circle key={m.id} cx={m.x} cy={toSvgY(faceH, m.y, 0)} r={m.dia / 2} />
             ) : (
               <rect key={m.id} x={m.x} y={toSvgY(faceH, m.y, m.h)} width={m.w} height={m.h} />
             ),
           )}
+          {/* 手で足した加工は選べる。選ぶと色を変えて強調する */}
+          {manualCuts.map((m) => (
+            <g
+              key={m.id}
+              className={`cut${selectedCut === m.id ? ' on' : ''}`}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                selectCut(selectedCut === m.id ? null : m.id);
+              }}
+            >
+              {m.kind === 'hole' ? (
+                <circle cx={m.x} cy={toSvgY(faceH, m.y, 0)} r={m.dia / 2} />
+              ) : (
+                <rect x={m.x} y={toSvgY(faceH, m.y, m.h)} width={m.w} height={m.h} />
+              )}
+            </g>
+          ))}
         </g>
       </svg>
 
@@ -295,8 +361,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
       )}
 
       <div className="canvas-hint">
-        {FACE_LABEL(face)}（{faceW} × {faceH}）／ 原点は左下 0,0 ／ ホイールで拡大縮小・背景ドラッグで移動・機器ドラッグで手動配置（
-        {SNAP}mm スナップ）
+        {FACE_LABEL(face)}（{faceW} × {faceH}）／ 原点は左下 0,0 ／ ホイールで拡大縮小・背景ドラッグで移動 ／
+        <b>機器をドラッグすると他の機器の間に入ります</b>（Shift＋ドラッグで自由に置く・{SNAP}mm スナップ）
       </div>
     </div>
   );

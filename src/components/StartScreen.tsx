@@ -209,6 +209,11 @@ export function StartScreen() {
       <p className="note">
         メーカー図面の「背面→中板上面」は実物と合わないため<b>手入力</b>します。
       </p>
+      <p className="note warn">
+        ⚠ <b>側面図から拾った奥行きには扉が含まれていないことがあります。</b>
+        本体だけの寸法が出るためで、扉の厚みぶん実物より小さくなります。
+        外形の奥行きは実際の値（扉を含む）に直してください。
+      </p>
       <div className="grid3">
         <Num
           label="背面→中板上面"

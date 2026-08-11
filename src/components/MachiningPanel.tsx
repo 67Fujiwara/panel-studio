@@ -1,14 +1,21 @@
+import { useState } from 'react';
 import { faceSize } from '../data/faces';
-import { derivedMachining, groupByDevice, summarizeMachining } from '../lib/machining';
+import {
+  TAP_DRILL,
+  TAP_SIZES,
+  derivedMachining,
+  groupByDevice,
+  machiningLabel,
+  summarizeMachining,
+} from '../lib/machining';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
-import type { LayoutResult, Machining } from '../types';
-
-const label = (m: Machining) => (m.kind === 'hole' ? `φ${m.dia} 穴` : `${m.w}×${m.h} 角穴`);
+import type { LayoutResult, Machining, TapSize } from '../types';
 
 /**
  * 加工（穴あけ・切り欠き）の座標。
  * どの機器から出た加工かが分かるよう、使用機器ごとにまとめて表示する。
+ * 手で足した加工は1行に畳め、選ぶとキャンバス上で強調される。
  */
 export function MachiningPanel({
   layout,
@@ -24,7 +31,12 @@ export function MachiningPanel({
   const updateMachining = useStore((s) => s.updateMachining);
   const removeMachining = useStore((s) => s.removeMachining);
   const select = useStore((s) => s.select);
+  const selectCut = useStore((s) => s.selectCut);
   const selectedUid = useStore((s) => s.selectedUid);
+  const selectedCut = useStore((s) => s.selectedCut);
+
+  // 既定は畳んだ状態。開いたものだけ id を持つ
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const size = faceSize(panel, face);
   const auto = derivedMachining(layout.placed, devices);
@@ -32,6 +44,8 @@ export function MachiningPanel({
   const summary = summarizeMachining([...auto, ...mine]);
   const groups = groupByDevice(auto, layout.placed, devices);
   const center = { x: Math.round(size.w / 2), y: Math.round(size.h / 2) };
+
+  const addAndOpen = (draft: Parameters<typeof addMachining>[0]) => addMachining(draft);
 
   return (
     <div className="panel">
@@ -51,7 +65,7 @@ export function MachiningPanel({
           <ul className="cutlist">
             {g.items.map((m) => (
               <li key={m.id}>
-                <span className="cut-kind">{label(m)}</span>
+                <span className="cut-kind">{machiningLabel(m)}</span>
                 <span className="cut-pos">
                   X{m.x} Y{m.y}
                 </span>
@@ -63,8 +77,11 @@ export function MachiningPanel({
       ))}
 
       <div className="row-buttons">
-        <button onClick={() => addMachining({ kind: 'hole', ...center, dia: 22 })}>＋ 穴あけ</button>
-        <button onClick={() => addMachining({ kind: 'notch', ...center, w: 100, h: 100 })}>
+        <button onClick={() => addAndOpen({ kind: 'hole', ...center, dia: 22 })}>＋ 穴あけ</button>
+        <button onClick={() => addAndOpen({ kind: 'hole', ...center, dia: TAP_DRILL.M4, tap: 'M4' })}>
+          ＋ タップ穴
+        </button>
+        <button onClick={() => addAndOpen({ kind: 'notch', ...center, w: 100, h: 100 })}>
           ＋ 切り欠き
         </button>
       </div>
@@ -72,28 +89,86 @@ export function MachiningPanel({
       {mine.length > 0 && (
         <>
           <h3>手動で追加した加工（{mine.length}）</h3>
-          {mine.map((m) => (
-            <div key={m.id} className="cutedit">
-              <div className="cutedit-head">
-                <strong>{m.kind === 'hole' ? '穴あけ' : '切り欠き'}</strong>
-                <button onClick={() => removeMachining(m.id)} aria-label="削除">
-                  ×
-                </button>
-              </div>
-              <div className="grid2">
-                <Num label="X" value={m.x} onChange={(x) => updateMachining(m.id, { x })} />
-                <Num label="Y" value={m.y} onChange={(y) => updateMachining(m.id, { y })} />
-                {m.kind === 'hole' ? (
-                  <Num label="径 φ" value={m.dia} onChange={(dia) => updateMachining(m.id, { dia })} />
-                ) : (
-                  <>
-                    <Num label="幅" value={m.w} onChange={(w) => updateMachining(m.id, { w })} />
-                    <Num label="高さ" value={m.h} onChange={(h) => updateMachining(m.id, { h })} />
-                  </>
+          {mine.map((m) => {
+            const open = expanded[m.id] ?? false;
+            const on = selectedCut === m.id;
+            return (
+              <div key={m.id} className={`cutedit${on ? ' on' : ''}${open ? '' : ' collapsed'}`}>
+                <div className="cutedit-head" onClick={() => selectCut(on ? null : m.id)}>
+                  <button
+                    className="cut-toggle"
+                    aria-expanded={open}
+                    aria-label={open ? '畳む' : '開く'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpanded((x) => ({ ...x, [m.id]: !open }));
+                    }}
+                  >
+                    <span className={`caret${open ? ' open' : ''}`} aria-hidden="true" />
+                  </button>
+                  <strong>{machiningLabel(m)}</strong>
+                  <span className="cut-pos">
+                    X{m.x} Y{m.y}
+                  </span>
+                  <button
+                    className="cut-del"
+                    aria-label="削除"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeMachining(m.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {open && (
+                  <div className="cutedit-body">
+                    {m.kind === 'hole' && (
+                      <label className="sel">
+                        <span>穴の種類</span>
+                        <select
+                          value={m.tap ?? 'through'}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === 'through') updateMachining(m.id, { tap: undefined, dia: 22 });
+                            else
+                              updateMachining(m.id, {
+                                tap: v as TapSize,
+                                dia: TAP_DRILL[v as TapSize],
+                              });
+                          }}
+                        >
+                          <option value="through">バカ穴（径を指定）</option>
+                          {TAP_SIZES.map((t) => (
+                            <option key={t} value={t}>
+                              {t} タップ（下穴 φ{TAP_DRILL[t]}）
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <div className="grid2">
+                      <Num label="X" value={m.x} onChange={(x) => updateMachining(m.id, { x })} />
+                      <Num label="Y" value={m.y} onChange={(y) => updateMachining(m.id, { y })} />
+                      {m.kind === 'hole' ? (
+                        <Num
+                          label={m.tap ? '下穴径 φ' : '径 φ'}
+                          value={m.dia}
+                          onChange={(dia) => updateMachining(m.id, { dia })}
+                        />
+                      ) : (
+                        <>
+                          <Num label="幅" value={m.w} onChange={(w) => updateMachining(m.id, { w })} />
+                          <Num label="高さ" value={m.h} onChange={(h) => updateMachining(m.id, { h })} />
+                        </>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </>
       )}
 
@@ -141,3 +216,5 @@ function Num({
     </label>
   );
 }
+
+export type { Machining };

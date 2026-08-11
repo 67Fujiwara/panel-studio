@@ -102,9 +102,16 @@ export type PlacedDevice = {
   pinned: boolean;
 };
 
-/** 面に施す加工の中身。穴あけと切り欠き。 */
+/** タップ（ねじ）穴の呼び。 */
+export type TapSize = 'M3' | 'M4' | 'M5' | 'M6';
+
+/**
+ * 面に施す加工の中身。穴あけと切り欠き。
+ * 穴は「バカ穴（径指定）」と「タップ穴（呼び指定）」を切り替えられる。
+ * タップのときの dia は下穴径。
+ */
 export type MachiningDraft =
-  | { kind: 'hole'; x: number; y: number; dia: number; note?: string }
+  | { kind: 'hole'; x: number; y: number; dia: number; tap?: TapSize; note?: string }
   | { kind: 'notch'; x: number; y: number; w: number; h: number; note?: string };
 
 /** 面に施す加工。 */

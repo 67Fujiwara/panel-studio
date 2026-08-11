@@ -25,10 +25,9 @@ export default function App() {
   const go = useStore((s) => s.go);
 
   const lookup = useMemo(() => deviceLookup(devices, myDevices), [devices, myDevices]);
-  const order = useMemo(() => categories.map((c) => c.id), [categories]);
   const layout = useMemo(
-    () => autoLayout(panel, profile, face, items, pinned, lookup, order),
-    [panel, profile, face, items, pinned, lookup, order],
+    () => autoLayout(panel, profile, face, items, pinned, lookup),
+    [panel, profile, face, items, pinned, lookup],
   );
 
   const hasDucts = FACE_BY_ID.get(face)?.ducts ?? false;

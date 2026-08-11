@@ -18,18 +18,16 @@ export function FacePicker() {
   const items = useStore((s) => s.items);
   const pinned = useStore((s) => s.pinned);
   const machining = useStore((s) => s.machining);
-  const categories = useStore((s) => s.categories);
   const devices = useStore((s) => s.devices);
   const myDevices = useStore((s) => s.myDevices);
   const openFace = useStore((s) => s.openFace);
   const setBom = useStore((s) => s.setBom);
 
   const lookup = useMemo(() => deviceLookup(devices, myDevices), [devices, myDevices]);
-  const order = useMemo(() => categories.map((c) => c.id), [categories]);
 
   const layouts = useMemo(
-    () => FACES.map((f) => autoLayout(panel, profile, f.id, items, pinned, lookup, order)),
-    [panel, profile, items, pinned, lookup, order],
+    () => FACES.map((f) => autoLayout(panel, profile, f.id, items, pinned, lookup)),
+    [panel, profile, items, pinned, lookup],
   );
 
   const bom = buildBom(layouts, profile, lookup);
@@ -42,6 +40,7 @@ export function FacePicker() {
 
   return (
     <div className="facepicker">
+      <div className="facepicker-left">
       <div className="facepicker-head">
         <h2>{panel.model}</h2>
         <p>
@@ -81,6 +80,7 @@ export function FacePicker() {
             </button>
           );
         })}
+      </div>
       </div>
 
       <div className="bombox">
@@ -125,7 +125,7 @@ export function FacePicker() {
         <p className="calc">盤内総発熱 = {heat.toFixed(1)} W</p>
 
         <h3>CSV 書き出し</h3>
-        <div className="grid3">
+        <div className="grid2">
           <label className="sel">
             <span>文字コード</span>
             <select

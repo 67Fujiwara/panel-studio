@@ -54,6 +54,8 @@ type State = {
   machining: Machining[];
   pinned: PlacedDevice[];
   selectedUid: string | null;
+  /** 手動で追加した加工の選択。キャンバス上で強調するのに使う */
+  selectedCut: string | null;
   /** 面ごとの下敷き。DXF から取り込んだ図をキャンバスの背景に敷く */
   underlays: Partial<Record<FaceId, DeviceShape>>;
 
@@ -87,6 +89,12 @@ type State = {
   removeDevice: (specId: string) => void;
   setMount: (specId: string, mount: MountType) => void;
   select: (uid: string | null) => void;
+  selectCut: (id: string | null) => void;
+  /**
+   * 機器の並び順を入れ替える。beforeUid の直前へ移す（null なら末尾）。
+   * 図の上でドラッグしたときに、他の機器の間へ入れ込むために使う。
+   */
+  moveItem: (uid: string, beforeUid: string | null) => void;
 
   addMachining: (m: MachiningDraft) => void;
   updateMachining: (id: string, patch: Partial<Machining>) => void;
@@ -113,6 +121,7 @@ export const useStore = create<State>((set) => ({
   machining: [],
   pinned: [],
   selectedUid: null,
+  selectedCut: null,
   underlays: {},
 
   go: (screen) => set({ screen, selectedUid: null }),
@@ -233,7 +242,21 @@ export const useStore = create<State>((set) => ({
       pinned: s.pinned.filter((p) => !(p.specId === specId && p.face === s.face)),
     })),
 
-  select: (uid) => set({ selectedUid: uid }),
+  select: (uid) => set({ selectedUid: uid, selectedCut: null }),
+  selectCut: (id) => set({ selectedCut: id, selectedUid: null }),
+
+  moveItem: (uid, beforeUid) =>
+    set((s) => {
+      const from = s.items.findIndex((i) => i.uid === uid);
+      if (from < 0) return s;
+      const rest = s.items.filter((i) => i.uid !== uid);
+      const item = s.items[from]!;
+      const to = beforeUid ? rest.findIndex((i) => i.uid === beforeUid) : -1;
+      const next = [...rest];
+      next.splice(to < 0 ? next.length : to, 0, item);
+      // 並べ替えたら手動で固定していた座標は捨てる（自動配置に戻す）
+      return { items: next, pinned: s.pinned.filter((p) => p.uid !== uid) };
+    }),
 
   addMachining: (m) =>
     set((s) => ({ machining: [...s.machining, { ...m, id: nextId('m'), face: s.face }] })),

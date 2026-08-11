@@ -61,8 +61,17 @@ main.single {
 
 /* --- 面の選択 --- */
 .facepicker {
-  max-width: 760px;
+  display: grid;
+  grid-template-columns: minmax(340px, 460px) minmax(360px, 1fr);
+  gap: 28px;
+  align-items: start;
+  max-width: 1180px;
   margin: 0 auto;
+}
+@media (max-width: 1100px) {
+  .facepicker {
+    grid-template-columns: 1fr;
+  }
 }
 .facepicker-head h2 {
   font-size: 18px;
@@ -75,8 +84,8 @@ main.single {
 .facegrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-top: 20px;
+  gap: 8px;
+  margin-top: 16px;
 }
 .facecard {
   display: flex;
@@ -248,17 +257,48 @@ ul.cutsummary li {
   font-size: 12px;
 }
 .cutedit {
-  margin: 6px 0;
-  padding: 6px;
+  margin: 4px 0;
   border: 1px solid var(--line);
   border-radius: 4px;
+  overflow: hidden;
+}
+.cutedit.on {
+  border-color: var(--bad);
+  box-shadow: 0 0 0 1px var(--bad) inset;
 }
 .cutedit-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
+  gap: 6px;
+  padding: 4px 6px;
   font-size: 12px;
+  cursor: pointer;
+}
+.cutedit.on .cutedit-head {
+  background: #fdecea;
+}
+.cutedit-head strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cutedit-head .cut-pos {
+  margin-left: auto;
+}
+.cutedit-body {
+  padding: 0 6px 6px;
+}
+.cut-toggle,
+.cut-del {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border: 0;
+  background: transparent;
+  line-height: 1;
+}
+.cut-toggle {
+  display: flex;
+  align-items: center;
 }
 label.check {
   display: flex;
@@ -527,9 +567,13 @@ table.coords tr.on {
 
 /* --- 面選択画面の BOM --- */
 .bombox {
-  margin-top: 28px;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.bombox h2:first-child {
+  margin-top: 0;
 }
 .bombox table.bom td:nth-child(2) {
   color: var(--muted);
@@ -590,6 +634,15 @@ h3 {
 }
 .note b {
   color: var(--text);
+}
+.note.warn {
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: #fff5e6;
+  color: #8a5a00;
+}
+.note.warn b {
+  color: #7a4f00;
 }
 
 .calc {
@@ -836,7 +889,20 @@ button.reset {
   stroke: #c0392b;
   stroke-width: 1.5;
   stroke-dasharray: 6 3;
+  vector-effect: non-scaling-stroke;
   pointer-events: none;
+}
+/* 手で足した加工は選べる */
+.cutouts .cut circle,
+.cutouts .cut rect {
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.cutouts .cut.on circle,
+.cutouts .cut.on rect {
+  stroke: #ff8f1f;
+  stroke-width: 4;
+  stroke-dasharray: none;
 }
 
 /* --- BOM --- */
