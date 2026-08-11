@@ -888,7 +888,6 @@ button.reset {
 }
 .ruler .tick-label {
   fill: var(--muted);
-  font-size: 18px;
   text-anchor: middle;
   dominant-baseline: middle;
   font-family: inherit;

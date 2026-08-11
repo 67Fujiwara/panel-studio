@@ -8,10 +8,17 @@ import type { CategoryDef, FaceId, LayoutResult, Machining, PanelSpec } from '..
 
 /** 手動配置時のスナップ間隔(mm) */
 const SNAP = 5;
-/** 目盛り。細 10mm / 中 50mm / 主 100mm（主だけ数値を出す） */
-const MAJOR = 100;
-const MID = 50;
-const FINE = 10;
+/**
+ * 目盛りは 10mm 刻みが基準。
+ * ただし縮小すると数字も線も潰れるので、画面上の間隔を見て段階的に間引く。
+ */
+const STEPS = [10, 20, 50, 100, 200, 500, 1000];
+/** 数字を出すのに最低限ほしい画面上の間隔(px) */
+const LABEL_MIN_PX = 30;
+/** 目盛り線を引くのに最低限ほしい画面上の間隔(px) */
+const TICK_MIN_PX = 4;
+/** 面の中に薄く引くグリッドの間隔(mm) */
+const GRID = 100;
 
 type Props = {
   panel: PanelSpec;
@@ -58,6 +65,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const { w: faceW, h: faceH } = faceSize(panel, face);
   const svgRef = useRef<SVGSVGElement>(null);
   const [view, setView] = useState<ViewBox>({ x: -PAD, y: -PAD, w: faceW + PAD * 2, h: faceH + PAD * 2 });
+  // 目盛りの間引きと文字の大きさを画面の実寸で決めるため、描画領域の幅を測っておく
+  const [pxWidth, setPxWidth] = useState(900);
   const selectedUid = useStore((s) => s.selectedUid);
   const select = useStore((s) => s.select);
   const pin = useStore((s) => s.pin);
@@ -88,6 +97,17 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   useEffect(() => {
     setView({ x: -PAD, y: -PAD, w: faceW + PAD * 2, h: faceH + PAD * 2 });
   }, [faceW, faceH, face]);
+
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => {
+      const w = e?.contentRect.width ?? 0;
+      if (w > 0) setPxWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const colorOf = (cat: string) => categories.find((c) => c.id === cat)?.color ?? '#7d8894';
   const violatingUids = new Set(layout.violations.map((v) => v.uid));
@@ -208,6 +228,20 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const ticks = (length: number, step: number) =>
     Array.from({ length: Math.floor(length / step) + 1 }, (_, i) => i * step);
 
+  // mm ↔ px の換算。目盛りの間引きと、拡大しても一定の大きさで見せる文字に使う
+  const scale = view.w / Math.max(1, pxWidth);
+  const tickStep = STEPS.find((st) => st / scale >= TICK_MIN_PX) ?? 1000;
+  const labelStep = STEPS.find((st) => st / scale >= LABEL_MIN_PX) ?? 1000;
+  const labelSize = 13 * scale;
+  const tickLong = 14 * scale;
+  const tickMid = 9 * scale;
+  const tickShort = 5 * scale;
+  // 数字と数字のちょうど中間に目盛りが来るときだけ、少し長い線にして数えやすくする
+  const half = labelStep / 2;
+  const hasHalf = half % tickStep === 0;
+  const tickLen = (v: number) =>
+    v % labelStep === 0 ? tickLong : hasHalf && v % half === 0 ? tickMid : tickShort;
+
   return (
     <div className="canvas-wrap">
       <svg
@@ -234,10 +268,10 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
 
         {/* 100mm グリッド */}
         <g className="grid">
-          {ticks(faceW, MAJOR).slice(1).map((x) => (
+          {ticks(faceW, GRID).slice(1).map((x) => (
             <line key={`v${x}`} x1={x} y1={0} x2={x} y2={faceH} />
           ))}
-          {ticks(faceH, MAJOR).slice(1).map((y) => (
+          {ticks(faceH, GRID).slice(1).map((y) => (
             <line key={`h${y}`} x1={0} y1={faceH - y} x2={faceW} y2={faceH - y} />
           ))}
         </g>
@@ -246,42 +280,59 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         <g className="ruler">
           {/* 下辺（X） */}
           <line x1={0} y1={faceH} x2={faceW} y2={faceH} className="axis" />
-          {ticks(faceW, FINE).map((x) => (
+          {ticks(faceW, tickStep).map((x) => (
             <line
               key={`tx${x}`}
               x1={x}
               y1={faceH}
               x2={x}
-              y2={faceH + (x % MAJOR === 0 ? 16 : x % MID === 0 ? 10 : 5)}
-              className={x % MAJOR === 0 ? 'major' : undefined}
+              y2={faceH + tickLen(x)}
+              className={x % labelStep === 0 ? 'major' : undefined}
             />
           ))}
           {/* 0 の目盛り値は原点の 0,0 と重なるので出さない */}
-          {ticks(faceW, MAJOR).slice(1).map((x) => (
-            <text key={`lx${x}`} x={x} y={faceH + 34} className="tick-label">
+          {ticks(faceW, labelStep).slice(1).map((x) => (
+            <text
+              key={`lx${x}`}
+              x={x}
+              y={faceH + tickLong + labelSize}
+              fontSize={labelSize}
+              className="tick-label"
+            >
               {x}
             </text>
           ))}
           {/* 左辺（Y） */}
           <line x1={0} y1={0} x2={0} y2={faceH} className="axis" />
-          {ticks(faceH, FINE).map((y) => (
+          {ticks(faceH, tickStep).map((y) => (
             <line
               key={`ty${y}`}
               x1={0}
               y1={faceH - y}
-              x2={-(y % MAJOR === 0 ? 16 : y % MID === 0 ? 10 : 5)}
+              x2={-tickLen(y)}
               y2={faceH - y}
-              className={y % MAJOR === 0 ? 'major' : undefined}
+              className={y % labelStep === 0 ? 'major' : undefined}
             />
           ))}
-          {ticks(faceH, MAJOR).slice(1).map((y) => (
-            <text key={`ly${y}`} x={-22} y={faceH - y} className="tick-label right">
+          {ticks(faceH, labelStep).slice(1).map((y) => (
+            <text
+              key={`ly${y}`}
+              x={-(tickLong + labelSize * 0.4)}
+              y={faceH - y}
+              fontSize={labelSize}
+              className="tick-label right"
+            >
               {y}
             </text>
           ))}
           {/* 原点 */}
-          <circle cx={0} cy={faceH} r={4} className="origin" />
-          <text x={-22} y={faceH + 34} className="tick-label origin-label right">
+          <circle cx={0} cy={faceH} r={3 * scale} className="origin" />
+          <text
+            x={-(tickLong + labelSize * 0.4)}
+            y={faceH + tickLong + labelSize}
+            fontSize={labelSize}
+            className="tick-label origin-label right"
+          >
             0,0
           </text>
         </g>
