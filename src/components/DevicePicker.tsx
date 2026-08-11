@@ -1,31 +1,24 @@
 import { useMemo, useState } from 'react';
-import { CATEGORY_COLOR, CATEGORY_LABEL, SAMPLE_DEVICES } from '../data/devices';
 import { FACE_BY_ID } from '../data/faces';
 import { useStore } from '../store';
-import type { DeviceCategory, DeviceSpec, MountType } from '../types';
-
-const CATEGORIES: DeviceCategory[] = [
-  'breaker',
-  'contactor',
-  'relay',
-  'plc',
-  'psu',
-  'terminal',
-  'operator',
-  'other',
-];
+import type { DeviceSpec, MountType } from '../types';
 
 const MOUNT_LABEL: Record<MountType, string> = { din: 'DIN', direct: '直付' };
 
-type Node = { key: string; label: string; color?: string; devices: DeviceSpec[] };
-
 /**
  * 機器の選択。種類が増えても縦に伸び続けないよう、折りたためるツリーにしてある。
- * 使用中の機器がある枝は自動で開く。
+ *
+ * 枝の構成:
+ *   分類（ConfigFile の内容）→ 部品
+ *   My部品 → 担当者 → 部品（MyConfig の内容）
  */
 export function DevicePicker() {
   const face = useStore((s) => s.face);
   const items = useStore((s) => s.items);
+  const categories = useStore((s) => s.categories);
+  const devices = useStore((s) => s.devices);
+  const owners = useStore((s) => s.owners);
+  const myDevices = useStore((s) => s.myDevices);
   const addDevice = useStore((s) => s.addDevice);
   const removeDevice = useStore((s) => s.removeDevice);
   const setMount = useStore((s) => s.setMount);
@@ -39,39 +32,72 @@ export function DevicePicker() {
   const mountOf = (specId: string) =>
     items.find((i) => i.specId === specId && i.face === face)?.mount;
 
-  const nodes = useMemo<Node[]>(() => {
-    const q = query.trim().toLowerCase();
+  const q = query.trim().toLowerCase();
+  const usable = useMemo(() => {
     const match = (d: DeviceSpec) =>
       !q ||
       d.model.toLowerCase().includes(q) ||
       d.name.toLowerCase().includes(q) ||
       d.maker.toLowerCase().includes(q);
+    const ok = (d: DeviceSpec) => d.mount.some((m) => allowedMounts.includes(m)) && match(d);
+    return { config: devices.filter(ok), my: myDevices.filter(ok) };
+  }, [q, devices, myDevices, allowedMounts]);
 
-    // その面に取り付けられない機器は出さない
-    const usable = SAMPLE_DEVICES.filter(
-      (d) => d.mount.some((m) => allowedMounts.includes(m)) && match(d),
-    );
-
-    return CATEGORIES.map((c) => ({
-      key: c,
-      label: CATEGORY_LABEL[c],
-      color: CATEGORY_COLOR[c],
-      devices: usable.filter((d) => d.category === c),
-    })).filter((nd) => nd.devices.length > 0);
-  }, [query, allowedMounts]);
-
-  const isOpen = (nd: Node) => {
-    if (query.trim()) return true; // 検索中は全部開く
-    if (closed[nd.key] !== undefined) return !closed[nd.key];
-    return nd.devices.some((d) => countOf(d.id) > 0); // 使用中の枝は開く
+  const branchOpen = (key: string, hasUsed: boolean) => {
+    if (q) return true;
+    if (closed[key] !== undefined) return !closed[key];
+    return hasUsed;
   };
+  const toggle = (key: string, open: boolean) => setClosed((c) => ({ ...c, [key]: open }));
+
+  const Leaf = ({ d }: { d: DeviceSpec }) => {
+    const count = countOf(d.id);
+    const mount = mountOf(d.id) ?? d.mount.find((m) => allowedMounts.includes(m));
+    const selectable = d.mount.filter((m) => allowedMounts.includes(m));
+    return (
+      <li className={`dev${count > 0 ? ' on' : ''}`}>
+        <div className="dev-main">
+          <strong>{d.model}</strong>
+          <span>
+            {d.name} — {d.size.w}×{d.size.h}×{d.size.d}
+          </span>
+        </div>
+        <div className="dev-ctl">
+          {count > 0 &&
+            (selectable.length > 1 ? (
+              <select
+                value={mount}
+                title="取付方式"
+                onChange={(e) => setMount(d.id, e.target.value as MountType)}
+              >
+                {selectable.map((m) => (
+                  <option key={m} value={m}>
+                    {MOUNT_LABEL[m]}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="mount-fixed">{mount && MOUNT_LABEL[mount]}</span>
+            ))}
+          <button onClick={() => removeDevice(d.id)} disabled={count === 0} aria-label="減らす">
+            −
+          </button>
+          <b>{count}</b>
+          <button onClick={() => addDevice(d.id, 1)} aria-label="増やす">
+            ＋
+          </button>
+        </div>
+      </li>
+    );
+  };
+
+  const myUsed = usable.my.reduce((s, d) => s + countOf(d.id), 0);
+  const myOpen = branchOpen('__my__', myUsed > 0);
+  const ownersWithParts = owners.filter((o) => usable.my.some((d) => d.owner === o));
 
   return (
     <div className="panel">
-      <h2>使用機器</h2>
-      <p className="note">
-        個数を変えると、そのままレイアウトと BOM の両方に反映されます（機器マスタが唯一の情報源）。
-      </p>
+      <h2>使用部品</h2>
       <input
         type="search"
         className="search"
@@ -81,76 +107,74 @@ export function DevicePicker() {
       />
 
       <ul className="tree">
-        {nodes.map((nd) => {
-          const open = isOpen(nd);
-          const used = nd.devices.reduce((sum, d) => sum + countOf(d.id), 0);
+        {categories.map((c) => {
+          const list = usable.config.filter((d) => d.category === c.id);
+          if (list.length === 0) return null;
+          const used = list.reduce((s, d) => s + countOf(d.id), 0);
+          const open = branchOpen(c.id, used > 0);
           return (
-            <li key={nd.key}>
-              <button
-                className="tree-branch"
-                aria-expanded={open}
-                onClick={() => setClosed((c) => ({ ...c, [nd.key]: open }))}
-              >
+            <li key={c.id}>
+              <button className="tree-branch" aria-expanded={open} onClick={() => toggle(c.id, open)}>
                 <span className={`caret${open ? ' open' : ''}`} aria-hidden="true" />
-                <span className="swatch" style={{ background: nd.color }} />
-                <span className="tree-label">{nd.label}</span>
-                <span className="tree-count">{used > 0 ? used : nd.devices.length}</span>
+                <span className="swatch" style={{ background: c.color }} />
+                <span className="tree-label">{c.label}</span>
+                <span className="tree-count">{used > 0 ? used : list.length}</span>
               </button>
-
               {open && (
                 <ul className="tree-leaves">
-                  {nd.devices.map((d) => {
-                    const count = countOf(d.id);
-                    const mount = mountOf(d.id) ?? d.mount.find((m) => allowedMounts.includes(m));
-                    const selectable = d.mount.filter((m) => allowedMounts.includes(m));
-                    return (
-                      <li key={d.id} className={`dev${count > 0 ? ' on' : ''}`}>
-                        <div className="dev-main">
-                          <strong>{d.model}</strong>
-                          <span>
-                            {d.name} — {d.size.w}×{d.size.h}×{d.size.d}
-                          </span>
-                        </div>
-                        <div className="dev-ctl">
-                          {count > 0 &&
-                            (selectable.length > 1 ? (
-                              <select
-                                value={mount}
-                                title="取付方式"
-                                onChange={(e) => setMount(d.id, e.target.value as MountType)}
-                              >
-                                {selectable.map((m) => (
-                                  <option key={m} value={m}>
-                                    {MOUNT_LABEL[m]}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <span className="mount-fixed">{mount && MOUNT_LABEL[mount]}</span>
-                            ))}
-                          <button
-                            onClick={() => removeDevice(d.id)}
-                            disabled={count === 0}
-                            aria-label="減らす"
-                          >
-                            −
-                          </button>
-                          <b>{count}</b>
-                          <button onClick={() => addDevice(d.id, 1)} aria-label="増やす">
-                            ＋
-                          </button>
-                        </div>
-                      </li>
-                    );
-                  })}
+                  {list.map((d) => (
+                    <Leaf key={d.id} d={d} />
+                  ))}
                 </ul>
               )}
             </li>
           );
         })}
-      </ul>
 
-      {nodes.length === 0 && <p className="note">該当する機器がありません。</p>}
+        {ownersWithParts.length > 0 && (
+          <li>
+            <button
+              className="tree-branch"
+              aria-expanded={myOpen}
+              onClick={() => toggle('__my__', myOpen)}
+            >
+              <span className={`caret${myOpen ? ' open' : ''}`} aria-hidden="true" />
+              <span className="swatch my" />
+              <span className="tree-label">My部品</span>
+              <span className="tree-count">{myUsed > 0 ? myUsed : usable.my.length}</span>
+            </button>
+            {myOpen && (
+              <ul className="tree-leaves">
+                {ownersWithParts.map((o) => {
+                  const list = usable.my.filter((d) => d.owner === o);
+                  const used = list.reduce((s, d) => s + countOf(d.id), 0);
+                  const open = branchOpen(`my:${o}`, used > 0);
+                  return (
+                    <li key={o}>
+                      <button
+                        className="tree-branch"
+                        aria-expanded={open}
+                        onClick={() => toggle(`my:${o}`, open)}
+                      >
+                        <span className={`caret${open ? ' open' : ''}`} aria-hidden="true" />
+                        <span className="tree-label">{o}</span>
+                        <span className="tree-count">{used > 0 ? used : list.length}</span>
+                      </button>
+                      {open && (
+                        <ul className="tree-leaves">
+                          {list.map((d) => (
+                            <Leaf key={d.id} d={d} />
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </li>
+        )}
+      </ul>
     </div>
   );
 }

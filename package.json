@@ -11,6 +11,7 @@
     "build:single": "tsc -b && vite build --mode single && node scripts/finish-single.mjs"
   },
   "dependencies": {
+    "dxf-parser": "^1.1.2",
     "encoding-japanese": "^2.2.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

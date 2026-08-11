@@ -195,12 +195,22 @@ ul.tree-leaves {
 /* --- 加工 --- */
 .row-buttons {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   margin: 8px 0;
 }
 .row-buttons button {
-  flex: 1;
-  padding: 5px;
+  /* 文字が縦積みにならないよう、テキスト幅は必ず確保する */
+  flex: 1 1 auto;
+  min-width: max-content;
+  padding: 5px 10px;
+  white-space: nowrap;
+}
+.row-buttons input.search {
+  flex: 2 1 140px;
+  width: auto;
+  margin: 0;
 }
 ul.cutlist,
 ul.cutsummary {
@@ -256,6 +266,245 @@ label.check {
   gap: 6px;
   margin: 6px 0;
   font-size: 12px;
+}
+
+/* --- ナビ --- */
+.nav {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.nav button {
+  padding: 4px 10px;
+}
+
+/* --- 共通の広い画面 --- */
+.screen,
+.start {
+  max-width: 880px;
+  margin: 0 auto;
+}
+.screen-head h2,
+.start h2 {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+.start h3 {
+  margin-top: 18px;
+}
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px 10px;
+}
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 6px 14px;
+  background: transparent;
+}
+.tabs button.on {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+button.primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  color: #fff;
+}
+.start-actions {
+  margin-top: 20px;
+}
+.dxfbox input[type='file'] {
+  margin: 8px 0;
+  font: inherit;
+}
+table.cands {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 12px;
+}
+table.cands th {
+  text-align: left;
+  padding: 4px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+table.cands td {
+  padding: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.cand-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.cand-actions button {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+/* --- ConfigFile / MyConfig --- */
+ul.tree.big .tree-label {
+  font-size: 13px;
+}
+.tree-branch-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+.tree-branch-row .tree-branch {
+  flex: 1;
+}
+.cat-name {
+  width: 180px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+}
+input[type='color'] {
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+}
+.part-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+.part-row strong {
+  font-size: 12px;
+}
+.part-row span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.addpart {
+  width: 100%;
+  margin: 6px 0;
+  padding: 5px;
+  border-style: dashed;
+}
+.parteditor {
+  margin: 6px 0 14px;
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent-soft);
+}
+.parteditor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.parteditor h4 {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.mountpick {
+  display: flex;
+  gap: 14px;
+}
+.swatch.my {
+  background: linear-gradient(135deg, var(--accent), #9b59b6);
+}
+
+/* --- 座標表 --- */
+table.coords {
+  width: 100%;
+  border-collapse: collapse;
+}
+table.coords th {
+  text-align: left;
+  padding: 3px 2px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+table.coords td {
+  padding: 3px 2px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+table.coords td strong {
+  display: block;
+  font-size: 12px;
+}
+table.coords td span {
+  font-size: 10px;
+  color: var(--muted);
+}
+table.coords td input {
+  width: 66px;
+  padding: 3px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+table.coords tr.on {
+  background: var(--accent-soft);
+}
+
+/* --- 加工のグループ --- */
+.cutgroup {
+  margin: 6px 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cutgroup.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.cutgroup h3 {
+  margin: 0 0 4px;
+  color: var(--text);
+}
+
+/* --- 面選択画面の BOM --- */
+.bombox {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.bombox table.bom td:nth-child(2) {
+  color: var(--muted);
 }
 
 main {
@@ -510,6 +759,34 @@ button.reset {
   stroke: #333;
   stroke-width: 1;
 }
+/* 目盛り。原点は左下 (0,0) */
+.ruler line {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+.ruler line.axis {
+  stroke: var(--text);
+  stroke-width: 2;
+}
+.ruler .tick-label {
+  fill: var(--muted);
+  font-size: 18px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.ruler .tick-label.right {
+  text-anchor: end;
+}
+.ruler .origin {
+  fill: var(--accent);
+}
+.ruler .origin-label {
+  fill: var(--accent);
+  font-weight: 700;
+}
+
 .cutouts circle,
 .cutouts rect {
   fill: none;

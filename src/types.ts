@@ -7,17 +7,32 @@ export type MountType = 'din' | 'direct';
 /** 制御盤の6面。中板だけが配線ダクトを持ち、他の面は直付けのみ。 */
 export type FaceId = 'plate' | 'door' | 'left' | 'right' | 'top' | 'bottom';
 
-export type DeviceCategory =
-  | 'breaker'
-  | 'contactor'
-  | 'relay'
-  | 'plc'
-  | 'psu'
-  | 'terminal'
-  | 'operator'
-  | 'other';
+/** カテゴリは ConfigFile 画面で増やせるようにするため、固定の union にしない。 */
+export type DeviceCategory = string;
+
+/** 部品表のカテゴリ定義。ConfigFile 画面で編集する。 */
+export type CategoryDef = {
+  id: DeviceCategory;
+  label: string;
+  color: string;
+};
 
 export type Sides = { top: number; bottom: number; left: number; right: number };
+
+/** 取付穴。ピッチと穴径を持つ。直付けのケガキ座標と加工リストに使う。 */
+export type MountHoles = {
+  /** 穴の並び。横×縦のピッチ(mm)。1列なら片方を 0 にする */
+  pitchX: number;
+  pitchY: number;
+  /** 横方向・縦方向の穴の数 */
+  countX: number;
+  countY: number;
+  /** 穴径(mm) */
+  dia: number;
+};
+
+/** 部品の出どころ。共通の部品表か、担当者ごとの My部品か。 */
+export type PartSource = 'config' | 'my';
 
 /** 機器マスタの1件。レイアウトと BOM の両方がここを参照する。 */
 export type DeviceSpec = {
@@ -27,6 +42,12 @@ export type DeviceSpec = {
   model: string;
   name: string;
   category: DeviceCategory;
+  /** config = 共通の部品表 / my = 担当者ごとの My部品 */
+  source?: PartSource;
+  /** My部品のときの担当者名 */
+  owner?: string;
+  /** 取付穴のピッチと径 */
+  mountHoles?: MountHoles;
   /** w=幅, h=高さ, d=取付面からの突出（DINレール取付時はレール高さが別途加算される） */
   size: { w: number; h: number; d: number };
   /** 対応する取付方式。両対応の機器は案件ごとに選ばせる */

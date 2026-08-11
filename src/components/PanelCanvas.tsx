@@ -1,24 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CATEGORY_COLOR, DEVICE_BY_ID } from '../data/devices';
 import { FACE_LABEL, faceSize } from '../data/faces';
 import { derivedMachining } from '../lib/machining';
+import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
-import type { FaceId, LayoutResult, PanelSpec } from '../types';
+import type { CategoryDef, FaceId, LayoutResult, PanelSpec } from '../types';
 
 /** 手動配置時のスナップ間隔(mm) */
 const SNAP = 5;
+/** 目盛りの主目盛り・補助目盛り(mm) */
+const MAJOR = 100;
+const MINOR = 50;
 
-type Props = { panel: PanelSpec; face: FaceId; layout: LayoutResult };
+type Props = {
+  panel: PanelSpec;
+  face: FaceId;
+  layout: LayoutResult;
+  devices: DeviceLookup;
+  categories: CategoryDef[];
+};
 
 type ViewBox = { x: number; y: number; w: number; h: number };
 
 /** 面の座標(Y上向き, 原点=左下) を SVG 座標(Y下向き, 原点=左上) に変換する。 */
 const toSvgY = (faceH: number, y: number, h: number) => faceH - y - h;
 
-export function PanelCanvas({ panel, face, layout }: Props) {
+/** 目盛りのぶん、面のまわりに取る余白(mm) */
+const PAD = 70;
+
+export function PanelCanvas({ panel, face, layout, devices, categories }: Props) {
   const { w: faceW, h: faceH } = faceSize(panel, face);
   const svgRef = useRef<SVGSVGElement>(null);
-  const [view, setView] = useState<ViewBox>({ x: -40, y: -40, w: faceW + 80, h: faceH + 80 });
+  const [view, setView] = useState<ViewBox>({ x: -PAD, y: -PAD, w: faceW + PAD * 2, h: faceH + PAD * 2 });
   const selectedUid = useStore((s) => s.selectedUid);
   const select = useStore((s) => s.select);
   const pin = useStore((s) => s.pin);
@@ -26,11 +38,15 @@ export function PanelCanvas({ panel, face, layout }: Props) {
 
   // 面や盤サイズが変わったら全体が入るように戻す
   useEffect(() => {
-    setView({ x: -40, y: -40, w: faceW + 80, h: faceH + 80 });
+    setView({ x: -PAD, y: -PAD, w: faceW + PAD * 2, h: faceH + PAD * 2 });
   }, [faceW, faceH, face]);
 
+  const colorOf = (cat: string) => categories.find((c) => c.id === cat)?.color ?? '#7d8894';
   const violatingUids = new Set(layout.violations.map((v) => v.uid));
-  const cutouts = [...derivedMachining(layout.placed), ...manual.filter((m) => m.face === face)];
+  const cutouts = [
+    ...derivedMachining(layout.placed, devices),
+    ...manual.filter((m) => m.face === face),
+  ];
 
   /** 画面上の px を mm に変換する係数 */
   const mmPerPx = useCallback(() => {
@@ -45,7 +61,6 @@ export function PanelCanvas({ panel, face, layout }: Props) {
     setView((v) => {
       const rect = svgRef.current?.getBoundingClientRect();
       if (!rect) return v;
-      // ポインタ位置を固定して拡大縮小する
       const px = (e.clientX - rect.left) / rect.width;
       const py = (e.clientY - rect.top) / rect.height;
       const nw = v.w * factor;
@@ -73,7 +88,7 @@ export function PanelCanvas({ panel, face, layout }: Props) {
       const dx = (e.clientX - d.startX) * k;
       const dy = (e.clientY - d.startY) * k;
       const placed = layout.placed.find((p) => p.uid === d.uid);
-      const spec = placed && DEVICE_BY_ID.get(placed.specId);
+      const spec = placed && devices.get(placed.specId);
       if (!placed || !spec) return;
       const nx = Math.round((d.ox + dx) / SNAP) * SNAP;
       // SVG は Y 下向きなので、面の座標では符号が反転する
@@ -98,6 +113,9 @@ export function PanelCanvas({ panel, face, layout }: Props) {
     dragRef.current = null;
   };
 
+  const ticks = (length: number, step: number) =>
+    Array.from({ length: Math.floor(length / step) + 1 }, (_, i) => i * step);
+
   return (
     <div className="canvas-wrap">
       <svg
@@ -113,12 +131,54 @@ export function PanelCanvas({ panel, face, layout }: Props) {
 
         {/* 100mm グリッド */}
         <g className="grid">
-          {Array.from({ length: Math.floor(faceW / 100) }, (_, i) => (
-            <line key={`v${i}`} x1={(i + 1) * 100} y1={0} x2={(i + 1) * 100} y2={faceH} />
+          {ticks(faceW, MAJOR).slice(1).map((x) => (
+            <line key={`v${x}`} x1={x} y1={0} x2={x} y2={faceH} />
           ))}
-          {Array.from({ length: Math.floor(faceH / 100) }, (_, i) => (
-            <line key={`h${i}`} x1={0} y1={(i + 1) * 100} x2={faceW} y2={(i + 1) * 100} />
+          {ticks(faceH, MAJOR).slice(1).map((y) => (
+            <line key={`h${y}`} x1={0} y1={faceH - y} x2={faceW} y2={faceH - y} />
           ))}
+        </g>
+
+        {/* 目盛り。原点は左下 (0,0) */}
+        <g className="ruler">
+          {/* 下辺（X） */}
+          <line x1={0} y1={faceH} x2={faceW} y2={faceH} className="axis" />
+          {ticks(faceW, MINOR).map((x) => (
+            <line
+              key={`tx${x}`}
+              x1={x}
+              y1={faceH}
+              x2={x}
+              y2={faceH + (x % MAJOR === 0 ? 14 : 7)}
+            />
+          ))}
+          {/* 0 の目盛り値は原点の 0,0 と重なるので出さない */}
+          {ticks(faceW, MAJOR).slice(1).map((x) => (
+            <text key={`lx${x}`} x={x} y={faceH + 32} className="tick-label">
+              {x}
+            </text>
+          ))}
+          {/* 左辺（Y） */}
+          <line x1={0} y1={0} x2={0} y2={faceH} className="axis" />
+          {ticks(faceH, MINOR).map((y) => (
+            <line
+              key={`ty${y}`}
+              x1={0}
+              y1={faceH - y}
+              x2={-(y % MAJOR === 0 ? 14 : 7)}
+              y2={faceH - y}
+            />
+          ))}
+          {ticks(faceH, MAJOR).slice(1).map((y) => (
+            <text key={`ly${y}`} x={-18} y={faceH - y} className="tick-label right">
+              {y}
+            </text>
+          ))}
+          {/* 原点 */}
+          <circle cx={0} cy={faceH} r={4} className="origin" />
+          <text x={-20} y={faceH + 32} className="tick-label origin-label right">
+            0,0
+          </text>
         </g>
 
         {/* 配線ダクト（中板のみ） */}
@@ -135,7 +195,7 @@ export function PanelCanvas({ panel, face, layout }: Props) {
 
         {/* 機器 */}
         {layout.placed.map((p) => {
-          const spec = DEVICE_BY_ID.get(p.specId);
+          const spec = devices.get(p.specId);
           if (!spec) return null;
           const bad = violatingUids.has(p.uid);
           const label = spec.model.split(' ')[0] ?? '';
@@ -172,7 +232,7 @@ export function PanelCanvas({ panel, face, layout }: Props) {
                 y={toSvgY(faceH, p.y, spec.size.h)}
                 width={spec.size.w}
                 height={spec.size.h}
-                fill={CATEGORY_COLOR[spec.category]}
+                fill={colorOf(spec.category)}
               />
               {labelFits && (
                 <text
@@ -204,7 +264,7 @@ export function PanelCanvas({ panel, face, layout }: Props) {
       </svg>
 
       <div className="canvas-hint">
-        {FACE_LABEL(face)}（{faceW} × {faceH}） ／ ホイールで拡大縮小・背景ドラッグで移動・機器ドラッグで手動配置（
+        {FACE_LABEL(face)}（{faceW} × {faceH}）／ 原点は左下 0,0 ／ ホイールで拡大縮小・背景ドラッグで移動・機器ドラッグで手動配置（
         {SNAP}mm スナップ）
       </div>
     </div>

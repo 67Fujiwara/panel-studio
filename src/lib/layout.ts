@@ -1,5 +1,4 @@
 import { DIN_RAIL_HEIGHT } from '../data/enclosures';
-import { DEVICE_BY_ID } from '../data/devices';
 import { FACE_BY_ID, faceSize } from '../data/faces';
 import type {
   ClearanceSettings,
@@ -14,6 +13,9 @@ import type {
   Sides,
   Violation,
 } from '../types';
+
+/** 型式ID から機器仕様を引く。共通の部品表と My部品をまとめたもの。 */
+export type DeviceLookup = Map<string, DeviceSpec>;
 
 /** 発熱機器とみなすしきい値(W)。これを超えると上下に追加離隔を取る。 */
 const HEAT_THRESHOLD_W = 10;
@@ -90,18 +92,6 @@ export function computeRows(
   return { rows, ducts };
 }
 
-/** 上段から順に埋めるためのカテゴリ優先度。端子台を最後にして下段に落とす。 */
-const CATEGORY_ORDER: DeviceSpec['category'][] = [
-  'breaker',
-  'contactor',
-  'relay',
-  'plc',
-  'psu',
-  'operator',
-  'other',
-  'terminal',
-];
-
 export type LayoutItem = { uid: string; specId: string; face: FaceId; mount: PlacedDevice['mount'] };
 
 type Entry = { item: LayoutItem; spec: DeviceSpec; eff: Sides };
@@ -128,15 +118,25 @@ function centerY(row: DeviceRow, spec: DeviceSpec) {
   return row.y + (row.h - spec.size.h) / 2;
 }
 
-function buildQueue(items: LayoutItem[], skip: Set<string>, c: ClearanceSettings): Entry[] {
+function buildQueue(
+  items: LayoutItem[],
+  skip: Set<string>,
+  c: ClearanceSettings,
+  devices: DeviceLookup,
+  categoryOrder: string[],
+): Entry[] {
+  const rank = (cat: string) => {
+    const i = categoryOrder.indexOf(cat);
+    return i < 0 ? categoryOrder.length : i;
+  };
   return items
     .filter((i) => !skip.has(i.uid))
     .map((i) => {
-      const spec = DEVICE_BY_ID.get(i.specId);
+      const spec = devices.get(i.specId);
       return spec ? { item: i, spec, eff: effectiveClearance(spec, c) } : null;
     })
     .filter((e): e is Entry => e !== null)
-    .sort((a, b) => CATEGORY_ORDER.indexOf(a.spec.category) - CATEGORY_ORDER.indexOf(b.spec.category));
+    .sort((a, b) => rank(a.spec.category) - rank(b.spec.category));
 }
 
 /**
@@ -238,6 +238,7 @@ function packEqual(
   profile: Profile,
   queue: Entry[],
   pinned: PlacedDevice[],
+  devices: DeviceLookup,
 ) {
   const { rows, ducts, error } = computeRows(panel, face, profile);
   const violations: Violation[] = [];
@@ -252,7 +253,7 @@ function packEqual(
   const prevRight = rows.map(() => 0);
 
   for (const p of pinned) {
-    const spec = DEVICE_BY_ID.get(p.specId);
+    const spec = devices.get(p.specId);
     if (!spec) continue;
     placed.push(p);
     if (cursor[p.row] !== undefined) {
@@ -316,12 +317,12 @@ export type RailRun = { row: number; x: number; y: number; length: number };
  * 段ごとの DINレール。BOM と作図の両方がここを使う。
  * 正面視ではレールは高さ 35mm の帯として見えるので、機器の下端に合わせて描く。
  */
-export function computeRails(layout: LayoutResult): RailRun[] {
+export function computeRails(layout: LayoutResult, devices: DeviceLookup): RailRun[] {
   const out: RailRun[] = [];
   for (const row of layout.rows) {
     const inRow = layout.placed
       .filter((p) => p.row === row.index && p.mount === 'din')
-      .map((p) => ({ p, spec: DEVICE_BY_ID.get(p.specId) }))
+      .map((p) => ({ p, spec: devices.get(p.specId) }))
       .filter((e): e is { p: PlacedDevice; spec: DeviceSpec } => Boolean(e.spec));
     if (inRow.length === 0) continue;
 
@@ -334,10 +335,10 @@ export function computeRails(layout: LayoutResult): RailRun[] {
 }
 
 /** 機器同士が実際に重なっていないか。手動配置で干渉させたときに気づけるようにする。 */
-function detectOverlaps(placed: PlacedDevice[]): Violation[] {
+function detectOverlaps(placed: PlacedDevice[], devices: DeviceLookup): Violation[] {
   const out: Violation[] = [];
   const rects = placed
-    .map((p) => ({ p, spec: DEVICE_BY_ID.get(p.specId) }))
+    .map((p) => ({ p, spec: devices.get(p.specId) }))
     .filter((r): r is { p: PlacedDevice; spec: DeviceSpec } => Boolean(r.spec));
 
   for (let i = 0; i < rects.length; i++) {
@@ -362,10 +363,15 @@ function detectOverlaps(placed: PlacedDevice[]): Violation[] {
 }
 
 /** 面ごとの奥行きチェック。面によって当たる相手が違う。 */
-function depthViolations(panel: PanelSpec, face: FaceId, placed: PlacedDevice[]): Violation[] {
+function depthViolations(
+  panel: PanelSpec,
+  face: FaceId,
+  placed: PlacedDevice[],
+  devices: DeviceLookup,
+): Violation[] {
   const out: Violation[] = [];
   for (const p of placed) {
-    const spec = DEVICE_BY_ID.get(p.specId);
+    const spec = devices.get(p.specId);
     if (!spec) continue;
 
     if (face === 'plate') {
@@ -409,19 +415,21 @@ export function autoLayout(
   profile: Profile,
   face: FaceId,
   items: LayoutItem[],
-  previous: PlacedDevice[] = [],
+  previous: PlacedDevice[],
+  devices: DeviceLookup,
+  categoryOrder: string[],
 ): LayoutResult {
   const c = profile.clearance;
   const faceItems = items.filter((i) => i.face === face);
   const uids = new Set(faceItems.map((i) => i.uid));
   const pinned = previous.filter((p) => p.pinned && p.face === face && uids.has(p.uid));
   const pinnedUids = new Set(pinned.map((p) => p.uid));
-  const queue = buildQueue(faceItems, pinnedUids, c);
+  const queue = buildQueue(faceItems, pinnedUids, c, devices, categoryOrder);
 
   const auto = profile.duct.rowHeightMode === 'auto';
   const result = auto
     ? packAuto(panel, face, profile, queue)
-    : packEqual(panel, face, profile, queue, pinned);
+    : packEqual(panel, face, profile, queue, pinned, devices);
 
   // auto モードでは段の高さを中身から決めるため、手動配置した機器は
   // 段の割り付けに参加させず、置かれた座標のまま残す。干渉は重なり検出で拾う。
@@ -433,8 +441,8 @@ export function autoLayout(
     placed,
     violations: [
       ...result.violations,
-      ...depthViolations(panel, face, placed),
-      ...detectOverlaps(placed),
+      ...depthViolations(panel, face, placed, devices),
+      ...detectOverlaps(placed, devices),
     ],
   };
 }

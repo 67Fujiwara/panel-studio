@@ -1,5 +1,5 @@
-import { DEVICE_BY_ID } from '../data/devices';
 import { computeRails } from './layout';
+import type { DeviceLookup } from './layout';
 import type { BomLine, LayoutResult, Profile } from '../types';
 
 /** 配線ダクト・DINレールの定尺(mm)。社内の調達に合わせて変更する。 */
@@ -7,21 +7,24 @@ const DUCT_STOCK_LENGTH = 2000;
 const RAIL_STOCK_LENGTH = 1000;
 
 /**
- * BOM を組み立てる。
+ * BOM を組み立てる。盤全体（6面ぶん）をまとめて集計する。
  *
  * BOM 自動化の価値は機器本体ではなく「派生部品」にある。DINレールの切断長、
  * ダクトの定尺からの必要本数、エンドストッパ — 手作業で一番漏れるのがここ。
  */
-export function buildBom(layout: LayoutResult, profile: Profile): BomLine[] {
+export function buildBom(
+  layouts: LayoutResult[],
+  profile: Profile,
+  devices: DeviceLookup,
+): BomLine[] {
   const lines: BomLine[] = [];
+  const placed = layouts.flatMap((l) => l.placed);
 
   // --- 機器本体（型式で集約） ---
   const counts = new Map<string, number>();
-  for (const p of layout.placed) {
-    counts.set(p.specId, (counts.get(p.specId) ?? 0) + 1);
-  }
+  for (const p of placed) counts.set(p.specId, (counts.get(p.specId) ?? 0) + 1);
   for (const [specId, qty] of counts) {
-    const spec = DEVICE_BY_ID.get(specId);
+    const spec = devices.get(specId);
     if (!spec) continue;
     lines.push({
       model: spec.model,
@@ -33,8 +36,8 @@ export function buildBom(layout: LayoutResult, profile: Profile): BomLine[] {
     });
   }
 
-  // --- DINレール（段ごとに1本。DXF の作図と同じ計算を共有する） ---
-  const rails = computeRails(layout);
+  // --- DINレール（段ごとに1本。作図と同じ計算を共有する） ---
+  const rails = layouts.flatMap((l) => computeRails(l, devices));
   const railTotal = rails.reduce((s, r) => s + Math.ceil(r.length), 0);
   const railCount = rails.length;
   if (railCount > 0) {
@@ -57,7 +60,7 @@ export function buildBom(layout: LayoutResult, profile: Profile): BomLine[] {
   }
 
   // --- 配線ダクト（レイアウト上のダクト矩形の総延長から） ---
-  const ductTotal = layout.ducts.reduce((sum, d) => sum + d.w, 0);
+  const ductTotal = layouts.flatMap((l) => l.ducts).reduce((sum, d) => sum + d.w, 0);
   if (ductTotal > 0) {
     const stockQty = Math.ceil(ductTotal / DUCT_STOCK_LENGTH);
     const offcut = stockQty * DUCT_STOCK_LENGTH - ductTotal;
@@ -66,19 +69,24 @@ export function buildBom(layout: LayoutResult, profile: Profile): BomLine[] {
       maker: '—',
       name: '配線ダクト',
       qty: stockQty,
-      unit: `本(${DUCT_STOCK_LENGTH}mm定尺)`,
+      unit: '本(2000mm定尺)',
       source: 'derived',
     });
   }
 
-  // --- 直付け機器の取付ネジ（1台あたり4本で概算） ---
-  const plateCount = layout.placed.filter((p) => p.mount === 'direct').length;
-  if (plateCount > 0) {
+  // --- 直付け機器の取付ネジ（取付穴の数から。穴情報が無い機器は4本で概算） ---
+  let screws = 0;
+  for (const p of placed) {
+    if (p.mount !== 'direct') continue;
+    const holes = devices.get(p.specId)?.mountHoles;
+    screws += holes ? Math.max(1, holes.countX) * Math.max(1, holes.countY) : 4;
+  }
+  if (screws > 0) {
     lines.push({
       model: 'M4 取付ネジ',
       maker: '—',
       name: '機器取付ネジ（直付け分）',
-      qty: plateCount * 4,
+      qty: screws,
       unit: '本',
       source: 'derived',
     });
@@ -87,10 +95,9 @@ export function buildBom(layout: LayoutResult, profile: Profile): BomLine[] {
   return lines;
 }
 
-/** 盤内の総発熱。換気扇・クーラーの要否判断に使う（v2 で温度上昇計算に拡張）。 */
-export function totalHeatW(layout: LayoutResult): number {
-  return layout.placed.reduce(
-    (sum, p) => sum + (DEVICE_BY_ID.get(p.specId)?.heatW ?? 0),
-    0,
-  );
+/** 発熱の合計。換気扇・クーラーの要否判断に使う。 */
+export function totalHeatW(layouts: LayoutResult[], devices: DeviceLookup): number {
+  return layouts
+    .flatMap((l) => l.placed)
+    .reduce((sum, p) => sum + (devices.get(p.specId)?.heatW ?? 0), 0);
 }

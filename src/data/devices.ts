@@ -1,24 +1,37 @@
-import type { DeviceSpec } from '../types';
+import type { CategoryDef, DeviceSpec } from '../types';
 
 /**
- * 機器マスタのサンプルデータ。
+ * 部品表の初期値。ConfigFile 画面で編集・追加できる。
  *
- * ⚠ 寸法・発熱量はいずれも「仮値」です。実案件で使う前に、必ずメーカーの
- *    カタログ／N-TEC の図面データで実寸を確認して差し替えてください。
- *    ここに置いてあるのは、レイアウトエンジンと BOM の動作確認用です。
+ * ⚠ 寸法・取付穴ピッチ・発熱量はいずれも「仮値」です。実案件で使う前に、必ず
+ *    メーカーのカタログ／N-TEC の図面データで実寸を確認して差し替えてください。
  *
  * ⚠ メーカー配布の DXF/DWG そのものは再配布が禁止されているため、
  *    このリポジトリには数値（寸法）だけを持ちます。図面ファイルは同梱しません。
  */
-export const SAMPLE_DEVICES: DeviceSpec[] = [
+
+export const DEFAULT_CATEGORIES: CategoryDef[] = [
+  { id: 'breaker', label: 'ブレーカ', color: '#4f6bed' },
+  { id: 'contactor', label: '電磁接触器', color: '#2f9e79' },
+  { id: 'relay', label: 'リレー', color: '#c9762a' },
+  { id: 'plc', label: 'PLC', color: '#8258c8' },
+  { id: 'psu', label: '電源', color: '#c0433f' },
+  { id: 'terminal', label: '端子台', color: '#5a6470' },
+  { id: 'operator', label: '操作機器・表示器', color: '#0f8ea8' },
+  { id: 'other', label: 'その他', color: '#7d8894' },
+];
+
+export const DEFAULT_DEVICES: DeviceSpec[] = [
   {
     id: 'mccb-3p-60a',
     maker: '三菱電機',
     model: 'NF63-SV 3P 60A',
     name: '配線用遮断器',
     category: 'breaker',
+    source: 'config',
     size: { w: 75, h: 130, d: 68 },
     mount: ['din', 'direct'],
+    mountHoles: { pitchX: 45, pitchY: 105, countX: 2, countY: 2, dia: 4.5 },
     clearance: { top: 20, bottom: 20 },
     heatW: 6,
   },
@@ -28,8 +41,10 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'NV63-SV 3P 30A',
     name: '漏電遮断器',
     category: 'breaker',
+    source: 'config',
     size: { w: 75, h: 130, d: 68 },
     mount: ['din', 'direct'],
+    mountHoles: { pitchX: 45, pitchY: 105, countX: 2, countY: 2, dia: 4.5 },
     clearance: { top: 20, bottom: 20 },
     heatW: 5,
   },
@@ -39,8 +54,10 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'NF32-SV 2P 10A',
     name: '配線用遮断器（制御用）',
     category: 'breaker',
+    source: 'config',
     size: { w: 50, h: 110, d: 68 },
     mount: ['din', 'direct'],
+    mountHoles: { pitchX: 30, pitchY: 90, countX: 2, countY: 2, dia: 4.5 },
     heatW: 2,
   },
   {
@@ -49,8 +66,10 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'S-T12',
     name: '電磁接触器',
     category: 'contactor',
+    source: 'config',
     size: { w: 45, h: 80, d: 78 },
     mount: ['din', 'direct'],
+    mountHoles: { pitchX: 35, pitchY: 60, countX: 2, countY: 2, dia: 4.5 },
     clearance: { top: 10, bottom: 10 },
     heatW: 4,
   },
@@ -60,8 +79,10 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'S-T20',
     name: '電磁接触器',
     category: 'contactor',
+    source: 'config',
     size: { w: 52, h: 90, d: 86 },
     mount: ['din', 'direct'],
+    mountHoles: { pitchX: 40, pitchY: 70, countX: 2, countY: 2, dia: 4.5 },
     clearance: { top: 10, bottom: 10 },
     heatW: 6,
   },
@@ -71,6 +92,7 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'MY2N-D2 + PYF08A',
     name: 'ミニチュアリレー（ソケット付）',
     category: 'relay',
+    source: 'config',
     size: { w: 21, h: 55, d: 60 },
     mount: ['din'],
     heatW: 1,
@@ -81,6 +103,7 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'G7T-1122S',
     name: 'I/Oリレー',
     category: 'relay',
+    source: 'config',
     size: { w: 12, h: 50, d: 55 },
     mount: ['din'],
     heatW: 0.5,
@@ -91,8 +114,10 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'FX5U-32MT/ES',
     name: 'PLC 基本ユニット',
     category: 'plc',
+    source: 'config',
     size: { w: 150, h: 90, d: 83 },
     mount: ['din', 'direct'],
+    mountHoles: { pitchX: 137, pitchY: 80, countX: 2, countY: 2, dia: 4.5 },
     clearance: { top: 50, bottom: 50, left: 20, right: 20 },
     heatW: 12,
   },
@@ -102,8 +127,10 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'FX5-16EX/ES',
     name: 'PLC 増設入力ユニット',
     category: 'plc',
+    source: 'config',
     size: { w: 40, h: 90, d: 83 },
     mount: ['din', 'direct'],
+    mountHoles: { pitchX: 0, pitchY: 80, countX: 1, countY: 2, dia: 4.5 },
     clearance: { top: 50, bottom: 50 },
     heatW: 3,
   },
@@ -113,6 +140,7 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'S8VK-C12024',
     name: 'スイッチング電源 DC24V 5A',
     category: 'psu',
+    source: 'config',
     size: { w: 40, h: 125, d: 100 },
     mount: ['din'],
     clearance: { top: 50, bottom: 30, left: 15, right: 15 },
@@ -124,6 +152,7 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'DRB120-24-1',
     name: 'スイッチング電源 DC24V 10A',
     category: 'psu',
+    source: 'config',
     size: { w: 60, h: 125, d: 110 },
     mount: ['din'],
     clearance: { top: 50, bottom: 30, left: 20, right: 20 },
@@ -135,6 +164,7 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'UT 4',
     name: 'ねじ式端子台 4mm²',
     category: 'terminal',
+    source: 'config',
     size: { w: 6.2, h: 60, d: 47 },
     mount: ['din'],
   },
@@ -144,6 +174,7 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'UT 2.5',
     name: 'ねじ式端子台 2.5mm²',
     category: 'terminal',
+    source: 'config',
     size: { w: 5.2, h: 55, d: 47 },
     mount: ['din'],
   },
@@ -153,6 +184,7 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'CLIPFIX 35',
     name: 'エンドストッパ',
     category: 'other',
+    source: 'config',
     size: { w: 9.5, h: 35, d: 30 },
     mount: ['din'],
   },
@@ -164,6 +196,7 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'A22NN-BM',
     name: '押ボタンスイッチ φ22',
     category: 'operator',
+    source: 'config',
     size: { w: 30, h: 30, d: 60 },
     mount: ['direct'],
     panelCutout: { kind: 'hole', dia: 22 },
@@ -174,6 +207,7 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'A22NS-2R',
     name: 'セレクタスイッチ φ22',
     category: 'operator',
+    source: 'config',
     size: { w: 30, h: 30, d: 60 },
     mount: ['direct'],
     panelCutout: { kind: 'hole', dia: 22 },
@@ -184,6 +218,7 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'M22N-BG',
     name: '表示灯 φ22',
     category: 'operator',
+    source: 'config',
     size: { w: 30, h: 30, d: 50 },
     mount: ['direct'],
     panelCutout: { kind: 'hole', dia: 22 },
@@ -194,6 +229,7 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'A22NE-M',
     name: '非常停止用押ボタン φ40ヘッド',
     category: 'operator',
+    source: 'config',
     size: { w: 40, h: 40, d: 65 },
     mount: ['direct'],
     clearance: { top: 15, bottom: 15, left: 15, right: 15 },
@@ -205,6 +241,7 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'GT2107-WTBD',
     name: '表示器 7型',
     category: 'operator',
+    source: 'config',
     size: { w: 199, h: 143, d: 50 },
     mount: ['direct'],
     clearance: { top: 20, bottom: 20, left: 20, right: 20 },
@@ -216,8 +253,10 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: '換気ファン（仮）',
     name: '換気ファン＋ルーバー',
     category: 'other',
+    source: 'config',
     size: { w: 150, h: 150, d: 90 },
     mount: ['direct'],
+    mountHoles: { pitchX: 138, pitchY: 138, countX: 2, countY: 2, dia: 5 },
     clearance: { top: 20, bottom: 20, left: 20, right: 20 },
     panelCutout: { kind: 'notch', w: 125, h: 125 },
     heatW: 5,
@@ -228,32 +267,24 @@ export const SAMPLE_DEVICES: DeviceSpec[] = [
     model: 'ケーブルグランド PF16',
     name: 'ケーブルグランド',
     category: 'other',
+    source: 'config',
     size: { w: 24, h: 24, d: 35 },
     mount: ['direct'],
     panelCutout: { kind: 'hole', dia: 22 },
   },
 ];
 
-export const DEVICE_BY_ID = new Map(SAMPLE_DEVICES.map((d) => [d.id, d]));
-
-export const CATEGORY_LABEL: Record<DeviceSpec['category'], string> = {
-  breaker: 'ブレーカ',
-  contactor: '電磁接触器',
-  relay: 'リレー',
-  plc: 'PLC',
-  psu: '電源',
-  terminal: '端子台',
-  operator: '操作機器・表示器',
-  other: 'その他',
-};
-
-export const CATEGORY_COLOR: Record<DeviceSpec['category'], string> = {
-  breaker: '#4f6bed',
-  contactor: '#2f9e79',
-  relay: '#c9762a',
-  plc: '#8258c8',
-  psu: '#c0433f',
-  terminal: '#5a6470',
-  operator: '#0f8ea8',
-  other: '#7d8894',
-};
+/** 新規部品の雛形。 */
+export function blankDevice(id: string, category: string, source: 'config' | 'my', owner?: string): DeviceSpec {
+  return {
+    id,
+    maker: '',
+    model: '新規部品',
+    name: '',
+    category,
+    source,
+    owner,
+    size: { w: 50, h: 50, d: 50 },
+    mount: ['direct'],
+  };
+}
