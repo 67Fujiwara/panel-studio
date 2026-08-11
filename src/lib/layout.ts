@@ -39,7 +39,7 @@ export function effectiveClearance(spec: DeviceSpec, c: ClearanceSettings): Side
   };
 }
 
-/** 基板上面から扉内面までの有効奥行き。ここに収まらない機器は扉に当たる。 */
+/** 中板上面から扉内面までの有効奥行き。ここに収まらない機器は扉に当たる。 */
 export function effectiveDepth(panel: PanelSpec): number {
   return panel.depth.outer - panel.depth.backToPlate - panel.depth.doorProjection;
 }
@@ -70,7 +70,7 @@ export function computeRows(
     return {
       rows: [],
       ducts: [],
-      error: '基板に対してダクト幅・段数・余白が大きすぎます。設定を見直してください。',
+      error: '中板に対してダクト幅・段数・余白が大きすぎます。設定を見直してください。',
     };
   }
 

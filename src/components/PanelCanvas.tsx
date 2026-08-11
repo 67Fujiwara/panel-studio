@@ -10,7 +10,7 @@ type Props = { panel: PanelSpec; layout: LayoutResult };
 
 type ViewBox = { x: number; y: number; w: number; h: number };
 
-/** 基板座標(Y上向き, 原点=左下) を SVG 座標(Y下向き, 原点=左上) に変換する。 */
+/** 中板座標(Y上向き, 原点=左下) を SVG 座標(Y下向き, 原点=左上) に変換する。 */
 const toSvgY = (plateH: number, y: number, h: number) => plateH - y - h;
 
 export function PanelCanvas({ panel, layout }: Props) {
@@ -72,7 +72,7 @@ export function PanelCanvas({ panel, layout }: Props) {
       const spec = placed && DEVICE_BY_ID.get(placed.specId);
       if (!placed || !spec) return;
       const nx = Math.round((d.ox + dx) / SNAP) * SNAP;
-      // SVG は Y 下向きなので、基板座標では符号が反転する
+      // SVG は Y 下向きなので、中板座標では符号が反転する
       const ny = Math.round((d.oy - dy) / SNAP) * SNAP;
       pin({
         ...placed,
@@ -105,7 +105,7 @@ export function PanelCanvas({ panel, layout }: Props) {
         onPointerUp={endPointer}
         onPointerLeave={endPointer}
       >
-        {/* 基板(取付板) */}
+        {/* 中板(取付板) */}
         <rect x={0} y={0} width={plateW} height={plateH} className="plate" />
 
         {/* 100mm グリッド */}

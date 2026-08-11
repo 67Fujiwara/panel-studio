@@ -6,6 +6,11 @@ import type { PanelSpec, Profile } from '../types';
  * ⚠ 寸法は仮値です。DXF 取り込み（Phase 3）で型式ごとに実寸を確定し、
  *    ここを育てていく想定です。特に depth.backToPlate は
  *    メーカー図面の値が実物と合わないため、必ず手入力で上書きします。
+ *
+ * TODO: 実案件で使っているのは日東工業の「ステンレス SR形 制御盤キャビネット(IP54)」。
+ *       型式と中板の有効寸法を確定してここへ登録する。
+ *       換気ファン／ルーバーの取付位置による中板の使用不可領域も要検討。
+ *       詳細は docs/02-drawing-conventions.md を参照。
  */
 export const SAMPLE_ENCLOSURES: PanelSpec[] = [
   {

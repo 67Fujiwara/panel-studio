@@ -1,5 +1,5 @@
 // 盤内レイアウトと BOM が共有する唯一の型定義。
-// 座標系は「基板(取付板)の左下を原点、X 右、Y 上、単位 mm」で統一する。
+// 座標系は「中板(取付板)の左下を原点、X 右、Y 上、単位 mm」で統一する。
 
 export type MountType = 'din' | 'plate';
 
@@ -22,7 +22,7 @@ export type DeviceSpec = {
   model: string;
   name: string;
   category: DeviceCategory;
-  /** w=幅, h=高さ, d=基板面からの突出（DINレール取付時はレール高さが別途加算される） */
+  /** w=幅, h=高さ, d=中板面からの突出（DINレール取付時はレール高さが別途加算される） */
   size: { w: number; h: number; d: number };
   /** 対応する取付方式。両対応の機器は案件ごとに選ばせる */
   mount: MountType[];
@@ -35,7 +35,7 @@ export type DeviceSpec = {
   heatW?: number;
 };
 
-/** 基板上に配置された機器1台。 */
+/** 中板上に配置された機器1台。 */
 export type PlacedDevice = {
   uid: string;
   specId: string;
@@ -52,16 +52,16 @@ export type PlacedDevice = {
   pinned: boolean;
 };
 
-/** 盤（キャビネット）1面。v1 は単一基板の壁掛キャビネットのみ扱う。 */
+/** 盤（キャビネット）1面。v1 は単一中板の壁掛キャビネットのみ扱う。 */
 export type PanelSpec = {
   model: string;
-  /** 基板(取付板)の有効寸法 */
+  /** 中板(取付板)の有効寸法 */
   plate: { w: number; h: number };
   depth: {
     /** 盤外形の奥行き */
     outer: number;
     /**
-     * 背面内側 → 基板上面 の距離。
+     * 背面内側 → 中板上面 の距離。
      * メーカー図面の値が実物と合わないため手入力する。
      */
     backToPlate: number;
@@ -83,7 +83,7 @@ export type DuctSettings = {
   width: number;
   /** 機器行の数 */
   rowCount: number;
-  /** 基板端からの余白 */
+  /** 中板端からの余白 */
   margin: Sides;
 };
 
@@ -92,7 +92,7 @@ export type ClearanceSettings = {
   deviceToDuct: Sides;
   /** 機器 ⇔ 機器 */
   deviceToDevice: { sameRow: number; betweenRows: number };
-  /** 機器 ⇔ 基板端 */
+  /** 機器 ⇔ 中板端 */
   deviceToPlateEdge: number;
   /** 発熱機器に追加で確保する離隔 */
   heatExtra: number;

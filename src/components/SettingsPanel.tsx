@@ -62,19 +62,19 @@ export function SettingsPanel() {
         </select>
       </label>
       <div className="grid2">
-        <Num label="基板 幅" value={panel.plate.w} onChange={(w) => setPlate({ w })} step={10} />
-        <Num label="基板 高さ" value={panel.plate.h} onChange={(h) => setPlate({ h })} step={10} />
+        <Num label="中板 幅" value={panel.plate.w} onChange={(w) => setPlate({ w })} step={10} />
+        <Num label="中板 高さ" value={panel.plate.h} onChange={(h) => setPlate({ h })} step={10} />
       </div>
 
       <h3>奥行き</h3>
       <p className="note">
-        メーカー図面の「背面→基板上面」は実物と合わないため手入力します。干渉判定に効くのは
-        <b>基板上面から扉内面までの有効奥行き</b>です。
+        メーカー図面の「背面→中板上面」は実物と合わないため手入力します。干渉判定に効くのは
+        <b>中板上面から扉内面までの有効奥行き</b>です。
       </p>
       <div className="grid2">
         <Num label="盤外形 奥行き" value={panel.depth.outer} onChange={(outer) => setDepth({ outer })} step={5} />
         <Num
-          label="背面→基板上面"
+          label="背面→中板上面"
           hint="手入力"
           value={panel.depth.backToPlate}
           onChange={(backToPlate) => setDepth({ backToPlate })}
@@ -119,7 +119,7 @@ export function SettingsPanel() {
         v1 は全段を同じ高さで割り付けます。背の高い機器が入らない場合は段数を減らしてください。
         <b>段ごとに高さを変える割り付けは Phase 1 で対応します。</b>
       </p>
-      <h3>基板端からの余白</h3>
+      <h3>中板端からの余白</h3>
       <div className="grid2">
         <Num
           label="上"
@@ -188,7 +188,7 @@ export function SettingsPanel() {
           }
         />
         <Num
-          label="機器⇔基板端"
+          label="機器⇔中板端"
           value={profile.clearance.deviceToPlateEdge}
           onChange={(deviceToPlateEdge) => setClearance({ deviceToPlateEdge })}
         />
