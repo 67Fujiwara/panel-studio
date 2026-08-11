@@ -1,10 +1,11 @@
 import { DIN_RAIL_HEIGHT } from '../data/enclosures';
 import { DEVICE_BY_ID } from '../data/devices';
+import { FACE_BY_ID, faceSize } from '../data/faces';
 import type {
   ClearanceSettings,
   DeviceRow,
   DeviceSpec,
-  DuctSettings,
+  FaceId,
   LayoutResult,
   PanelSpec,
   PlacedDevice,
@@ -41,7 +42,7 @@ export function effectiveClearance(spec: DeviceSpec, c: ClearanceSettings): Side
 
 /** 中板上面から扉内面までの有効奥行き。ここに収まらない機器は扉に当たる。 */
 export function effectiveDepth(panel: PanelSpec): number {
-  return panel.depth.outer - panel.depth.backToPlate - panel.depth.doorProjection;
+  return panel.outer.d - panel.depth.backToPlate - panel.depth.doorProjection;
 }
 
 /** 取付方式込みの機器の突出量。 */
@@ -55,10 +56,12 @@ export function deviceProjection(spec: DeviceSpec, mount: PlacedDevice['mount'])
  */
 export function computeRows(
   panel: PanelSpec,
-  duct: DuctSettings,
+  face: FaceId,
+  profile: Profile,
 ): { rows: DeviceRow[]; ducts: Rect[]; error?: string } {
-  const { w, h } = panel.plate;
-  const { margin, width: dw, rowCount: n } = duct;
+  const { w, h } = faceSize(panel, face);
+  const { margin, rowCount: n } = profile.duct;
+  const dw = FACE_BY_ID.get(face)?.ducts ? profile.duct.width : 0;
 
   const usableH = h - margin.top - margin.bottom;
   const rowH = (usableH - (n + 1) * dw) / n;
@@ -70,7 +73,7 @@ export function computeRows(
     return {
       rows: [],
       ducts: [],
-      error: '中板に対してダクト幅・段数・余白が大きすぎます。設定を見直してください。',
+      error: '面に対してダクト幅・段数・余白が大きすぎます。設定を見直してください。',
     };
   }
 
@@ -80,11 +83,9 @@ export function computeRows(
   for (let i = 0; i < n; i++) {
     const y = h - margin.top - (i + 1) * (dw + rowH);
     rows.push({ index: i, y, h: rowH });
-    // 各機器行の上に1本
-    ducts.push({ x, y: y + rowH, w: ductW, h: dw });
+    if (dw > 0) ducts.push({ x, y: y + rowH, w: ductW, h: dw });
   }
-  // 最下段の下にもう1本
-  ducts.push({ x, y: margin.bottom, w: ductW, h: dw });
+  if (dw > 0) ducts.push({ x, y: margin.bottom, w: ductW, h: dw });
 
   return { rows, ducts };
 }
@@ -96,20 +97,21 @@ const CATEGORY_ORDER: DeviceSpec['category'][] = [
   'relay',
   'plc',
   'psu',
+  'operator',
   'other',
   'terminal',
 ];
 
-export type LayoutItem = { uid: string; specId: string; mount: PlacedDevice['mount'] };
+export type LayoutItem = { uid: string; specId: string; face: FaceId; mount: PlacedDevice['mount'] };
 
 type Entry = { item: LayoutItem; spec: DeviceSpec; eff: Sides };
 
-/** 中板の使える X 範囲（余白と中板端クリアランスの大きいほうを採る）。 */
-function usableX(panel: PanelSpec, profile: Profile) {
+/** 面の使える X 範囲（余白と端クリアランスの大きいほうを採る）。 */
+function usableX(panel: PanelSpec, face: FaceId, profile: Profile) {
   const c = profile.clearance;
   return {
     xMin: Math.max(profile.duct.margin.left, c.deviceToPlateEdge),
-    xMax: panel.plate.w - Math.max(profile.duct.margin.right, c.deviceToPlateEdge),
+    xMax: faceSize(panel, face).w - Math.max(profile.duct.margin.right, c.deviceToPlateEdge),
   };
 }
 
@@ -118,7 +120,14 @@ function horizontalGap(prevRight: number, eff: Sides, c: ClearanceSettings) {
   return Math.max(prevRight, eff.left, c.deviceToDevice.sameRow);
 }
 
-/** 未配置の機器をカテゴリ順に並べたキュー。 */
+/**
+ * 段の中で機器を上下中央に置く。
+ * DIN取付・直接取付のどちらも中央合わせに揃える。
+ */
+function centerY(row: DeviceRow, spec: DeviceSpec) {
+  return row.y + (row.h - spec.size.h) / 2;
+}
+
 function buildQueue(items: LayoutItem[], skip: Set<string>, c: ClearanceSettings): Entry[] {
   return items
     .filter((i) => !skip.has(i.uid))
@@ -136,20 +145,16 @@ function buildQueue(items: LayoutItem[], skip: Set<string>, c: ClearanceSettings
  * まず幅だけを見て機器を段に振り分け、段ごとに「一番背の高い機器＋クリアランス」を
  * その段の高さにする。実際の盤は段ごとに高さが違うので、こちらが実物に近い。
  */
-function packAuto(
-  panel: PanelSpec,
-  profile: Profile,
-  queue: Entry[],
-): { rows: DeviceRow[]; ducts: Rect[]; placed: PlacedDevice[]; violations: Violation[] } {
+function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry[]) {
   const c = profile.clearance;
-  const { xMin, xMax } = usableX(panel, profile);
-  const dw = profile.duct.width;
+  const { xMin, xMax } = usableX(panel, face, profile);
+  const dw = FACE_BY_ID.get(face)?.ducts ? profile.duct.width : 0;
+  const size = faceSize(panel, face);
   const violations: Violation[] = [];
 
   type Bucket = { entries: { e: Entry; x: number }[]; h: number; cursor: number; prevRight: number };
-  const buckets: Bucket[] = [];
   const newBucket = (): Bucket => ({ entries: [], h: 0, cursor: xMin, prevRight: 0 });
-
+  const buckets: Bucket[] = [];
   let cur = newBucket();
   buckets.push(cur);
 
@@ -159,14 +164,13 @@ function packAuto(
       violations.push({
         uid: e.item.uid,
         kind: 'overflow',
-        message: `${e.spec.model}: 幅 ${w}mm が中板の使える幅 ${Math.round(xMax - xMin)}mm を超えています`,
+        message: `${e.spec.model}: 幅 ${w}mm が面の使える幅 ${Math.round(xMax - xMin)}mm を超えています`,
       });
       continue;
     }
     const gap = horizontalGap(cur.prevRight, e.eff, c);
     let x = cur.entries.length === 0 ? xMin : cur.cursor + gap;
     if (x + w > xMax) {
-      // この段は幅を使い切ったので次の段へ
       cur = newBucket();
       buckets.push(cur);
       x = xMin;
@@ -183,30 +187,33 @@ function packAuto(
   const placed: PlacedDevice[] = [];
 
   const x0 = profile.duct.margin.left;
-  const ductW = panel.plate.w - profile.duct.margin.left - profile.duct.margin.right;
-  const availableH = panel.plate.h - profile.duct.margin.top - profile.duct.margin.bottom;
-  const requiredH = used.reduce((s, b) => s + b.h, 0) + (used.length + 1) * dw;
+  const ductW = size.w - profile.duct.margin.left - profile.duct.margin.right;
+  const availableH = size.h - profile.duct.margin.top - profile.duct.margin.bottom;
+  const requiredH = used.reduce((s, b) => s + b.h, 0) + (dw > 0 ? (used.length + 1) * dw : 0);
 
-  // 上から順に「ダクト → 機器行」を積んでいく
-  let y = panel.plate.h - profile.duct.margin.top;
+  let y = size.h - profile.duct.margin.top;
   used.forEach((b, index) => {
-    y -= dw;
-    ducts.push({ x: x0, y, w: ductW, h: dw });
+    if (dw > 0) {
+      y -= dw;
+      ducts.push({ x: x0, y, w: ductW, h: dw });
+    }
     y -= b.h;
-    rows.push({ index, y, h: b.h });
+    const row: DeviceRow = { index, y, h: b.h };
+    rows.push(row);
     for (const { e, x } of b.entries) {
       placed.push({
         uid: e.item.uid,
         specId: e.item.specId,
+        face,
         mount: e.item.mount,
         x,
-        y: y + e.eff.bottom,
+        y: centerY(row, e.spec),
         row: index,
         pinned: false,
       });
     }
   });
-  if (used.length > 0) {
+  if (dw > 0 && used.length > 0) {
     y -= dw;
     ducts.push({ x: x0, y, w: ductW, h: dw });
   }
@@ -216,7 +223,7 @@ function packAuto(
       uid: '',
       kind: 'overflow',
       message:
-        `必要高さ ${Math.round(requiredH)}mm が中板の使える高さ ${Math.round(availableH)}mm を超えています` +
+        `必要高さ ${Math.round(requiredH)}mm が面の使える高さ ${Math.round(availableH)}mm を超えています` +
         `（${used.length}段必要）。盤を大きくするか、機器を減らしてください`,
     });
   }
@@ -227,23 +234,23 @@ function packAuto(
 /** equal モード：段数と高さは固定で、そこへ機器を詰める。 */
 function packEqual(
   panel: PanelSpec,
+  face: FaceId,
   profile: Profile,
   queue: Entry[],
   pinned: PlacedDevice[],
-): { rows: DeviceRow[]; ducts: Rect[]; placed: PlacedDevice[]; violations: Violation[] } {
-  const { rows, ducts, error } = computeRows(panel, profile.duct);
+) {
+  const { rows, ducts, error } = computeRows(panel, face, profile);
   const violations: Violation[] = [];
   if (error) {
-    return { rows, ducts, placed: [], violations: [{ uid: '', kind: 'overflow', message: error }] };
+    return { rows, ducts, placed: [], violations: [{ uid: '', kind: 'overflow' as const, message: error }] };
   }
 
   const c = profile.clearance;
-  const { xMin, xMax } = usableX(panel, profile);
+  const { xMin, xMax } = usableX(panel, face, profile);
   const placed: PlacedDevice[] = [];
   const cursor = rows.map(() => xMin);
   const prevRight = rows.map(() => 0);
 
-  // pinned は先に確定させ、その行のカーソルを進めておく
   for (const p of pinned) {
     const spec = DEVICE_BY_ID.get(p.specId);
     if (!spec) continue;
@@ -272,9 +279,10 @@ function packEqual(
         placed.push({
           uid: item.uid,
           specId: item.specId,
+          face,
           mount: item.mount,
           x: startX,
-          y: rr.y + eff.bottom,
+          y: centerY(rr, spec),
           row: r,
           pinned: false,
         });
@@ -290,7 +298,7 @@ function packEqual(
         uid: item.uid,
         kind: tooShort ? 'clearance' : 'overflow',
         message: tooShort
-          ? `${spec.model}: 高さ ${spec.size.h}mm ＋ クリアランスが機器行の高さに収まりません（段数を減らすか盤を大きく）`
+          ? `${spec.model}: 高さ ${spec.size.h}mm ＋ クリアランスが段の高さに収まりません（段数を減らすか盤を大きく）`
           : `${spec.model}: 横幅が足りません（盤を大きくするか段数を増やしてください）`,
       });
     }
@@ -305,7 +313,7 @@ export const RAIL_END_MARGIN = 20;
 export type RailRun = { row: number; x: number; y: number; length: number };
 
 /**
- * 段ごとの DINレール。BOM の切断長と DXF の作図の両方がここを使う。
+ * 段ごとの DINレール。BOM と作図の両方がここを使う。
  * 正面視ではレールは高さ 35mm の帯として見えるので、機器の下端に合わせて描く。
  */
 export function computeRails(layout: LayoutResult): RailRun[] {
@@ -329,11 +337,8 @@ export function computeRails(layout: LayoutResult): RailRun[] {
 function detectOverlaps(placed: PlacedDevice[]): Violation[] {
   const out: Violation[] = [];
   const rects = placed
-    .map((p) => {
-      const spec = DEVICE_BY_ID.get(p.specId);
-      return spec ? { p, spec } : null;
-    })
-    .filter((r): r is { p: PlacedDevice; spec: DeviceSpec } => r !== null);
+    .map((p) => ({ p, spec: DEVICE_BY_ID.get(p.specId) }))
+    .filter((r): r is { p: PlacedDevice; spec: DeviceSpec } => Boolean(r.spec));
 
   for (let i = 0; i < rects.length; i++) {
     for (let j = i + 1; j < rects.length; j++) {
@@ -350,12 +355,43 @@ function detectOverlaps(placed: PlacedDevice[]): Violation[] {
           kind: 'overlap',
           message: `${a.spec.model} と ${b.spec.model} が重なっています`,
         });
-        out.push({ uid: b.p.uid, kind: 'overlap', message: '' });
       }
     }
   }
-  // uid だけ立てた重複メッセージは表示しない
-  return out.filter((v, i) => v.message !== '' || out.findIndex((o) => o.uid === v.uid) === i);
+  return out;
+}
+
+/** 面ごとの奥行きチェック。面によって当たる相手が違う。 */
+function depthViolations(panel: PanelSpec, face: FaceId, placed: PlacedDevice[]): Violation[] {
+  const out: Violation[] = [];
+  for (const p of placed) {
+    const spec = DEVICE_BY_ID.get(p.specId);
+    if (!spec) continue;
+
+    if (face === 'plate') {
+      // 中板の機器は扉内面に当たらないか
+      const limit = effectiveDepth(panel);
+      const projection = deviceProjection(spec, p.mount);
+      if (projection > limit) {
+        out.push({
+          uid: p.uid,
+          kind: 'depth',
+          message: `${spec.model}: 突出 ${projection}mm が有効奥行き ${limit}mm を超えています`,
+        });
+      }
+    } else if (face === 'door') {
+      // 扉の機器は「扉裏の突出量」の設定に収まっているか
+      const limit = panel.depth.doorProjection;
+      if (spec.size.d > limit) {
+        out.push({
+          uid: p.uid,
+          kind: 'depth',
+          message: `${spec.model}: 扉裏へ ${spec.size.d}mm 出ますが、設定は ${limit}mm です。奥行き設定を見直してください`,
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -371,43 +407,34 @@ function detectOverlaps(placed: PlacedDevice[]): Violation[] {
 export function autoLayout(
   panel: PanelSpec,
   profile: Profile,
+  face: FaceId,
   items: LayoutItem[],
   previous: PlacedDevice[] = [],
 ): LayoutResult {
   const c = profile.clearance;
-  const uids = new Set(items.map((i) => i.uid));
-  const pinned = previous.filter((p) => p.pinned && uids.has(p.uid));
+  const faceItems = items.filter((i) => i.face === face);
+  const uids = new Set(faceItems.map((i) => i.uid));
+  const pinned = previous.filter((p) => p.pinned && p.face === face && uids.has(p.uid));
   const pinnedUids = new Set(pinned.map((p) => p.uid));
-  const queue = buildQueue(items, pinnedUids, c);
+  const queue = buildQueue(faceItems, pinnedUids, c);
 
   const auto = profile.duct.rowHeightMode === 'auto';
   const result = auto
-    ? packAuto(panel, profile, queue)
-    : packEqual(panel, profile, queue, pinned);
+    ? packAuto(panel, face, profile, queue)
+    : packEqual(panel, face, profile, queue, pinned);
 
   // auto モードでは段の高さを中身から決めるため、手動配置した機器は
-  // 段の割り付けに参加させず、置かれた座標のまま残す。
-  // 干渉は下の重なり検出で拾う。
+  // 段の割り付けに参加させず、置かれた座標のまま残す。干渉は重なり検出で拾う。
   const placed = auto ? [...pinned, ...result.placed] : result.placed;
 
-  const violations = [...result.violations];
-
-  // 奥行き方向の干渉チェック（扉裏に当たらないか）
-  const depthLimit = effectiveDepth(panel);
-  for (const p of placed) {
-    const spec = DEVICE_BY_ID.get(p.specId);
-    if (!spec) continue;
-    const projection = deviceProjection(spec, p.mount);
-    if (projection > depthLimit) {
-      violations.push({
-        uid: p.uid,
-        kind: 'depth',
-        message: `${spec.model}: 突出 ${projection}mm が有効奥行き ${depthLimit}mm を超えています`,
-      });
-    }
-  }
-
-  violations.push(...detectOverlaps(placed));
-
-  return { rows: result.rows, ducts: result.ducts, placed, violations };
+  return {
+    rows: result.rows,
+    ducts: result.ducts,
+    placed,
+    violations: [
+      ...result.violations,
+      ...depthViolations(panel, face, placed),
+      ...detectOverlaps(placed),
+    ],
+  };
 }

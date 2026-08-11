@@ -1,32 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CATEGORY_COLOR, DEVICE_BY_ID } from '../data/devices';
+import { FACE_LABEL, faceSize } from '../data/faces';
+import { derivedMachining } from '../lib/machining';
 import { useStore } from '../store';
-import type { LayoutResult, PanelSpec } from '../types';
+import type { FaceId, LayoutResult, PanelSpec } from '../types';
 
 /** 手動配置時のスナップ間隔(mm) */
 const SNAP = 5;
 
-type Props = { panel: PanelSpec; layout: LayoutResult };
+type Props = { panel: PanelSpec; face: FaceId; layout: LayoutResult };
 
 type ViewBox = { x: number; y: number; w: number; h: number };
 
-/** 中板座標(Y上向き, 原点=左下) を SVG 座標(Y下向き, 原点=左上) に変換する。 */
-const toSvgY = (plateH: number, y: number, h: number) => plateH - y - h;
+/** 面の座標(Y上向き, 原点=左下) を SVG 座標(Y下向き, 原点=左上) に変換する。 */
+const toSvgY = (faceH: number, y: number, h: number) => faceH - y - h;
 
-export function PanelCanvas({ panel, layout }: Props) {
-  const { w: plateW, h: plateH } = panel.plate;
+export function PanelCanvas({ panel, face, layout }: Props) {
+  const { w: faceW, h: faceH } = faceSize(panel, face);
   const svgRef = useRef<SVGSVGElement>(null);
-  const [view, setView] = useState<ViewBox>({ x: -40, y: -40, w: plateW + 80, h: plateH + 80 });
+  const [view, setView] = useState<ViewBox>({ x: -40, y: -40, w: faceW + 80, h: faceH + 80 });
   const selectedUid = useStore((s) => s.selectedUid);
   const select = useStore((s) => s.select);
   const pin = useStore((s) => s.pin);
+  const manual = useStore((s) => s.machining);
 
-  // 盤サイズが変わったら全体が入るように戻す
+  // 面や盤サイズが変わったら全体が入るように戻す
   useEffect(() => {
-    setView({ x: -40, y: -40, w: plateW + 80, h: plateH + 80 });
-  }, [plateW, plateH]);
+    setView({ x: -40, y: -40, w: faceW + 80, h: faceH + 80 });
+  }, [faceW, faceH, face]);
 
   const violatingUids = new Set(layout.violations.map((v) => v.uid));
+  const cutouts = [...derivedMachining(layout.placed), ...manual.filter((m) => m.face === face)];
 
   /** 画面上の px を mm に変換する係数 */
   const mmPerPx = useCallback(() => {
@@ -72,12 +76,12 @@ export function PanelCanvas({ panel, layout }: Props) {
       const spec = placed && DEVICE_BY_ID.get(placed.specId);
       if (!placed || !spec) return;
       const nx = Math.round((d.ox + dx) / SNAP) * SNAP;
-      // SVG は Y 下向きなので、中板座標では符号が反転する
+      // SVG は Y 下向きなので、面の座標では符号が反転する
       const ny = Math.round((d.oy - dy) / SNAP) * SNAP;
       pin({
         ...placed,
-        x: Math.max(0, Math.min(plateW - spec.size.w, nx)),
-        y: Math.max(0, Math.min(plateH - spec.size.h, ny)),
+        x: Math.max(0, Math.min(faceW - spec.size.w, nx)),
+        y: Math.max(0, Math.min(faceH - spec.size.h, ny)),
       });
       return;
     }
@@ -105,25 +109,24 @@ export function PanelCanvas({ panel, layout }: Props) {
         onPointerUp={endPointer}
         onPointerLeave={endPointer}
       >
-        {/* 中板(取付板) */}
-        <rect x={0} y={0} width={plateW} height={plateH} className="plate" />
+        <rect x={0} y={0} width={faceW} height={faceH} className="plate" />
 
         {/* 100mm グリッド */}
         <g className="grid">
-          {Array.from({ length: Math.floor(plateW / 100) }, (_, i) => (
-            <line key={`v${i}`} x1={(i + 1) * 100} y1={0} x2={(i + 1) * 100} y2={plateH} />
+          {Array.from({ length: Math.floor(faceW / 100) }, (_, i) => (
+            <line key={`v${i}`} x1={(i + 1) * 100} y1={0} x2={(i + 1) * 100} y2={faceH} />
           ))}
-          {Array.from({ length: Math.floor(plateH / 100) }, (_, i) => (
-            <line key={`h${i}`} x1={0} y1={(i + 1) * 100} x2={plateW} y2={(i + 1) * 100} />
+          {Array.from({ length: Math.floor(faceH / 100) }, (_, i) => (
+            <line key={`h${i}`} x1={0} y1={(i + 1) * 100} x2={faceW} y2={(i + 1) * 100} />
           ))}
         </g>
 
-        {/* 配線ダクト */}
+        {/* 配線ダクト（中板のみ） */}
         {layout.ducts.map((d, i) => (
           <rect
             key={`duct${i}`}
             x={d.x}
-            y={toSvgY(plateH, d.y, d.h)}
+            y={toSvgY(faceH, d.y, d.h)}
             width={d.w}
             height={d.h}
             className="duct"
@@ -159,14 +162,14 @@ export function PanelCanvas({ panel, layout }: Props) {
               <clipPath id={`clip-${p.uid}`}>
                 <rect
                   x={p.x}
-                  y={toSvgY(plateH, p.y, spec.size.h)}
+                  y={toSvgY(faceH, p.y, spec.size.h)}
                   width={spec.size.w}
                   height={spec.size.h}
                 />
               </clipPath>
               <rect
                 x={p.x}
-                y={toSvgY(plateH, p.y, spec.size.h)}
+                y={toSvgY(faceH, p.y, spec.size.h)}
                 width={spec.size.w}
                 height={spec.size.h}
                 fill={CATEGORY_COLOR[spec.category]}
@@ -174,7 +177,7 @@ export function PanelCanvas({ panel, layout }: Props) {
               {labelFits && (
                 <text
                   x={p.x + spec.size.w / 2}
-                  y={toSvgY(plateH, p.y, spec.size.h) + spec.size.h / 2}
+                  y={toSvgY(faceH, p.y, spec.size.h) + spec.size.h / 2}
                   fontSize={fontSize}
                   clipPath={`url(#clip-${p.uid})`}
                 >
@@ -182,15 +185,27 @@ export function PanelCanvas({ panel, layout }: Props) {
                 </text>
               )}
               {p.pinned && (
-                <circle cx={p.x + 5} cy={toSvgY(plateH, p.y, spec.size.h) + 5} r={3} className="pin" />
+                <circle cx={p.x + 5} cy={toSvgY(faceH, p.y, spec.size.h) + 5} r={3} className="pin" />
               )}
             </g>
           );
         })}
+
+        {/* 加工（穴・切り欠き）。機器の上に重ねて描き、隠れないようにする */}
+        <g className="cutouts">
+          {cutouts.map((m) =>
+            m.kind === 'hole' ? (
+              <circle key={m.id} cx={m.x} cy={toSvgY(faceH, m.y, 0)} r={m.dia / 2} />
+            ) : (
+              <rect key={m.id} x={m.x} y={toSvgY(faceH, m.y, m.h)} width={m.w} height={m.h} />
+            ),
+          )}
+        </g>
       </svg>
 
       <div className="canvas-hint">
-        ホイールで拡大縮小 / 背景ドラッグで移動 / 機器ドラッグで手動配置（{SNAP}mm スナップ）
+        {FACE_LABEL(face)}（{faceW} × {faceH}） ／ ホイールで拡大縮小・背景ドラッグで移動・機器ドラッグで手動配置（
+        {SNAP}mm スナップ）
       </div>
     </div>
   );

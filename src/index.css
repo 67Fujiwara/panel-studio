@@ -49,17 +49,213 @@ header .tag {
   color: var(--muted);
   font-size: 12px;
 }
-header button.primary {
-  margin-left: auto;
-  padding: 5px 14px;
+header button.back {
+  padding: 4px 10px;
+}
+
+main.single {
+  display: block;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+/* --- 面の選択 --- */
+.facepicker {
+  max-width: 760px;
+  margin: 0 auto;
+}
+.facepicker-head h2 {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+.facepicker-head p {
+  margin: 2px 0;
+  color: var(--muted);
+}
+.facegrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 20px;
+}
+.facecard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 96px;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.facecard:hover {
   border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
+  color: inherit;
+}
+.facecard.plate {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.facecard strong {
+  font-size: 14px;
+}
+.facecard .dim {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.facecard .hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+.facecard .counts {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+.facecard .counts em {
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-style: normal;
+}
+.facecard .counts em.empty {
+  background: transparent;
+  color: var(--muted);
+  padding-left: 0;
+}
+
+/* --- ツリー --- */
+input.search {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+}
+ul.tree,
+ul.tree-leaves {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+ul.tree-leaves {
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+  margin-left: 7px;
+}
+.tree-branch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 4px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.tree-branch:hover {
+  color: var(--accent);
+  border: 0;
+}
+.tree-label {
+  font-weight: 600;
+  font-size: 12px;
+}
+.tree-count {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.caret {
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--muted);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.12s;
+}
+.caret.open {
+  transform: rotate(90deg);
+}
+
+/* --- 加工 --- */
+.row-buttons {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}
+.row-buttons button {
+  flex: 1;
+  padding: 5px;
+}
+ul.cutlist,
+ul.cutsummary {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  font-size: 11px;
+}
+ul.cutlist li {
+  display: flex;
+  gap: 8px;
+  padding: 3px 2px;
+  border-bottom: 1px solid var(--line);
+}
+.cut-kind {
+  min-width: 78px;
   font-weight: 600;
 }
-header button.primary:hover:not(:disabled) {
-  filter: brightness(1.1);
-  color: #fff;
+.cut-pos {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.cut-note {
+  margin-left: auto;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+ul.cutsummary li {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.cutedit {
+  margin: 6px 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.cutedit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  font-size: 12px;
 }
 
 main {
@@ -313,6 +509,14 @@ button.reset {
   fill: #fff;
   stroke: #333;
   stroke-width: 1;
+}
+.cutouts circle,
+.cutouts rect {
+  fill: none;
+  stroke: #c0392b;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 3;
+  pointer-events: none;
 }
 
 /* --- BOM --- */

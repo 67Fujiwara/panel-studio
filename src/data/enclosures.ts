@@ -3,9 +3,9 @@ import type { PanelSpec, Profile } from '../types';
 /**
  * 盤マスタのサンプル。
  *
- * ⚠ 寸法は仮値です。DXF 取り込み（Phase 3）で型式ごとに実寸を確定し、
- *    ここを育てていく想定です。特に depth.backToPlate は
- *    メーカー図面の値が実物と合わないため、必ず手入力で上書きします。
+ * ⚠ 寸法は仮値です。DXF 取り込みで型式ごとに実寸を確定し、ここを育てていく想定です。
+ *    特に depth.backToPlate はメーカー図面の値が実物と合わないため、必ず手入力で
+ *    上書きします。
  *
  * TODO: 実案件で使っているのは日東工業の「ステンレス SR形 制御盤キャビネット(IP54)」。
  *       型式と中板の有効寸法を確定してここへ登録する。
@@ -14,24 +14,28 @@ import type { PanelSpec, Profile } from '../types';
  */
 export const SAMPLE_ENCLOSURES: PanelSpec[] = [
   {
-    model: '壁掛 600×800（仮）',
+    model: '壁掛 600x800（仮）',
+    outer: { w: 600, h: 800, d: 200 },
     plate: { w: 540, h: 740 },
-    depth: { outer: 200, backToPlate: 40, doorProjection: 30 },
+    depth: { backToPlate: 40, doorProjection: 60 },
   },
   {
-    model: '壁掛 700×1000（仮）',
+    model: '壁掛 700x1000（仮）',
+    outer: { w: 700, h: 1000, d: 250 },
     plate: { w: 640, h: 940 },
-    depth: { outer: 250, backToPlate: 45, doorProjection: 30 },
+    depth: { backToPlate: 45, doorProjection: 70 },
   },
   {
-    model: '壁掛 800×1200（仮）',
+    model: '壁掛 800x1200（仮）',
+    outer: { w: 800, h: 1200, d: 250 },
     plate: { w: 740, h: 1140 },
-    depth: { outer: 250, backToPlate: 45, doorProjection: 35 },
+    depth: { backToPlate: 45, doorProjection: 70 },
   },
   {
-    model: '壁掛 500×600（仮）',
+    model: '壁掛 500x600（仮）',
+    outer: { w: 500, h: 600, d: 200 },
     plate: { w: 440, h: 540 },
-    depth: { outer: 200, backToPlate: 40, doorProjection: 25 },
+    depth: { backToPlate: 40, doorProjection: 55 },
   },
 ];
 
@@ -57,17 +61,13 @@ export const DEFAULT_PROFILE: Profile = {
     deviceToPlateEdge: 20,
     heatExtra: 20,
   },
-  drawing: {
-    // 既存図面のレイヤ名が分かり次第ここを差し替える。
-    // コードを触らず My設定ファイルだけで変えられるようにしてある。
-    layers: {
-      plate: 'PANEL-PLATE',
-      duct: 'PANEL-DUCT',
-      device: 'PANEL-DEVICE',
-      text: 'PANEL-TEXT',
-      rail: 'PANEL-RAIL',
-    },
-    textHeight: 5,
+  bom: {
+    // 国内 ERP は Shift-JIS 指定のことが多いので既定を cp932 にしている。
+    // ERP の取込仕様が判明したら、この設定を変えるだけで対応できる。
+    encoding: 'cp932',
+    delimiter: ',',
+    withHeader: true,
+    columns: ['model', 'maker', 'name', 'qty', 'unit'],
   },
 };
 
@@ -77,4 +77,13 @@ export const DUCT_LAYOUT_LABEL: Record<Profile['duct']['layout'], string> = {
   cross: '田の字（外周＋十字）',
   zoned: 'ゾーン分割（動力／制御）',
   'terminal-bottom': '端子台最下段専用',
+};
+
+/** まだ実装できていないダクトレイアウト。UI では選べないようにする。 */
+export const DUCT_LAYOUT_READY: Record<Profile['duct']['layout'], boolean> = {
+  'horizontal-rows': true,
+  'vertical-sides': false,
+  cross: false,
+  zoned: false,
+  'terminal-bottom': false,
 };

@@ -72,7 +72,7 @@ export function buildBom(layout: LayoutResult, profile: Profile): BomLine[] {
   }
 
   // --- 直付け機器の取付ネジ（1台あたり4本で概算） ---
-  const plateCount = layout.placed.filter((p) => p.mount === 'plate').length;
+  const plateCount = layout.placed.filter((p) => p.mount === 'direct').length;
   if (plateCount > 0) {
     lines.push({
       model: 'M4 取付ネジ',
