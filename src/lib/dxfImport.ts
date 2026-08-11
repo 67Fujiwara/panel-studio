@@ -3,13 +3,27 @@ import DxfParser from 'dxf-parser';
 import type { DeviceShape, ShapeEntity } from '../types';
 
 /**
- * DXF から盤の寸法を拾うための読み込み。
+ * DXF の読み込み。
  *
- * メーカー図面は三面図・寸法線・表題欄が1ファイルに同居しているので、
- * 「どの矩形が外形でどれが中板か」を機械的に当てるのは安定しない。
- * ここでは候補となる矩形を並べるところまでをやり、どれを使うかは人が選ぶ。
- * 一度選べば型式ごとに盤マスタへ残せるので、次回から入力は要らなくなる。
+ * 実際のメーカー図面を読ませて分かったこと:
+ *  - 外形の四角は「閉じたポリライン」ではなく **4本の LINE** で描かれていることが多い
+ *  - 三面図が1ファイルに同居していて、レイヤでは分かれていない
+ *  - 部品の形はブロックの中にあり、INSERT で置かれている
+ *  - 文字（TEXT/MTEXT）が図の外にあり、そのまま外接を取ると寸法が狂う
+ *
+ * そこで、
+ *  1. ブロックを展開し、文字や寸法線を落として図形だけにする
+ *  2. 線から矩形を組み立てる
+ *  3. 離れて描かれている図（三面図の各面）をかたまりに分ける
+ * という順で候補を出す。どれを使うかは人が選ぶ。
  */
+
+export type Pt = { x: number; y: number };
+
+export type Prim =
+  | { k: 'seg'; x1: number; y1: number; x2: number; y2: number }
+  | { k: 'circle'; x: number; y: number; r: number }
+  | { k: 'arc'; x: number; y: number; r: number; a0: number; a1: number };
 
 export type RectCandidate = {
   key: string;
@@ -18,13 +32,24 @@ export type RectCandidate = {
   x: number;
   y: number;
   layer: string;
-  /** どうやって拾ったか */
-  from: '閉じた矩形' | 'レイヤの外接' | '図面全体';
+  from: '線で囲まれた四角' | '閉じた四角' | '図のかたまり' | '図面全体';
 };
 
-type Pt = { x: number; y: number };
+/** 寸法線・文字など、形と関係のないものを落とすためのレイヤ名。 */
+const NOISE_LAYER = /dim|寸法|text|文字|hatch|ハッチ|注記|note/i;
+const NOISE_TYPE = new Set([
+  'DIMENSION',
+  'TEXT',
+  'MTEXT',
+  'HATCH',
+  'LEADER',
+  'ATTDEF',
+  'ATTRIB',
+  'SOLID',
+  'POINT',
+]);
 
-/** 国内の DXF は Shift-JIS のことが多い。BOM や文字コードを見て変換する。 */
+/** 国内の DXF は Shift-JIS のことが多い。文字コードを見て変換する。 */
 export async function readDxfText(file: File): Promise<string> {
   const buf = new Uint8Array(await file.arrayBuffer());
   const detected = Encoding.detect(buf);
@@ -34,91 +59,288 @@ export async function readDxfText(file: File): Promise<string> {
   return Encoding.convert(buf, { to: 'UNICODE', from: detected, type: 'string' }) as string;
 }
 
-const r1 = (v: number) => Number(v.toFixed(1));
+type RawEntity = {
+  type: string;
+  layer?: string;
+  vertices?: Pt[];
+  center?: Pt;
+  radius?: number;
+  startAngle?: number;
+  endAngle?: number;
+  shape?: boolean;
+  closed?: boolean;
+  name?: string;
+  position?: Pt;
+  xScale?: number;
+  yScale?: number;
+  rotation?: number;
+};
 
-/** 軸に平行な矩形かどうか。回転している枠は対象外にする。 */
-function axisAlignedRect(pts: Pt[]): { w: number; h: number; x: number; y: number } | null {
-  const p = pts.length >= 2 && same(pts[0]!, pts[pts.length - 1]!) ? pts.slice(0, -1) : pts;
-  if (p.length !== 4) return null;
-  for (let i = 0; i < 4; i++) {
-    const a = p[i]!;
-    const b = p[(i + 1) % 4]!;
-    const horizontal = Math.abs(a.y - b.y) < 0.01;
-    const vertical = Math.abs(a.x - b.x) < 0.01;
-    if (!horizontal && !vertical) return null;
-  }
-  const xs = p.map((v) => v.x);
-  const ys = p.map((v) => v.y);
-  const w = Math.max(...xs) - Math.min(...xs);
-  const h = Math.max(...ys) - Math.min(...ys);
-  if (w < 1 || h < 1) return null;
-  return { w: r1(w), h: r1(h), x: r1(Math.min(...xs)), y: r1(Math.min(...ys)) };
+type Parsed = { entities?: RawEntity[]; blocks?: Record<string, { entities?: RawEntity[] }> };
+
+/** INSERT を展開し、文字などを落として、図形の並びにする。 */
+export function flatten(text: string): { prims: Prim[]; layerOf: string[]; entityCount: number } {
+  const parsed = (new DxfParser().parseSync(text) ?? {}) as Parsed;
+  const blocks = parsed.blocks ?? {};
+  const prims: Prim[] = [];
+  const layerOf: string[] = [];
+
+  const push = (p: Prim, layer: string) => {
+    prims.push(p);
+    layerOf.push(layer);
+  };
+
+  const walk = (entities: RawEntity[], tx: number, ty: number, sx: number, sy: number, rot: number, depth: number) => {
+    const cos = Math.cos(rot);
+    const sin = Math.sin(rot);
+    const map = (p: Pt): Pt => {
+      const x = p.x * sx;
+      const y = p.y * sy;
+      return { x: tx + x * cos - y * sin, y: ty + x * sin + y * cos };
+    };
+
+    for (const e of entities) {
+      const layer = e.layer ?? '0';
+      if (NOISE_TYPE.has(e.type)) continue;
+      if (NOISE_LAYER.test(layer)) continue;
+
+      if (e.type === 'INSERT' && e.name && depth < 4) {
+        const block = blocks[e.name];
+        if (block?.entities) {
+          const at = map(e.position ?? { x: 0, y: 0 });
+          walk(
+            block.entities,
+            at.x,
+            at.y,
+            sx * (e.xScale ?? 1),
+            sy * (e.yScale ?? 1),
+            rot + ((e.rotation ?? 0) * Math.PI) / 180,
+            depth + 1,
+          );
+        }
+        continue;
+      }
+
+      if (e.type === 'CIRCLE' && e.center && typeof e.radius === 'number') {
+        const c = map(e.center);
+        push({ k: 'circle', x: c.x, y: c.y, r: e.radius * Math.abs(sx) }, layer);
+        continue;
+      }
+      if (
+        e.type === 'ARC' &&
+        e.center &&
+        typeof e.radius === 'number' &&
+        typeof e.startAngle === 'number' &&
+        typeof e.endAngle === 'number'
+      ) {
+        const c = map(e.center);
+        push(
+          {
+            k: 'arc',
+            x: c.x,
+            y: c.y,
+            r: e.radius * Math.abs(sx),
+            a0: e.startAngle + rot,
+            a1: e.endAngle + rot,
+          },
+          layer,
+        );
+        continue;
+      }
+      if (e.vertices && e.vertices.length >= 2) {
+        const pts = e.vertices.filter((v) => Number.isFinite(v.x) && Number.isFinite(v.y)).map(map);
+        for (let i = 0; i + 1 < pts.length; i++) {
+          push({ k: 'seg', x1: pts[i]!.x, y1: pts[i]!.y, x2: pts[i + 1]!.x, y2: pts[i + 1]!.y }, layer);
+        }
+        // 閉じたポリラインは最後の頂点から先頭へ戻る辺も持つ
+        const isClosed = e.shape === true || e.closed === true;
+        if (isClosed && pts.length >= 3) {
+          const a = pts[pts.length - 1]!;
+          const b = pts[0]!;
+          push({ k: 'seg', x1: a.x, y1: a.y, x2: b.x, y2: b.y }, layer);
+        }
+      }
+    }
+  };
+
+  walk(parsed.entities ?? [], 0, 0, 1, 1, 0, 0);
+  return { prims, layerOf, entityCount: (parsed.entities ?? []).length };
 }
 
-const same = (a: Pt, b: Pt) => Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) < 0.01;
+export type Box = { minX: number; minY: number; maxX: number; maxY: number };
 
-/** DXF を解析して、盤寸法の候補になりそうな矩形を大きい順に返す。 */
-export function findRectangles(text: string): { candidates: RectCandidate[]; entityCount: number } {
-  const parsed = new DxfParser().parseSync(text);
-  const entities = (parsed?.entities ?? []) as {
-    type: string;
-    layer?: string;
-    vertices?: Pt[];
-    center?: Pt;
-    radius?: number;
-  }[];
+export function primBox(p: Prim): Box {
+  if (p.k === 'seg') {
+    return {
+      minX: Math.min(p.x1, p.x2),
+      maxX: Math.max(p.x1, p.x2),
+      minY: Math.min(p.y1, p.y2),
+      maxY: Math.max(p.y1, p.y2),
+    };
+  }
+  return { minX: p.x - p.r, maxX: p.x + p.r, minY: p.y - p.r, maxY: p.y + p.r };
+}
+
+const r1 = (v: number) => Number(v.toFixed(1));
+const EPS = 0.6;
+
+/**
+ * 線から四角を組み立てる。
+ *
+ * 上下の辺は同じ左右位置で引かれているはずなので、まず水平線を「左端・右端」で
+ * まとめ、その中の2本を上下の辺と仮定して、両端に縦線があるかを確かめる。
+ */
+function rectsFromSegments(prims: Prim[], layerOf: string[]): Omit<RectCandidate, 'key'>[] {
+  type H = { y: number; xa: number; xb: number; layer: string };
+  type V = { x: number; ya: number; yb: number };
+  const hs: H[] = [];
+  const vs: V[] = [];
+
+  prims.forEach((p, i) => {
+    if (p.k !== 'seg') return;
+    const layer = layerOf[i] ?? '0';
+    if (Math.abs(p.y1 - p.y2) < EPS && Math.abs(p.x1 - p.x2) >= EPS) {
+      hs.push({ y: (p.y1 + p.y2) / 2, xa: Math.min(p.x1, p.x2), xb: Math.max(p.x1, p.x2), layer });
+    } else if (Math.abs(p.x1 - p.x2) < EPS && Math.abs(p.y1 - p.y2) >= EPS) {
+      vs.push({ x: (p.x1 + p.x2) / 2, ya: Math.min(p.y1, p.y2), yb: Math.max(p.y1, p.y2) });
+    }
+  });
+
+  const spansV = (x: number, y1: number, y2: number) =>
+    vs.some((v) => Math.abs(v.x - x) < EPS && v.ya <= y1 + EPS && v.yb >= y2 - EPS);
+
+  const groups = new Map<string, H[]>();
+  for (const h of hs) {
+    const key = `${r1(h.xa)}:${r1(h.xb)}`;
+    const g = groups.get(key) ?? [];
+    g.push(h);
+    groups.set(key, g);
+  }
+
+  const out: Omit<RectCandidate, 'key'>[] = [];
+  for (const g of groups.values()) {
+    g.sort((a, b) => a.y - b.y);
+    for (let i = 0; i < g.length; i++) {
+      for (let j = i + 1; j < g.length; j++) {
+        const lo = g[i]!;
+        const hi = g[j]!;
+        const h = hi.y - lo.y;
+        if (h < 1) continue;
+        if (!spansV(lo.xa, lo.y, hi.y) || !spansV(lo.xb, lo.y, hi.y)) continue;
+        out.push({
+          w: r1(lo.xb - lo.xa),
+          h: r1(h),
+          x: r1(lo.xa),
+          y: r1(lo.y),
+          layer: lo.layer,
+          from: '線で囲まれた四角',
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 離れて描かれている図をかたまりに分ける。三面図の各面を切り出すのに使う。
+ * 図面全体の大きさに対して十分離れているものを別のかたまりとみなす。
+ */
+function clusterBoxes(prims: Prim[]): Box[] {
+  if (prims.length === 0 || prims.length > 4000) return [];
+  const boxes = prims.map(primBox);
+  const all = boxes.reduce(
+    (a, b) => ({
+      minX: Math.min(a.minX, b.minX),
+      maxX: Math.max(a.maxX, b.maxX),
+      minY: Math.min(a.minY, b.minY),
+      maxY: Math.max(a.maxY, b.maxY),
+    }),
+    { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity },
+  );
+  const diag = Math.hypot(all.maxX - all.minX, all.maxY - all.minY);
+  const gap = Math.max(5, diag * 0.02);
+
+  const near = (a: Box, b: Box) =>
+    a.minX - gap <= b.maxX && b.minX - gap <= a.maxX && a.minY - gap <= b.maxY && b.minY - gap <= a.maxY;
+
+  const merged: Box[] = [];
+  for (const box of boxes) {
+    let cur = { ...box };
+    for (let i = merged.length - 1; i >= 0; i--) {
+      if (near(cur, merged[i]!)) {
+        const m = merged[i]!;
+        cur = {
+          minX: Math.min(cur.minX, m.minX),
+          maxX: Math.max(cur.maxX, m.maxX),
+          minY: Math.min(cur.minY, m.minY),
+          maxY: Math.max(cur.maxY, m.maxY),
+        };
+        merged.splice(i, 1);
+      }
+    }
+    merged.push(cur);
+  }
+  // 1回のパスでは繋がりきらないことがあるので、変化がなくなるまで繰り返す
+  for (let pass = 0; pass < 4; pass++) {
+    let changed = false;
+    for (let i = merged.length - 1; i >= 0; i--) {
+      for (let j = i - 1; j >= 0; j--) {
+        if (near(merged[i]!, merged[j]!)) {
+          const a = merged[i]!;
+          const b = merged[j]!;
+          merged[j] = {
+            minX: Math.min(a.minX, b.minX),
+            maxX: Math.max(a.maxX, b.maxX),
+            minY: Math.min(a.minY, b.minY),
+            maxY: Math.max(a.maxY, b.maxY),
+          };
+          merged.splice(i, 1);
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (!changed) break;
+  }
+  return merged;
+}
+
+/** DXF を解析して、盤寸法の候補になりそうな矩形を返す。 */
+export function findRectangles(text: string): {
+  candidates: RectCandidate[];
+  entityCount: number;
+  prims: Prim[];
+} {
+  const { prims, layerOf, entityCount } = flatten(text);
 
   const found = new Map<string, RectCandidate>();
   const push = (c: Omit<RectCandidate, 'key'>) => {
-    // 同じ寸法・同じ位置のものは1つにまとめる
+    if (c.w < 1 || c.h < 1) return;
     const key = `${c.w}x${c.h}@${c.x},${c.y}`;
     if (!found.has(key)) found.set(key, { ...c, key });
   };
 
-  // レイヤごと・図面全体の外接矩形も候補にする
-  const byLayer = new Map<string, { minX: number; maxX: number; minY: number; maxY: number }>();
-  const all = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+  for (const r of rectsFromSegments(prims, layerOf)) push(r);
 
-  for (const e of entities) {
-    const layer = e.layer ?? '0';
-    const pts: Pt[] = [...(e.vertices ?? [])];
-    if (e.center && typeof e.radius === 'number') {
-      pts.push(
-        { x: e.center.x - e.radius, y: e.center.y - e.radius },
-        { x: e.center.x + e.radius, y: e.center.y + e.radius },
-      );
-    }
-    if (pts.length === 0) continue;
-
-    if ((e.type === 'LWPOLYLINE' || e.type === 'POLYLINE') && e.vertices) {
-      const rect = axisAlignedRect(e.vertices);
-      if (rect) push({ ...rect, layer, from: '閉じた矩形' });
-    }
-
-    const box = byLayer.get(layer) ?? { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
-    for (const p of pts) {
-      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
-      box.minX = Math.min(box.minX, p.x);
-      box.maxX = Math.max(box.maxX, p.x);
-      box.minY = Math.min(box.minY, p.y);
-      box.maxY = Math.max(box.maxY, p.y);
-      all.minX = Math.min(all.minX, p.x);
-      all.maxX = Math.max(all.maxX, p.x);
-      all.minY = Math.min(all.minY, p.y);
-      all.maxY = Math.max(all.maxY, p.y);
-    }
-    byLayer.set(layer, box);
+  const clusters = clusterBoxes(prims);
+  for (const b of clusters) {
+    push({
+      w: r1(b.maxX - b.minX),
+      h: r1(b.maxY - b.minY),
+      x: r1(b.minX),
+      y: r1(b.minY),
+      layer: '—',
+      from: '図のかたまり',
+    });
   }
 
-  for (const [layer, b] of byLayer) {
-    if (!Number.isFinite(b.minX)) continue;
-    const w = r1(b.maxX - b.minX);
-    const h = r1(b.maxY - b.minY);
-    if (w >= 1 && h >= 1) {
-      push({ w, h, x: r1(b.minX), y: r1(b.minY), layer, from: 'レイヤの外接' });
-    }
-  }
-  if (Number.isFinite(all.minX)) {
+  if (clusters.length > 1) {
+    const all = clusters.reduce((a, b) => ({
+      minX: Math.min(a.minX, b.minX),
+      maxX: Math.max(a.maxX, b.maxX),
+      minY: Math.min(a.minY, b.minY),
+      maxY: Math.max(a.maxY, b.maxY),
+    }));
     push({
       w: r1(all.maxX - all.minX),
       h: r1(all.maxY - all.minY),
@@ -129,118 +351,74 @@ export function findRectangles(text: string): { candidates: RectCandidate[]; ent
     });
   }
 
-  // 実際に描かれている矩形を優先する。図面全体の外接は最後（表題欄まで含むので
-  // たいてい盤の寸法ではない）。同じ種類のなかでは大きい順。
-  const priority = { 閉じた矩形: 0, 'レイヤの外接': 1, 図面全体: 2 } as const;
+  const priority = {
+    '線で囲まれた四角': 0,
+    '閉じた四角': 0,
+    '図のかたまり': 1,
+    '図面全体': 2,
+  } as const;
   const candidates = [...found.values()].sort(
     (a, b) => priority[a.from] - priority[b.from] || b.w * b.h - a.w * a.h,
   );
-  return { candidates, entityCount: entities.length };
-}
-
-/** 寸法線・文字など、部品の形とは関係のないものを落とすためのレイヤ名。 */
-const NOISE_LAYER = /dim|寸法|text|文字|hatch|ハッチ|center|中心線/i;
-const NOISE_TYPE = new Set(['DIMENSION', 'TEXT', 'MTEXT', 'HATCH', 'LEADER', 'ATTDEF', 'SOLID']);
-
-/**
- * 部品1点の外形線を DXF から取り込む。
- *
- * 部品の DXF は盤の図面と違って1点ぶんだけが描かれているので、寸法線や文字を
- * 落としたうえで全部を拾い、左下が原点になるよう平行移動する。
- * ポリラインの膨らみ（bulge）は直線で近似する。
- */
-export function extractShape(text: string): DeviceShape | null {
-  const parsed = new DxfParser().parseSync(text);
-  const entities = (parsed?.entities ?? []) as {
-    type: string;
-    layer?: string;
-    vertices?: Pt[];
-    center?: Pt;
-    radius?: number;
-    startAngle?: number;
-    endAngle?: number;
-    shape?: boolean;
-  }[];
-
-  const out: ShapeEntity[] = [];
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  const see = (x: number, y: number) => {
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y);
-  };
-
-  for (const e of entities) {
-    if (NOISE_TYPE.has(e.type)) continue;
-    if (NOISE_LAYER.test(e.layer ?? '')) continue;
-
-    if (e.type === 'CIRCLE' && e.center && typeof e.radius === 'number') {
-      out.push({ t: 'c', x: e.center.x, y: e.center.y, r: e.radius });
-      see(e.center.x - e.radius, e.center.y - e.radius);
-      see(e.center.x + e.radius, e.center.y + e.radius);
-      continue;
-    }
-    if (
-      e.type === 'ARC' &&
-      e.center &&
-      typeof e.radius === 'number' &&
-      typeof e.startAngle === 'number' &&
-      typeof e.endAngle === 'number'
-    ) {
-      out.push({
-        t: 'a',
-        x: e.center.x,
-        y: e.center.y,
-        r: e.radius,
-        a0: e.startAngle,
-        a1: e.endAngle,
-      });
-      // 端点だけでは外接を取り違えるので、円としての範囲を見る（安全側）
-      see(e.center.x - e.radius, e.center.y - e.radius);
-      see(e.center.x + e.radius, e.center.y + e.radius);
-      continue;
-    }
-    if (e.vertices && e.vertices.length >= 2) {
-      const pts: number[] = [];
-      for (const v of e.vertices) {
-        if (!Number.isFinite(v.x) || !Number.isFinite(v.y)) continue;
-        pts.push(v.x, v.y);
-        see(v.x, v.y);
-      }
-      if (pts.length >= 4) {
-        const closed = e.vertices.length > 2 && (e.shape === true || same(e.vertices[0]!, e.vertices[e.vertices.length - 1]!));
-        out.push({ t: 'p', pts, ...(closed ? { c: true } : {}) });
-      }
-    }
-  }
-
-  if (out.length === 0 || !Number.isFinite(minX)) return null;
-
-  // 左下を原点に寄せて、小数を丸める
-  const shift = (x: number, y: number): [number, number] => [r2(x - minX), r2(y - minY)];
-  const entitiesOut: ShapeEntity[] = out.map((s) => {
-    if (s.t === 'c') {
-      const [x, y] = shift(s.x, s.y);
-      return { t: 'c', x, y, r: r2(s.r) };
-    }
-    if (s.t === 'a') {
-      const [x, y] = shift(s.x, s.y);
-      return { t: 'a', x, y, r: r2(s.r), a0: s.a0, a1: s.a1 };
-    }
-    const pts: number[] = [];
-    for (let i = 0; i < s.pts.length; i += 2) {
-      const [x, y] = shift(s.pts[i]!, s.pts[i + 1]!);
-      pts.push(x, y);
-    }
-    return { t: 'p', pts, ...(s.c ? { c: true } : {}) };
-  });
-
-  return { w: r2(maxX - minX), h: r2(maxY - minY), entities: entitiesOut };
+  return { candidates, entityCount, prims };
 }
 
 const r2 = (v: number) => Number(v.toFixed(2));
+
+/** 図形の並びを、指定した原点を左下とする図形データに変換する。 */
+export function primsToShape(prims: Prim[], origin: Pt, w: number, h: number): DeviceShape {
+  const entities: ShapeEntity[] = [];
+  for (const p of prims) {
+    if (p.k === 'seg') {
+      entities.push({
+        t: 'p',
+        pts: [r2(p.x1 - origin.x), r2(p.y1 - origin.y), r2(p.x2 - origin.x), r2(p.y2 - origin.y)],
+      });
+    } else if (p.k === 'circle') {
+      entities.push({ t: 'c', x: r2(p.x - origin.x), y: r2(p.y - origin.y), r: r2(p.r) });
+    } else {
+      entities.push({
+        t: 'a',
+        x: r2(p.x - origin.x),
+        y: r2(p.y - origin.y),
+        r: r2(p.r),
+        a0: p.a0,
+        a1: p.a1,
+      });
+    }
+  }
+  return { w: r1(w), h: r1(h), entities };
+}
+
+/** 指定した範囲の中にある図形だけを切り出す。三面図から1面だけ取り出すのに使う。 */
+export function extractRegion(prims: Prim[], rect: { x: number; y: number; w: number; h: number }): DeviceShape {
+  const m = 1; // 枠線そのものを取りこぼさないための余裕
+  const inside = prims.filter((p) => {
+    const b = primBox(p);
+    return (
+      b.minX >= rect.x - m &&
+      b.maxX <= rect.x + rect.w + m &&
+      b.minY >= rect.y - m &&
+      b.maxY <= rect.y + rect.h + m
+    );
+  });
+  return primsToShape(inside, { x: rect.x, y: rect.y }, rect.w, rect.h);
+}
+
+/**
+ * 部品1点の外形線を DXF から取り込む。
+ * ブロックを展開し、文字・寸法線を落としたうえで全部を拾い、左下を原点に寄せる。
+ */
+export function extractShape(text: string): DeviceShape | null {
+  const { prims } = flatten(text);
+  if (prims.length === 0) return null;
+  const boxes = prims.map(primBox);
+  const b = boxes.reduce((a, c) => ({
+    minX: Math.min(a.minX, c.minX),
+    maxX: Math.max(a.maxX, c.maxX),
+    minY: Math.min(a.minY, c.minY),
+    maxY: Math.max(a.maxY, c.maxY),
+  }));
+  if (!Number.isFinite(b.minX)) return null;
+  return primsToShape(prims, { x: b.minX, y: b.minY }, b.maxX - b.minX, b.maxY - b.minY);
+}

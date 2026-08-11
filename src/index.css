@@ -815,6 +815,21 @@ button.reset {
   font-weight: 700;
 }
 
+/* DXF の下敷き。レイアウトの邪魔にならないよう薄く敷く */
+.underlay {
+  color: #7a8695;
+  opacity: 0.8;
+  pointer-events: none;
+}
+.underlay-clear {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  padding: 3px 10px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
 .cutouts circle,
 .cutouts rect {
   fill: none;

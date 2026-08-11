@@ -36,6 +36,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const select = useStore((s) => s.select);
   const pin = useStore((s) => s.pin);
   const manual = useStore((s) => s.machining);
+  const underlay = useStore((s) => s.underlays[face]);
+  const setUnderlay = useStore((s) => s.setUnderlay);
 
   // 面や盤サイズが変わったら全体が入るように戻す
   useEffect(() => {
@@ -129,6 +131,17 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         onPointerLeave={endPointer}
       >
         <rect x={0} y={0} width={faceW} height={faceH} className="plate" />
+
+        {/*
+          DXF から取り込んだ下敷き。
+          実寸 mm のまま 1:1 で敷く。面の大きさに引き伸ばすと図が歪むうえ、
+          寸法が合っていないことに気づけなくなるため。
+        */}
+        {underlay && (
+          <g className="underlay" transform={`translate(0 ${faceH}) scale(1 -1)`}>
+            <ShapeGeometry shape={underlay} color="currentColor" />
+          </g>
+        )}
 
         {/* 100mm グリッド */}
         <g className="grid">
@@ -274,6 +287,12 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           )}
         </g>
       </svg>
+
+      {underlay && (
+        <button className="underlay-clear" onClick={() => setUnderlay(face, undefined)}>
+          下敷き（{underlay.w}×{underlay.h}）を消す
+        </button>
+      )}
 
       <div className="canvas-hint">
         {FACE_LABEL(face)}（{faceW} × {faceH}）／ 原点は左下 0,0 ／ ホイールで拡大縮小・背景ドラッグで移動・機器ドラッグで手動配置（

@@ -1,7 +1,15 @@
 import { useState } from 'react';
 import { SAMPLE_ENCLOSURES } from '../data/enclosures';
-import { findRectangles, readDxfText, type RectCandidate } from '../lib/dxfImport';
+import { FACES } from '../data/faces';
+import {
+  extractRegion,
+  findRectangles,
+  readDxfText,
+  type Prim,
+  type RectCandidate,
+} from '../lib/dxfImport';
 import { useStore } from '../store';
+import type { FaceId } from '../types';
 
 function Num({
   label,
@@ -44,8 +52,13 @@ export function StartScreen() {
   const setDepth = useStore((s) => s.setDepth);
   const go = useStore((s) => s.go);
 
+  const setUnderlay = useStore((s) => s.setUnderlay);
+  const underlays = useStore((s) => s.underlays);
+
   const [tab, setTab] = useState<'manual' | 'dxf'>('manual');
   const [candidates, setCandidates] = useState<RectCandidate[]>([]);
+  const [prims, setPrims] = useState<Prim[]>([]);
+  const [target, setTarget] = useState<FaceId>('plate');
   const [fileInfo, setFileInfo] = useState<string>('');
   const [error, setError] = useState<string>('');
 
@@ -53,15 +66,22 @@ export function StartScreen() {
     if (!file) return;
     setError('');
     setCandidates([]);
+    setPrims([]);
     try {
       const text = await readDxfText(file);
-      const { candidates, entityCount } = findRectangles(text);
+      const { candidates, entityCount, prims } = findRectangles(text);
       setCandidates(candidates.slice(0, 40));
-      setFileInfo(`${file.name} — 図形 ${entityCount} 個から候補 ${candidates.length} 件`);
-      if (candidates.length === 0) setError('矩形が見つかりませんでした。手入力に切り替えてください。');
+      setPrims(prims);
+      setFileInfo(`${file.name} — 図形 ${entityCount} 個 / 線 ${prims.length} 本 から候補 ${candidates.length} 件`);
+      if (candidates.length === 0) setError('図形が見つかりませんでした。手入力に切り替えてください。');
     } catch (e) {
       setError(`読み込めませんでした: ${String(e)}`);
     }
+  };
+
+  /** 選んだ範囲の図をその面の下敷きにする。三面図から1面だけ切り出す。 */
+  const useAsUnderlay = (c: RectCandidate) => {
+    setUnderlay(target, extractRegion(prims, { x: c.x, y: c.y, w: c.w, h: c.h }));
   };
 
   return (
@@ -108,10 +128,15 @@ export function StartScreen() {
       ) : (
         <div className="dxfbox">
           <p className="note">
-            日東工業などの DXF を読み込むと、図面に含まれる矩形を大きい順に並べます。
+            DXF を読み込むと、<b>線で囲まれた四角</b>を拾って並べます。実際の図面では外形が
+            閉じたポリラインではなく4本の線で描かれているため、線から組み立てています。
+            ブロックは展開し、文字・寸法線は除いています。
             <b>どれが外形でどれが中板かは選んでください。</b>
-            三面図・寸法線・表題欄が同居しているので機械任せにはできません。
-            一度選べば型式名と一緒に控えておけます。
+            三面図が1ファイルに同居していて機械任せにはできません。
+          </p>
+          <p className="note">
+            <b>「下敷きに」</b>を押すと、その四角の中の図だけを切り出して、選んだ面のキャンバスに
+            実寸のまま敷きます。三面図から1面だけ取り出せます。
           </p>
           <input
             type="file"
@@ -121,32 +146,48 @@ export function StartScreen() {
           {fileInfo && <p className="calc">{fileInfo}</p>}
           {error && <p className="calc bad">{error}</p>}
           {candidates.length > 0 && (
-            <table className="cands">
-              <thead>
-                <tr>
-                  <th>寸法 (W×H)</th>
-                  <th>レイヤ</th>
-                  <th>拾い方</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {candidates.map((c) => (
-                  <tr key={c.key}>
-                    <td className="qty">
-                      {c.w} × {c.h}
-                    </td>
-                    <td>{c.layer}</td>
-                    <td>{c.from}</td>
-                    <td className="cand-actions">
-                      <button onClick={() => setOuter({ w: c.w, h: c.h })}>外形に</button>
-                      <button onClick={() => setPlate({ w: c.w, h: c.h })}>中板に</button>
-                      <button onClick={() => setOuter({ d: c.h })}>奥行きに</button>
-                    </td>
+            <>
+              <label className="sel underlay-target">
+                <span>「下敷きに」で使う面</span>
+                <select value={target} onChange={(e) => setTarget(e.target.value as FaceId)}>
+                  {FACES.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                      {underlays[f.id] ? '（設定済み）' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <table className="cands">
+                <thead>
+                  <tr>
+                    <th>寸法 (W×H)</th>
+                    <th>レイヤ</th>
+                    <th>拾い方</th>
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {candidates.map((c) => (
+                    <tr key={c.key}>
+                      <td className="qty">
+                        {c.w} × {c.h}
+                      </td>
+                      <td>{c.layer}</td>
+                      <td>{c.from}</td>
+                      <td className="cand-actions">
+                        <button onClick={() => setOuter({ w: c.w, h: c.h })}>外形に</button>
+                        <button onClick={() => setPlate({ w: c.w, h: c.h })}>中板に</button>
+                        <button onClick={() => setOuter({ d: c.h })}>奥行きに</button>
+                        <button className="primary" onClick={() => useAsUnderlay(c)}>
+                          下敷きに
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
         </div>
       )}

@@ -6,6 +6,7 @@ import type {
   BomSettings,
   CategoryDef,
   ClearanceSettings,
+  DeviceShape,
   DeviceSpec,
   DuctSettings,
   FaceId,
@@ -53,8 +54,11 @@ type State = {
   machining: Machining[];
   pinned: PlacedDevice[];
   selectedUid: string | null;
+  /** 面ごとの下敷き。DXF から取り込んだ図をキャンバスの背景に敷く */
+  underlays: Partial<Record<FaceId, DeviceShape>>;
 
   go: (screen: Screen) => void;
+  setUnderlay: (face: FaceId, shape: DeviceShape | undefined) => void;
   openFace: (face: FaceId) => void;
 
   setPanel: (patch: Partial<PanelSpec>) => void;
@@ -109,8 +113,11 @@ export const useStore = create<State>((set) => ({
   machining: [],
   pinned: [],
   selectedUid: null,
+  underlays: {},
 
   go: (screen) => set({ screen, selectedUid: null }),
+  setUnderlay: (face, shape) =>
+    set((s) => ({ underlays: { ...s.underlays, [face]: shape } })),
   openFace: (face) => set({ face, screen: 'layout', selectedUid: null }),
 
   setPanel: (patch) => set((s) => ({ panel: { ...s.panel, ...patch } })),
