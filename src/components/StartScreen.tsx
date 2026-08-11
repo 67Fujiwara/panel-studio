@@ -237,8 +237,8 @@ export function StartScreen() {
         <button className="primary" onClick={() => go('faces')}>
           この寸法で進む →
         </button>
-        <button onClick={() => go('config')}>ConfigFile</button>
-        <button onClick={() => go('myconfig')}>MyConfig</button>
+        <button onClick={() => go('config')}>設定</button>
+        <button onClick={() => go('myconfig')}>My部品</button>
       </div>
     </div>
   );

@@ -33,12 +33,14 @@ function Num({
 }
 
 /** 中板の左ペイン。ダクトとクリアランスだけを扱う（盤サイズは最初の画面）。 */
-export function SettingsPanel() {
+export function SettingsPanel({ rowCount }: { rowCount: number }) {
   const face = useStore((s) => s.face);
   const panel = useStore((s) => s.panel);
   const profile = useStore((s) => s.profile);
   const setDuct = useStore((s) => s.setDuct);
   const setClearance = useStore((s) => s.setClearance);
+  const setRowGap = useStore((s) => s.setRowGap);
+  const rowGaps = profile.duct.rowGaps ?? {};
 
   const isEqual = profile.duct.rowHeightMode === 'equal';
   const rowH = computeRows(panel, face, profile).rows[0]?.h ?? 0;
@@ -93,6 +95,51 @@ export function SettingsPanel() {
         <p className="note">
           段に入った機器の背丈から段ごとに高さを決めます。段数は自動で決まるので指定不要です。
         </p>
+      )}
+
+      {rowCount > 0 && (
+        <>
+          <h3>段ごとのダクト余白</h3>
+          <p className="note">
+            段ごとに、上下のダクトとの余白を変えられます。指定しない段は下の
+            「機器 ⇔ ダクト」の値を使います。
+          </p>
+          {Array.from({ length: rowCount }, (_, i) => {
+            const g = rowGaps[i];
+            return (
+              <div key={i} className="rowgap">
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(g)}
+                    onChange={(e) =>
+                      setRowGap(
+                        i,
+                        e.target.checked
+                          ? {
+                              top: profile.clearance.deviceToDuct.top,
+                              bottom: profile.clearance.deviceToDuct.bottom,
+                            }
+                          : undefined,
+                      )
+                    }
+                  />
+                  <span>{i + 1} 段目を個別に決める</span>
+                </label>
+                {g && (
+                  <div className="grid2">
+                    <Num label="上" value={g.top} onChange={(top) => setRowGap(i, { ...g, top })} />
+                    <Num
+                      label="下"
+                      value={g.bottom}
+                      onChange={(bottom) => setRowGap(i, { ...g, bottom })}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </>
       )}
 
       <h3>中板の端からの余白</h3>

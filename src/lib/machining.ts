@@ -9,7 +9,7 @@ export const TAP_SIZES: TapSize[] = ['M3', 'M4', 'M5', 'M6'];
 /** 加工1件の呼び名。タップ穴は呼びで、バカ穴は径で表す。 */
 export function machiningLabel(m: Machining): string {
   if (m.kind === 'notch') return `${m.w}×${m.h} 角穴`;
-  return m.tap ? `${m.tap} タップ（下穴 φ${m.dia}）` : `φ${m.dia} 穴`;
+  return m.tap ? `${m.tap} タップ` : `φ${m.dia} 穴`;
 }
 
 /** 集計用の短い呼び名。 */
@@ -50,12 +50,13 @@ export function derivedMachining(placed: PlacedDevice[], devices: DeviceLookup):
           note: `${spec.model} 開口`,
         });
       } else {
+        // 切り欠きも中心座標で持つ
         out.push({
           id: `cut-${p.uid}`,
           face: p.face,
           kind: 'notch',
-          x: round(cx - cut.w / 2),
-          y: round(cy - cut.h / 2),
+          x: round(cx),
+          y: round(cy),
           w: cut.w,
           h: cut.h,
           note: `${spec.model} 開口`,

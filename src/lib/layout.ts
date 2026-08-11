@@ -6,6 +6,7 @@ import type {
   DeviceSpec,
   FaceId,
   LayoutResult,
+  MountType,
   PanelSpec,
   PlacedDevice,
   Profile,
@@ -20,23 +21,36 @@ export type DeviceLookup = Map<string, DeviceSpec>;
 /** 発熱機器とみなすしきい値(W)。これを超えると上下に追加離隔を取る。 */
 const HEAT_THRESHOLD_W = 10;
 
+/** その段のダクトとの余白。段ごとの上書きがあればそちらを使う。 */
+export function rowGap(profile: Profile, rowIndex: number): { top: number; bottom: number } {
+  const override = profile.duct.rowGaps?.[rowIndex];
+  return override ?? {
+    top: profile.clearance.deviceToDuct.top,
+    bottom: profile.clearance.deviceToDuct.bottom,
+  };
+}
+
 /**
- * 実効クリアランス = max(グローバル設定, 機器個別のメーカー指定値)。
+ * 実効クリアランス = max(段の余白設定, 機器個別のメーカー指定値)。
  * メーカー指定を下回らせないのが狙い。
  *
- * 上下はダクトが相手なので deviceToDuct を下限にする。
+ * 上下はダクトが相手なので段の余白を下限にする。
  * 左右は隣の機器が相手なので、ここではメーカー指定値だけを返し、
  * 機器同士の間隔は呼び出し側で deviceToDevice.sameRow と突き合わせる。
  * （端子台のように横に密着させる機器で、ダクト用の余白を挟んでしまうのを防ぐ）
  */
-export function effectiveClearance(spec: DeviceSpec, c: ClearanceSettings): Sides {
+export function effectiveClearance(
+  spec: DeviceSpec,
+  c: ClearanceSettings,
+  gap: { top: number; bottom: number },
+): Sides {
   const s = spec.clearance ?? {};
   const heat = (spec.heatW ?? 0) >= HEAT_THRESHOLD_W ? c.heatExtra : 0;
   // heat は「下限」として効かせる。メーカー指定値に足し込むと、
   // 既に発熱を見込んだ指定値に二重で上乗せしてしまうため。
   return {
-    top: Math.max(c.deviceToDuct.top, s.top ?? 0, heat),
-    bottom: Math.max(c.deviceToDuct.bottom, s.bottom ?? 0, heat),
+    top: Math.max(gap.top, s.top ?? 0, heat),
+    bottom: Math.max(gap.bottom, s.bottom ?? 0, heat),
     left: s.left ?? 0,
     right: s.right ?? 0,
   };
@@ -48,7 +62,7 @@ export function effectiveDepth(panel: PanelSpec): number {
 }
 
 /** 取付方式込みの機器の突出量。 */
-export function deviceProjection(spec: DeviceSpec, mount: PlacedDevice['mount']): number {
+export function deviceProjection(spec: DeviceSpec, mount: MountType): number {
   return spec.size.d + (mount === 'din' ? DIN_RAIL_HEIGHT : 0);
 }
 
@@ -92,9 +106,16 @@ export function computeRows(
   return { rows, ducts };
 }
 
-export type LayoutItem = { uid: string; specId: string; face: FaceId; mount: PlacedDevice['mount'] };
+export type LayoutItem = {
+  uid: string;
+  specId: string;
+  face: FaceId;
+  mount: MountType;
+  /** 何段目に置くかの指定。未指定なら順番に流し込む */
+  row?: number;
+};
 
-type Entry = { item: LayoutItem; spec: DeviceSpec; eff: Sides };
+type Entry = { item: LayoutItem; spec: DeviceSpec };
 
 /** 面の使える X 範囲（余白と端クリアランスの大きいほうを採る）。 */
 function usableX(panel: PanelSpec, face: FaceId, profile: Profile) {
@@ -111,11 +132,12 @@ function horizontalGap(prevRight: number, eff: Sides, c: ClearanceSettings) {
 }
 
 /**
- * 段の中で機器を上下中央に置く。
- * DIN取付・直接取付のどちらも中央合わせに揃える。
+ * 段の中での上下位置。中央合わせを基準に、DINレール取付なら
+ * 部品ごとのオフセットぶんだけずらす。
  */
-function centerY(row: DeviceRow, spec: DeviceSpec) {
-  return row.y + (row.h - spec.size.h) / 2;
+function placeY(row: DeviceRow, spec: DeviceSpec, mount: MountType) {
+  const offset = mount === 'din' ? (spec.dinOffset ?? 0) : 0;
+  return row.y + (row.h - spec.size.h) / 2 + offset;
 }
 
 /**
@@ -124,17 +146,12 @@ function centerY(row: DeviceRow, spec: DeviceSpec) {
  * 並べ替えはしない。「＋ で増やした順」がそのまま並び順になる。
  * 図の上で機器をドラッグすると、この順番が入れ替わって配置に反映される。
  */
-function buildQueue(
-  items: LayoutItem[],
-  skip: Set<string>,
-  c: ClearanceSettings,
-  devices: DeviceLookup,
-): Entry[] {
+function buildQueue(items: LayoutItem[], skip: Set<string>, devices: DeviceLookup): Entry[] {
   return items
     .filter((i) => !skip.has(i.uid))
     .map((i) => {
       const spec = devices.get(i.specId);
-      return spec ? { item: i, spec, eff: effectiveClearance(spec, c) } : null;
+      return spec ? { item: i, spec } : null;
     })
     .filter((e): e is Entry => e !== null);
 }
@@ -144,6 +161,7 @@ function buildQueue(
  *
  * まず幅だけを見て機器を段に振り分け、段ごとに「一番背の高い機器＋クリアランス」を
  * その段の高さにする。実際の盤は段ごとに高さが違うので、こちらが実物に近い。
+ * 段を指定された機器は、幅が空いていなくてもその段に入れる。
  */
 function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry[]) {
   const c = profile.clearance;
@@ -152,14 +170,23 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   const size = faceSize(panel, face);
   const violations: Violation[] = [];
 
-  type Bucket = { entries: { e: Entry; x: number }[]; h: number; cursor: number; prevRight: number };
+  type Placed = { e: Entry; x: number; eff: Sides };
+  type Bucket = { entries: Placed[]; h: number; cursor: number; prevRight: number };
   const newBucket = (): Bucket => ({ entries: [], h: 0, cursor: xMin, prevRight: 0 });
-  const buckets: Bucket[] = [];
-  let cur = newBucket();
-  buckets.push(cur);
+  const buckets: Bucket[] = [newBucket()];
+  const bucketAt = (i: number) => {
+    while (buckets.length <= i) buckets.push(newBucket());
+    return buckets[i]!;
+  };
+  let flow = 0;
 
   for (const e of queue) {
     const w = e.spec.size.w;
+    const forced = e.item.row;
+    let index = forced !== undefined && forced >= 0 ? forced : flow;
+    let b = bucketAt(index);
+    let eff = effectiveClearance(e.spec, c, rowGap(profile, index));
+
     if (w > xMax - xMin) {
       violations.push({
         uid: e.item.uid,
@@ -168,17 +195,31 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
       });
       continue;
     }
-    const gap = horizontalGap(cur.prevRight, e.eff, c);
-    let x = cur.entries.length === 0 ? xMin : cur.cursor + gap;
+
+    const gap = horizontalGap(b.prevRight, eff, c);
+    let x = b.entries.length === 0 ? xMin : b.cursor + gap;
+
     if (x + w > xMax) {
-      cur = newBucket();
-      buckets.push(cur);
-      x = xMin;
+      if (forced !== undefined && forced >= 0) {
+        // 段を指定されているので、はみ出しても指定どおりの段に置いて知らせる
+        violations.push({
+          uid: e.item.uid,
+          kind: 'overflow',
+          message: `${e.spec.model}: 指定された ${forced + 1} 段目に横幅が足りません`,
+        });
+      } else {
+        flow = buckets.length;
+        index = flow;
+        b = bucketAt(index);
+        eff = effectiveClearance(e.spec, c, rowGap(profile, index));
+        x = xMin;
+      }
     }
-    cur.entries.push({ e, x });
-    cur.cursor = x + w;
-    cur.prevRight = e.eff.right;
-    cur.h = Math.max(cur.h, e.spec.size.h + e.eff.top + e.eff.bottom);
+
+    b.entries.push({ e, x, eff });
+    b.cursor = x + w;
+    b.prevRight = eff.right;
+    b.h = Math.max(b.h, e.spec.size.h + eff.top + eff.bottom);
   }
 
   const used = buckets.filter((b) => b.entries.length > 0);
@@ -207,7 +248,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
         face,
         mount: e.item.mount,
         x,
-        y: centerY(row, e.spec),
+        y: placeY(row, e.spec, e.item.mount),
         row: index,
         pinned: false,
       });
@@ -258,41 +299,56 @@ function packEqual(
     placed.push(p);
     if (cursor[p.row] !== undefined) {
       cursor[p.row] = Math.max(cursor[p.row]!, p.x + spec.size.w);
-      prevRight[p.row] = effectiveClearance(spec, c).right;
+      prevRight[p.row] = effectiveClearance(spec, c, rowGap(profile, p.row)).right;
     }
   }
 
   // row は「使い切った行」の先頭を指す共有カーソルで、幅を使い切ったときだけ前進させる。
   // 行の高さが足りないだけの場合はその行を他の機器がまだ使えるので、row は動かさない。
-  let row = 0;
-  for (const { item, spec, eff } of queue) {
+  let flow = 0;
+  for (const { item, spec } of queue) {
     let done = false;
     let tooShort = false;
-    for (let r = row; r < rows.length; r++) {
+    const forced = item.row;
+    const candidates =
+      forced !== undefined && forced >= 0 && forced < rows.length
+        ? [forced]
+        : rows.map((r) => r.index).filter((i) => i >= flow);
+
+    for (const r of candidates) {
       const rr = rows[r]!;
-      if (spec.size.h + eff.top + eff.bottom > rr.h) {
+      const eff = effectiveClearance(spec, c, rowGap(profile, r));
+      if (spec.size.h + eff.top + eff.bottom > rr.h && candidates.length > 1) {
         tooShort = true;
         continue;
       }
       const gap = horizontalGap(prevRight[r] ?? 0, eff, c);
       const startX = cursor[r] === xMin ? xMin : (cursor[r] ?? xMin) + gap;
-      if (startX + spec.size.w <= xMax) {
+      const fits = startX + spec.size.w <= xMax;
+      if (fits || candidates.length === 1) {
         placed.push({
           uid: item.uid,
           specId: item.specId,
           face,
           mount: item.mount,
           x: startX,
-          y: centerY(rr, spec),
+          y: placeY(rr, spec, item.mount),
           row: r,
           pinned: false,
         });
         cursor[r] = startX + spec.size.w;
         prevRight[r] = eff.right;
         done = true;
+        if (!fits) {
+          violations.push({
+            uid: item.uid,
+            kind: 'overflow',
+            message: `${spec.model}: 指定された ${r + 1} 段目に横幅が足りません`,
+          });
+        }
         break;
       }
-      if (r === row) row++;
+      if (r === flow) flow++;
     }
     if (!done) {
       violations.push({
@@ -404,8 +460,8 @@ function depthViolations(
  * 自動配置。
  *
  * 最適化（2Dビンパッキング）はあえて行わない。実務で求められているのは
- * 「隙間なく詰める」ことではなく「主幹は上段、端子台は下段」といった
- * 人間のルールどおりに並ぶことで、最適解は見た目が常識から外れて使われなくなる。
+ * 「隙間なく詰める」ことではなく「＋で足した順に並ぶ」ことで、
+ * 最適解は見た目が常識から外れて使われなくなる。
  *
  * pinned（人が手で動かした機器）は座標を保持する。これにより機器を1台足しても
  * 既存の配置が組み替わらない。
@@ -418,12 +474,11 @@ export function autoLayout(
   previous: PlacedDevice[],
   devices: DeviceLookup,
 ): LayoutResult {
-  const c = profile.clearance;
   const faceItems = items.filter((i) => i.face === face);
   const uids = new Set(faceItems.map((i) => i.uid));
   const pinned = previous.filter((p) => p.pinned && p.face === face && uids.has(p.uid));
   const pinnedUids = new Set(pinned.map((p) => p.uid));
-  const queue = buildQueue(faceItems, pinnedUids, c, devices);
+  const queue = buildQueue(faceItems, pinnedUids, devices);
 
   const auto = profile.duct.rowHeightMode === 'auto';
   const result = auto

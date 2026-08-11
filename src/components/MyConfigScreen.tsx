@@ -34,7 +34,7 @@ export function MyConfigScreen() {
   return (
     <div className="screen">
       <div className="screen-head">
-        <h2>MyConfig — 担当者ごとの My部品</h2>
+        <h2>My部品 — 担当者ごとの部品</h2>
         <p className="note">
           ここで登録した部品は、レイアウト画面のツリーに
           <b>My部品 → 担当者 → 部品</b> の形で出ます。

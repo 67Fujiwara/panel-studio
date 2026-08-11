@@ -170,6 +170,20 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
         ))}
       </div>
 
+      <h4>DINレールからのオフセット</h4>
+      <p className="note">
+        DINレール取付のときに、レール中心から上下にどれだけずらすか。
+        <b>0 ならレール中心に合わせます。</b>プラスで上、マイナスで下にずれます。
+      </p>
+      <div className="grid2">
+        <Num
+          label="オフセット"
+          value={part.dinOffset ?? 0}
+          onChange={(dinOffset) => update(part.id, { dinOffset })}
+          step={0.5}
+        />
+      </div>
+
       <h4>取付穴（ピッチとサイズ）</h4>
       <p className="note">
         直付けのときの<b>ケガキ座標</b>と取付ネジ本数に使います。中心からピッチで展開します。

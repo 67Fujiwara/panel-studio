@@ -5,12 +5,49 @@ import { asciiFileName, bomToCsv, downloadCsv, machiningToCsv } from '../lib/csv
 import { autoLayout } from '../lib/layout';
 import { derivedMachining } from '../lib/machining';
 import { deviceLookup, useStore } from '../store';
-import type { BomSettings } from '../types';
+import type { BomSettings, FaceId, PanelSpec } from '../types';
+
+/** 展開図の面と面のすき間(mm 相当) */
+const GAP = 14;
+
+type Cell = { id: FaceId; x: number; y: number; w: number; h: number };
+
+/**
+ * 制御盤を展開した図の配置を組み立てる。
+ * 中央に正面（扉）、その左右に側面、上下に上面・底面、右端に背面を置く。
+ * 中板は箱の一部ではないので、下に離して置く。
+ */
+function unfold(panel: PanelSpec): { cells: Cell[]; w: number; h: number } {
+  const { w: W, h: H, d: D } = panel.outer;
+  const { w: pw, h: ph } = panel.plate;
+
+  const xLeft = 0;
+  const xDoor = D + GAP;
+  const xRight = xDoor + W + GAP;
+  const xBack = xRight + D + GAP;
+
+  const yTop = 0;
+  const yMid = D + GAP;
+  const yBottom = yMid + H + GAP;
+  const yPlate = yBottom + D + GAP * 3;
+
+  const cells: Cell[] = [
+    { id: 'top', x: xDoor, y: yTop, w: W, h: D },
+    { id: 'left', x: xLeft, y: yMid, w: D, h: H },
+    { id: 'door', x: xDoor, y: yMid, w: W, h: H },
+    { id: 'right', x: xRight, y: yMid, w: D, h: H },
+    { id: 'back', x: xBack, y: yMid, w: W, h: H },
+    { id: 'bottom', x: xDoor, y: yBottom, w: W, h: D },
+    { id: 'plate', x: xDoor, y: yPlate, w: pw, h: ph },
+  ];
+
+  return { cells, w: xBack + W, h: yPlate + ph };
+}
 
 /**
  * 面の選択画面。
- * 既存図面が三角法なので、それに合わせた並びでカードを置く。
- * BOM は面ごとではなく盤単位のものなので、6面ぶんをまとめてここに出す。
+ * 左は制御盤の展開図。面を押すとその面のレイアウト画面に移る。
+ * BOM は面ごとではなく盤単位のものなので、右にまとめて出す。
  */
 export function FacePicker() {
   const panel = useStore((s) => s.panel);
@@ -32,55 +69,84 @@ export function FacePicker() {
 
   const bom = buildBom(layouts, profile, lookup);
   const heat = totalHeatW(layouts, lookup);
-  const cutouts = [
-    ...layouts.flatMap((l) => derivedMachining(l.placed, lookup)),
-    ...machining,
-  ];
+  const cutouts = [...layouts.flatMap((l) => derivedMachining(l.placed, lookup)), ...machining];
   const base = asciiFileName(panel.model, 'panel');
+
+  const { cells, w: diagW, h: diagH } = unfold(panel);
+  // 図の大きさが変わっても文字が読める大きさになるよう、図の寸法に対する比で決める
+  const fs = Math.max(diagW, diagH) / 42;
+
+  const countsOf = (id: FaceId) => {
+    const i = FACES.findIndex((f) => f.id === id);
+    return {
+      devs: items.filter((it) => it.face === id).length,
+      cuts:
+        (i >= 0 ? derivedMachining(layouts[i]!.placed, lookup).length : 0) +
+        machining.filter((m) => m.face === id).length,
+    };
+  };
 
   return (
     <div className="facepicker">
       <div className="facepicker-left">
-      <div className="facepicker-head">
-        <h2>{panel.model}</h2>
-        <p>
-          外形 {panel.outer.w} × {panel.outer.h} × D{panel.outer.d} ／ 中板 {panel.plate.w} ×{' '}
-          {panel.plate.h}
-        </p>
-        <p className="note">
-          加工したい面を選ぶとレイアウト画面に移ります。並びは既存図面と同じ<b>三角法</b>です。
-          中板だけが配線ダクトと DIN レールを扱い、他の面は直接取り付けと穴あけ・切り欠き加工の対象です。
-        </p>
-      </div>
+        <div className="facepicker-head">
+          <h2>{panel.model}</h2>
+          <p>
+            外形 {panel.outer.w} × {panel.outer.h} × D{panel.outer.d} ／ 中板 {panel.plate.w} ×{' '}
+            {panel.plate.h}
+          </p>
+          <p className="note">
+            制御盤を<b>展開した図</b>です。加工したい面を押すとレイアウト画面に移ります。
+            中板だけが配線ダクトと DIN レールを扱い、他の面は直接取り付けと穴あけ・切り欠き加工の対象です。
+          </p>
+        </div>
 
-      <div className="facegrid">
-        {FACES.map((f, i) => {
-          const size = faceSize(panel, f.id);
-          const devs = items.filter((it) => it.face === f.id).length;
-          const cuts =
-            derivedMachining(layouts[i]!.placed, lookup).length +
-            machining.filter((m) => m.face === f.id).length;
-          return (
-            <button
-              key={f.id}
-              className={`facecard${f.id === 'plate' ? ' plate' : ''}`}
-              style={{ gridColumn: f.grid.col, gridRow: f.grid.row }}
-              onClick={() => openFace(f.id)}
-            >
-              <strong>{f.label}</strong>
-              <span className="dim">
-                {size.w} × {size.h}
-              </span>
-              <span className="hint">{f.hint}</span>
-              <span className="counts">
-                {devs > 0 && <em>機器 {devs}</em>}
-                {cuts > 0 && <em>加工 {cuts}</em>}
-                {devs === 0 && cuts === 0 && <em className="empty">未設定</em>}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+        <svg className="unfold" viewBox={`${-fs} ${-fs} ${diagW + fs * 2} ${diagH + fs * 2}`}>
+          {cells.map((c) => {
+            const def = FACES.find((f) => f.id === c.id)!;
+            const size = faceSize(panel, c.id);
+            const { devs, cuts } = countsOf(c.id);
+            const badge = [devs > 0 ? `機器 ${devs}` : '', cuts > 0 ? `加工 ${cuts}` : '']
+              .filter(Boolean)
+              .join(' / ');
+            // 細い面でも文字がはみ出さないよう、セル幅に合わせて字を縮める
+            const fit = (text: string, base: number) =>
+              Math.min(base, ((c.w - fs * 0.6) / Math.max(1, text.length)) / 0.62);
+            const fName = fit(def.label, fs);
+            const fDim = fit(`${size.w} × ${size.h}`, fs * 0.8);
+            const fBadge = fit(badge || ' ', fs * 0.8);
+            return (
+              <g
+                key={c.id}
+                className={`ufcell${c.id === 'plate' ? ' plate' : ''}`}
+                onClick={() => openFace(c.id)}
+              >
+                <rect x={c.x} y={c.y} width={c.w} height={c.h} rx={fs / 3} />
+                <text
+                  x={c.x + c.w / 2}
+                  y={c.y + c.h / 2 - fs * 0.9}
+                  fontSize={fName}
+                  className="name"
+                >
+                  {def.label}
+                </text>
+                <text x={c.x + c.w / 2} y={c.y + c.h / 2 + fs * 0.3} fontSize={fDim} className="dim">
+                  {size.w} × {size.h}
+                </text>
+                {badge && (
+                  <text
+                    x={c.x + c.w / 2}
+                    y={c.y + c.h / 2 + fs * 1.6}
+                    fontSize={fBadge}
+                    className="badge"
+                  >
+                    {badge}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
       </div>
 
       <div className="bombox">

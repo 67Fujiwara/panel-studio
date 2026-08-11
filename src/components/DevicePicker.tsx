@@ -22,6 +22,8 @@ export function DevicePicker() {
   const addDevice = useStore((s) => s.addDevice);
   const removeDevice = useStore((s) => s.removeDevice);
   const setMount = useStore((s) => s.setMount);
+  const setItemRow = useStore((s) => s.setItemRow);
+  const hasDucts = FACE_BY_ID.get(face)?.ducts ?? false;
 
   const [query, setQuery] = useState('');
   const [closed, setClosed] = useState<Record<string, boolean>>({});
@@ -31,6 +33,8 @@ export function DevicePicker() {
     items.filter((i) => i.specId === specId && i.face === face).length;
   const mountOf = (specId: string) =>
     items.find((i) => i.specId === specId && i.face === face)?.mount;
+  const rowOf = (specId: string) =>
+    items.find((i) => i.specId === specId && i.face === face)?.row;
 
   const q = query.trim().toLowerCase();
   const usable = useMemo(() => {
@@ -63,6 +67,22 @@ export function DevicePicker() {
           </span>
         </div>
         <div className="dev-ctl">
+          {count > 0 && hasDucts && (
+            <select
+              value={rowOf(d.id) ?? ''}
+              title="何段目に置くか"
+              onChange={(e) =>
+                setItemRow(d.id, e.target.value === '' ? undefined : Number(e.target.value))
+              }
+            >
+              <option value="">自動</option>
+              {Array.from({ length: 8 }, (_, i) => (
+                <option key={i} value={i}>
+                  {i + 1}段
+                </option>
+              ))}
+            </select>
+          )}
           {count > 0 &&
             (selectable.length > 1 ? (
               <select

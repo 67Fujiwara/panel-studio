@@ -36,8 +36,8 @@ export default function App() {
     <nav className="nav">
       <button onClick={() => go('start')}>盤サイズ</button>
       <button onClick={() => go('faces')}>面を選ぶ</button>
-      <button onClick={() => go('config')}>ConfigFile</button>
-      <button onClick={() => go('myconfig')}>MyConfig</button>
+      <button onClick={() => go('config')}>設定</button>
+      <button onClick={() => go('myconfig')}>My部品</button>
     </nav>
   );
 
@@ -58,7 +58,11 @@ export default function App() {
         <main>
           <aside className="left">
             {/* 中板はダクトとクリアランス、それ以外は座標。使用部品は共通 */}
-            {hasDucts ? <SettingsPanel /> : <CoordPanel layout={layout} devices={lookup} />}
+            {hasDucts ? (
+              <SettingsPanel rowCount={layout.rows.length} />
+            ) : (
+              <CoordPanel layout={layout} devices={lookup} />
+            )}
             <DevicePicker />
           </aside>
           <PanelCanvas

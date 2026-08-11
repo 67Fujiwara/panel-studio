@@ -4,13 +4,14 @@ import { ShapeGeometry } from './ShapeGeometry';
 import { derivedMachining } from '../lib/machining';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
-import type { CategoryDef, FaceId, LayoutResult, PanelSpec } from '../types';
+import type { CategoryDef, FaceId, LayoutResult, Machining, PanelSpec } from '../types';
 
 /** 手動配置時のスナップ間隔(mm) */
 const SNAP = 5;
-/** 目盛りの主目盛り・補助目盛り(mm) */
+/** 目盛り。細 10mm / 中 50mm / 主 100mm（主だけ数値を出す） */
 const MAJOR = 100;
-const MINOR = 50;
+const MID = 50;
+const FINE = 10;
 
 type Props = {
   panel: PanelSpec;
@@ -28,6 +29,31 @@ const toSvgY = (faceH: number, y: number, h: number) => faceH - y - h;
 /** 目盛りのぶん、面のまわりに取る余白(mm) */
 const PAD = 70;
 
+/**
+ * 加工1件の図形。
+ * タップ穴は二重丸（外側が呼び径、内側が下穴）で、丸穴と見分けられるようにする。
+ * 切り欠きは中心座標で持っているので、左下に直して描く。
+ */
+function cutShape(m: Machining, faceH: number) {
+  if (m.kind === 'notch') {
+    return (
+      <rect x={m.x - m.w / 2} y={toSvgY(faceH, m.y, 0) - m.h / 2} width={m.w} height={m.h} />
+    );
+  }
+  const cy = toSvgY(faceH, m.y, 0);
+  if (!m.tap) return <circle cx={m.x} cy={cy} r={m.dia / 2} />;
+  const outer = TAP_OUTER[m.tap] / 2;
+  return (
+    <>
+      <circle cx={m.x} cy={cy} r={outer} />
+      <circle cx={m.x} cy={cy} r={m.dia / 2} />
+    </>
+  );
+}
+
+/** タップの呼び径。二重丸の外側に使う。 */
+const TAP_OUTER = { M3: 3, M4: 4, M5: 5, M6: 6 } as const;
+
 export function PanelCanvas({ panel, face, layout, devices, categories }: Props) {
   const { w: faceW, h: faceH } = faceSize(panel, face);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -41,6 +67,22 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const moveItem = useStore((s) => s.moveItem);
   const selectCut = useStore((s) => s.selectCut);
   const selectedCut = useStore((s) => s.selectedCut);
+  const removeSelected = useStore((s) => s.removeSelected);
+
+  // 選択中の機器を Delete / Backspace で消す
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      const el = document.activeElement;
+      // 入力欄で編集しているときは消さない
+      if (el instanceof HTMLElement && /INPUT|TEXTAREA|SELECT/.test(el.tagName)) return;
+      if (!useStore.getState().selectedUid) return;
+      e.preventDefault();
+      removeSelected();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [removeSelected]);
 
   // 面や盤サイズが変わったら全体が入るように戻す
   useEffect(() => {
@@ -204,40 +246,42 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         <g className="ruler">
           {/* 下辺（X） */}
           <line x1={0} y1={faceH} x2={faceW} y2={faceH} className="axis" />
-          {ticks(faceW, MINOR).map((x) => (
+          {ticks(faceW, FINE).map((x) => (
             <line
               key={`tx${x}`}
               x1={x}
               y1={faceH}
               x2={x}
-              y2={faceH + (x % MAJOR === 0 ? 14 : 7)}
+              y2={faceH + (x % MAJOR === 0 ? 16 : x % MID === 0 ? 10 : 5)}
+              className={x % MAJOR === 0 ? 'major' : undefined}
             />
           ))}
           {/* 0 の目盛り値は原点の 0,0 と重なるので出さない */}
           {ticks(faceW, MAJOR).slice(1).map((x) => (
-            <text key={`lx${x}`} x={x} y={faceH + 32} className="tick-label">
+            <text key={`lx${x}`} x={x} y={faceH + 34} className="tick-label">
               {x}
             </text>
           ))}
           {/* 左辺（Y） */}
           <line x1={0} y1={0} x2={0} y2={faceH} className="axis" />
-          {ticks(faceH, MINOR).map((y) => (
+          {ticks(faceH, FINE).map((y) => (
             <line
               key={`ty${y}`}
               x1={0}
               y1={faceH - y}
-              x2={-(y % MAJOR === 0 ? 14 : 7)}
+              x2={-(y % MAJOR === 0 ? 16 : y % MID === 0 ? 10 : 5)}
               y2={faceH - y}
+              className={y % MAJOR === 0 ? 'major' : undefined}
             />
           ))}
           {ticks(faceH, MAJOR).slice(1).map((y) => (
-            <text key={`ly${y}`} x={-18} y={faceH - y} className="tick-label right">
+            <text key={`ly${y}`} x={-22} y={faceH - y} className="tick-label right">
               {y}
             </text>
           ))}
           {/* 原点 */}
           <circle cx={0} cy={faceH} r={4} className="origin" />
-          <text x={-20} y={faceH + 32} className="tick-label origin-label right">
+          <text x={-22} y={faceH + 34} className="tick-label origin-label right">
             0,0
           </text>
         </g>
@@ -260,9 +304,13 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           if (!spec) return null;
           const bad = violatingUids.has(p.uid);
           const label = spec.model.split(' ')[0] ?? '';
-          const fontSize = Math.min(14, spec.size.w / 5);
-          // 収まらないラベルは出さない（clipPath で切ると読めない文字列が残るため）
-          const labelFits = label.length * fontSize * 0.6 <= spec.size.w - 4;
+          const fontSize = Math.min(14, Math.max(spec.size.w, spec.size.h) / 5);
+          const need = label.length * fontSize * 0.6;
+          // 横に入らなければ 90 度（反時計回り）に倒して縦に出す
+          const horizontal = need <= spec.size.w - 4;
+          const vertical = !horizontal && need <= spec.size.h - 4 && spec.size.w >= fontSize * 1.2;
+          const cx = p.x + spec.size.w / 2;
+          const cy = toSvgY(faceH, p.y, spec.size.h) + spec.size.h / 2;
           return (
             <g
               key={p.uid}
@@ -308,12 +356,13 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                   <ShapeGeometry shape={spec.shape} color={colorOf(spec.category)} />
                 </g>
               )}
-              {labelFits && !spec.shape && (
+              {(horizontal || vertical) && !spec.shape && (
                 <text
-                  x={p.x + spec.size.w / 2}
-                  y={toSvgY(faceH, p.y, spec.size.h) + spec.size.h / 2}
+                  x={cx}
+                  y={cy}
                   fontSize={fontSize}
                   clipPath={`url(#clip-${p.uid})`}
+                  transform={vertical ? `rotate(-90 ${cx} ${cy})` : undefined}
                 >
                   {label}
                 </text>
@@ -327,13 +376,9 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
 
         {/* 加工（穴・切り欠き）。機器の上に重ねて描き、隠れないようにする */}
         <g className="cutouts">
-          {autoCuts.map((m) =>
-            m.kind === 'hole' ? (
-              <circle key={m.id} cx={m.x} cy={toSvgY(faceH, m.y, 0)} r={m.dia / 2} />
-            ) : (
-              <rect key={m.id} x={m.x} y={toSvgY(faceH, m.y, m.h)} width={m.w} height={m.h} />
-            ),
-          )}
+          {autoCuts.map((m) => (
+            <g key={m.id}>{cutShape(m, faceH)}</g>
+          ))}
           {/* 手で足した加工は選べる。選ぶと色を変えて強調する */}
           {manualCuts.map((m) => (
             <g
@@ -344,11 +389,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                 selectCut(selectedCut === m.id ? null : m.id);
               }}
             >
-              {m.kind === 'hole' ? (
-                <circle cx={m.x} cy={toSvgY(faceH, m.y, 0)} r={m.dia / 2} />
-              ) : (
-                <rect x={m.x} y={toSvgY(faceH, m.y, m.h)} width={m.w} height={m.h} />
-              )}
+              {cutShape(m, faceH)}
             </g>
           ))}
         </g>

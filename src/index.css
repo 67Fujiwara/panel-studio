@@ -81,11 +81,47 @@ main.single {
   margin: 2px 0;
   color: var(--muted);
 }
-.facegrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 16px;
+svg.unfold {
+  display: block;
+  width: 100%;
+  max-height: 62vh;
+  margin-top: 12px;
+}
+.ufcell rect {
+  fill: var(--surface);
+  stroke: var(--line);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+}
+.ufcell:hover rect {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.ufcell.plate rect {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+  stroke-dasharray: 10 6;
+}
+.ufcell text {
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+  font-family: inherit;
+}
+.ufcell .name {
+  fill: var(--text);
+  font-weight: 700;
+}
+.ufcell .dim {
+  fill: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ufcell .badge {
+  fill: var(--accent);
+}
+.rowgap {
+  margin-bottom: 4px;
 }
 .facecard {
   display: flex;
@@ -263,8 +299,8 @@ ul.cutsummary li {
   overflow: hidden;
 }
 .cutedit.on {
-  border-color: var(--bad);
-  box-shadow: 0 0 0 1px var(--bad) inset;
+  border-color: #ff8f1f;
+  box-shadow: 0 0 0 1px #ff8f1f inset;
 }
 .cutedit-head {
   display: flex;
@@ -273,9 +309,6 @@ ul.cutsummary li {
   padding: 4px 6px;
   font-size: 12px;
   cursor: pointer;
-}
-.cutedit.on .cutedit-head {
-  background: #fdecea;
 }
 .cutedit-head strong {
   white-space: nowrap;
@@ -844,6 +877,10 @@ button.reset {
 .ruler line {
   stroke: var(--muted);
   stroke-width: 1;
+  opacity: 0.6;
+}
+.ruler line.major {
+  opacity: 1;
 }
 .ruler line.axis {
   stroke: var(--text);
@@ -888,7 +925,6 @@ button.reset {
   fill: none;
   stroke: #c0392b;
   stroke-width: 1.5;
-  stroke-dasharray: 6 3;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
@@ -901,8 +937,7 @@ button.reset {
 .cutouts .cut.on circle,
 .cutouts .cut.on rect {
   stroke: #ff8f1f;
-  stroke-width: 4;
-  stroke-dasharray: none;
+  stroke-width: 3;
 }
 
 /* --- BOM --- */

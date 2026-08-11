@@ -22,7 +22,7 @@ export function ConfigScreen() {
 
   const exportFile = () => {
     const file: ConfigFile = { schemaVersion: 1, categories, devices, profile };
-    downloadJson(file, 'panel-studio-config.json');
+    downloadJson(file, 'panel-studio-settings.json');
   };
 
   const importFile = async () => {
@@ -33,7 +33,7 @@ export function ConfigScreen() {
   return (
     <div className="screen">
       <div className="screen-head">
-        <h2>ConfigFile — 共通の部品表</h2>
+        <h2>設定 — 共通の部品表</h2>
         <p className="note">
           分類と部品をここで編集します。レイアウト画面のツリーはこの内容をそのまま表示します。
           共有フォルダに書き出しておけば、全員が同じ部品表を使えます。

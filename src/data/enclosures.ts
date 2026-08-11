@@ -54,6 +54,7 @@ export const DEFAULT_PROFILE: Profile = {
     rowHeightMode: 'auto',
     rowCount: 3,
     margin: { top: 30, bottom: 30, left: 30, right: 30 },
+    rowGaps: {},
   },
   clearance: {
     deviceToDuct: { top: 10, bottom: 10, left: 10, right: 10 },

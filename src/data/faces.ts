@@ -7,8 +7,6 @@ export type FaceDef = {
   ducts: boolean;
   /** その面で許可する取付方式 */
   mounts: MountType[];
-  /** 面選択画面での配置（三角法に合わせる） */
-  grid: { col: number; row: number };
   hint: string;
 };
 
@@ -18,12 +16,13 @@ export type FaceDef = {
  * それ以外の面は機器を直接取り付け、穴あけ・切り欠き加工の対象になる。
  */
 export const FACES: FaceDef[] = [
-  { id: 'top', label: '上面', ducts: false, mounts: ['direct'], grid: { col: 2, row: 1 }, hint: '換気ファン・ルーバー' },
-  { id: 'left', label: '左側面', ducts: false, mounts: ['direct'], grid: { col: 1, row: 2 }, hint: '直付け・加工' },
-  { id: 'door', label: '正面（扉）', ducts: false, mounts: ['direct'], grid: { col: 2, row: 2 }, hint: '表示器・操作スイッチ' },
-  { id: 'right', label: '右側面', ducts: false, mounts: ['direct'], grid: { col: 3, row: 2 }, hint: '換気ファン・ルーバー' },
-  { id: 'bottom', label: '底面', ducts: false, mounts: ['direct'], grid: { col: 2, row: 3 }, hint: 'ケーブルグランド' },
-  { id: 'plate', label: '中板', ducts: true, mounts: ['din', 'direct'], grid: { col: 2, row: 4 }, hint: '盤内機器・自動配置' },
+  { id: 'top', label: '上面', ducts: false, mounts: ['direct'], hint: '換気ファン・ルーバー' },
+  { id: 'left', label: '左側面', ducts: false, mounts: ['direct'], hint: '直付け・加工' },
+  { id: 'door', label: '正面（扉）', ducts: false, mounts: ['direct'], hint: '表示器・操作スイッチ' },
+  { id: 'right', label: '右側面', ducts: false, mounts: ['direct'], hint: '換気ファン・ルーバー' },
+  { id: 'back', label: '背面', ducts: false, mounts: ['direct'], hint: '取付足・引込口' },
+  { id: 'bottom', label: '底面', ducts: false, mounts: ['direct'], hint: 'ケーブルグランド' },
+  { id: 'plate', label: '中板', ducts: true, mounts: ['din', 'direct'], hint: '盤内機器・自動配置' },
 ];
 
 export const FACE_BY_ID = new Map(FACES.map((f) => [f.id, f]));
@@ -36,6 +35,7 @@ export function faceSize(panel: PanelSpec, face: FaceId): { w: number; h: number
     case 'plate':
       return { ...panel.plate };
     case 'door':
+    case 'back':
       return { w: panel.outer.w, h: panel.outer.h };
     case 'left':
     case 'right':

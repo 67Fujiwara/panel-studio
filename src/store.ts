@@ -88,6 +88,11 @@ type State = {
   addDevice: (specId: string, qty: number) => void;
   removeDevice: (specId: string) => void;
   setMount: (specId: string, mount: MountType) => void;
+  /** その面のその型式を何段目に置くか。undefined で自動 */
+  setItemRow: (specId: string, row: number | undefined) => void;
+  /** 選択中の機器を1台消す（Delete キー用） */
+  removeSelected: () => void;
+  setRowGap: (row: number, gap: { top: number; bottom: number } | undefined) => void;
   select: (uid: string | null) => void;
   selectCut: (id: string | null) => void;
   /**
@@ -241,6 +246,32 @@ export const useStore = create<State>((set) => ({
       items: s.items.map((i) => (i.specId === specId && i.face === s.face ? { ...i, mount } : i)),
       pinned: s.pinned.filter((p) => !(p.specId === specId && p.face === s.face)),
     })),
+
+  setItemRow: (specId, row) =>
+    set((s) => ({
+      items: s.items.map((i) =>
+        i.specId === specId && i.face === s.face ? { ...i, row } : i,
+      ),
+      pinned: s.pinned.filter((p) => !(p.specId === specId && p.face === s.face)),
+    })),
+
+  removeSelected: () =>
+    set((s) => {
+      if (!s.selectedUid) return s;
+      return {
+        items: s.items.filter((i) => i.uid !== s.selectedUid),
+        pinned: s.pinned.filter((p) => p.uid !== s.selectedUid),
+        selectedUid: null,
+      };
+    }),
+
+  setRowGap: (row, gap) =>
+    set((s) => {
+      const next = { ...s.profile.duct.rowGaps };
+      if (gap) next[row] = gap;
+      else delete next[row];
+      return { profile: { ...s.profile, duct: { ...s.profile.duct, rowGaps: next } } };
+    }),
 
   select: (uid) => set({ selectedUid: uid, selectedCut: null }),
   selectCut: (id) => set({ selectedCut: id, selectedUid: null }),

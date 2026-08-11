@@ -4,8 +4,8 @@
 /** 取付方式。direct は面に直接ネジ留めすること。 */
 export type MountType = 'din' | 'direct';
 
-/** 制御盤の6面。中板だけが配線ダクトを持ち、他の面は直付けのみ。 */
-export type FaceId = 'plate' | 'door' | 'left' | 'right' | 'top' | 'bottom';
+/** 制御盤の面。中板だけが配線ダクトを持ち、他の面は直付けのみ。 */
+export type FaceId = 'plate' | 'door' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 
 /** カテゴリは ConfigFile 画面で増やせるようにするため、固定の union にしない。 */
 export type DeviceCategory = string;
@@ -69,6 +69,11 @@ export type DeviceSpec = {
   mountHoles?: MountHoles;
   /** CAD から取り込んだ外形線。無ければただの四角で描く */
   shape?: DeviceShape;
+  /**
+   * DINレールからの上下オフセット(mm)。0 ならレール中心に合わせる。
+   * 機器によってレールに対する掛かり位置が違うので、部品ごとに持たせる。
+   */
+  dinOffset?: number;
   /** w=幅, h=高さ, d=取付面からの突出（DINレール取付時はレール高さが別途加算される） */
   size: { w: number; h: number; d: number };
   /** 対応する取付方式。両対応の機器は案件ごとに選ばせる */
@@ -112,6 +117,7 @@ export type TapSize = 'M3' | 'M4' | 'M5' | 'M6';
  */
 export type MachiningDraft =
   | { kind: 'hole'; x: number; y: number; dia: number; tap?: TapSize; note?: string }
+  /** 切り欠きも x,y は「中心」座標 */
   | { kind: 'notch'; x: number; y: number; w: number; h: number; note?: string };
 
 /** 面に施す加工。 */
@@ -158,6 +164,11 @@ export type DuctSettings = {
   rowCount: number;
   /** 面の端からの余白 */
   margin: Sides;
+  /**
+   * 段ごとのダクトとの余白。段番号をキーにした上書き。
+   * 指定がない段は clearance.deviceToDuct を使う。
+   */
+  rowGaps: Record<number, { top: number; bottom: number }>;
 };
 
 export type ClearanceSettings = {

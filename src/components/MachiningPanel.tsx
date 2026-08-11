@@ -139,7 +139,7 @@ export function MachiningPanel({
                               });
                           }}
                         >
-                          <option value="through">バカ穴（径を指定）</option>
+                          <option value="through">丸穴（径を指定）</option>
                           {TAP_SIZES.map((t) => (
                             <option key={t} value={t}>
                               {t} タップ（下穴 φ{TAP_DRILL[t]}）
@@ -151,18 +151,15 @@ export function MachiningPanel({
                     <div className="grid2">
                       <Num label="X" value={m.x} onChange={(x) => updateMachining(m.id, { x })} />
                       <Num label="Y" value={m.y} onChange={(y) => updateMachining(m.id, { y })} />
-                      {m.kind === 'hole' ? (
-                        <Num
-                          label={m.tap ? '下穴径 φ' : '径 φ'}
-                          value={m.dia}
-                          onChange={(dia) => updateMachining(m.id, { dia })}
-                        />
-                      ) : (
+                      {/* タップは呼びで決まるので下穴径は出さない */}
+                      {m.kind === 'hole' && !m.tap ? (
+                        <Num label="径 φ" value={m.dia} onChange={(dia) => updateMachining(m.id, { dia })} />
+                      ) : m.kind === 'notch' ? (
                         <>
                           <Num label="幅" value={m.w} onChange={(w) => updateMachining(m.id, { w })} />
                           <Num label="高さ" value={m.h} onChange={(h) => updateMachining(m.id, { h })} />
                         </>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 )}

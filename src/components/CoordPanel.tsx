@@ -12,8 +12,17 @@ export function CoordPanel({ layout, devices }: { layout: LayoutResult; devices:
   const setCenter = useStore((s) => s.setCenter);
   const select = useStore((s) => s.select);
   const selectedUid = useStore((s) => s.selectedUid);
+  const items = useStore((s) => s.items);
+  const face = useStore((s) => s.face);
 
-  if (layout.placed.length === 0) {
+  // 座標をいじるたびに行が並び替わらないよう、「＋で足した順」で固定して出す
+  const byUid = new Map(layout.placed.map((p) => [p.uid, p]));
+  const rows = items
+    .filter((i) => i.face === face)
+    .map((i) => byUid.get(i.uid))
+    .filter((p): p is NonNullable<typeof p> => Boolean(p));
+
+  if (rows.length === 0) {
     return (
       <div className="panel">
         <h2>座標（中心）</h2>
@@ -37,7 +46,7 @@ export function CoordPanel({ layout, devices }: { layout: LayoutResult; devices:
           </tr>
         </thead>
         <tbody>
-          {layout.placed.map((p) => {
+          {rows.map((p) => {
             const spec = devices.get(p.specId);
             if (!spec) return null;
             const cx = r1(p.x + spec.size.w / 2);
