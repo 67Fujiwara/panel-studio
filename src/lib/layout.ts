@@ -170,6 +170,10 @@ const LAYOUT_RULES: Record<DuctLayoutId, LayoutRule> = {
   // 横ダクト段組みに、左端の縦ダクトを1列足したもの。
   // 主幹からの幹線を左で縦に落とし、各段へ横に振り分ける組み方
   'horizontal-left': { verticals: [0], horizontals: true },
+  // 同じく右端に1列。盤の右から線を入れる現場向け
+  'horizontal-right': { verticals: [1], horizontals: true },
+  // 全周囲い。左右の縦ダクトと上下端の横ダクトで外周を囲む
+  'perimeter': { verticals: [0, 1], horizontals: true },
   // 両サイドに縦ダクト。段間に横ダクトを入れず、配線は左右へ逃がす
   'vertical-sides': { verticals: [0, 1], horizontals: false },
   // 外周＋十字。両サイドと中央に縦ダクト、段間にも横ダクト

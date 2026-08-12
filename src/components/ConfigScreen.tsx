@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PartEditor } from './PartEditor';
 import { EnclosureTable } from './EnclosureTable';
+import { DuctRailSettings } from './DuctRailSettings';
 import { useStore, type ConfigFile } from '../store';
 import { downloadJson, pickJson } from '../lib/jsonFile';
 
@@ -35,10 +36,11 @@ export function ConfigScreen() {
   return (
     <div className="screen">
       <div className="screen-head">
-        <h2>設定 — 盤マスタと共通の部品表</h2>
+        <h2>設定 — 盤マスタ・ダクト・部品表</h2>
         <p className="note">
-          制御盤の型式と、分類・部品をここで編集します。レイアウト画面のツリーはこの内容を
-          そのまま表示します。共有フォルダに書き出しておけば、全員が同じ設定を使えます。
+          制御盤の型式、配線ダクトと DINレールの決め事、分類・部品をここで登録します。
+          どれも案件ごとに変えるものではないので、レイアウト画面ではなくここにまとめてあります。
+          共有フォルダに書き出しておけば、全員が同じ設定を使えます。
         </p>
         <div className="row-buttons">
           <button onClick={exportFile}>書き出し（JSON）</button>
@@ -47,6 +49,8 @@ export function ConfigScreen() {
       </div>
 
       <EnclosureTable />
+
+      <DuctRailSettings />
 
       <h3 className="section">部品表</h3>
       <div className="row-buttons">

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { FACES, faceSize } from '../data/faces';
 import { buildBom, totalHeatW } from '../lib/bom';
 import { asciiFileName, bomToCsv, downloadCsv, machiningToCsv } from '../lib/csv';
@@ -179,6 +179,20 @@ export function FacePicker() {
   const setBom = useStore((s) => s.setBom);
   const underlays = useStore((s) => s.underlays);
   const removedDucts = useStore((s) => s.removedDucts);
+  const completeDesign = useStore((s) => s.completeDesign);
+  const owners = useStore((s) => s.owners);
+  // ストアの参照をそのまま取る。ここで map すると毎回新しい配列になり再描画が止まらなくなる
+  const projects = useStore((s) => s.projects);
+  const go = useStore((s) => s.go);
+
+  // 担当者は My部品の担当者と、過去案件で使った名前の両方から選べるようにする
+  const ownerChoices = useMemo(
+    () => [...new Set([...owners, ...projects.map((p) => p.owner)].filter(Boolean))].sort(),
+    [owners, projects],
+  );
+  const [jobName, setJobName] = useState('');
+  const [jobOwner, setJobOwner] = useState('');
+  const [jobNote, setJobNote] = useState('');
 
   const lookup = useMemo(() => deviceLookup(devices, myDevices), [devices, myDevices]);
 
@@ -319,7 +333,7 @@ export function FacePicker() {
 
         <p className="calc">盤内総発熱 = {heat.toFixed(1)} W</p>
 
-        <h3>CSV 書き出し</h3>
+        <h3>CSV の書式</h3>
         <div className="grid2">
           <label className="sel">
             <span>文字コード</span>
@@ -351,6 +365,63 @@ export function FacePicker() {
             <span>見出し行を付ける</span>
           </label>
         </div>
+        <h3>設計完了</h3>
+        <p className="note">
+          この設計を<b>過去案件として残します</b>。あとから振り返ったり、
+          <b>リピート</b>で同じ内容を読み込んで似た盤を作れます。
+        </p>
+        <div className="grid2">
+          <label className="num">
+            <span>案件名</span>
+            <input
+              type="text"
+              value={jobName}
+              placeholder={panel.model}
+              onChange={(e) => setJobName(e.target.value)}
+            />
+          </label>
+          <label className="num">
+            <span>担当者</span>
+            <input
+              type="text"
+              list="ps-owners"
+              value={jobOwner}
+              placeholder="氏名"
+              onChange={(e) => setJobOwner(e.target.value)}
+            />
+            <datalist id="ps-owners">
+              {ownerChoices.map((o) => (
+                <option key={o} value={o} />
+              ))}
+            </datalist>
+          </label>
+        </div>
+        <label className="num">
+          <span>メモ</span>
+          <input
+            type="text"
+            value={jobNote}
+            placeholder="納入先・特記事項など"
+            onChange={(e) => setJobNote(e.target.value)}
+          />
+        </label>
+        <div className="row-buttons">
+          <button
+            className="primary"
+            disabled={!jobOwner.trim()}
+            title={jobOwner.trim() ? undefined : '担当者を入れてください'}
+            onClick={() => {
+              completeDesign(jobName, jobOwner, jobNote);
+              setJobName('');
+              setJobNote('');
+            }}
+          >
+            ✓ 設計完了として残す
+          </button>
+          <button onClick={() => go('projects')}>過去案件を見る（{projects.length}）</button>
+        </div>
+
+        <h3>CSV 書き出し</h3>
         <div className="row-buttons">
           <button
             disabled={bom.length === 0}

@@ -24,7 +24,59 @@ import type { LayoutItem } from './lib/layout';
 let seq = 0;
 const nextId = (p: string) => `${p}${Date.now().toString(36)}${++seq}`;
 
-export type Screen = 'start' | 'faces' | 'layout' | 'config' | 'myconfig';
+export type Screen = 'start' | 'faces' | 'layout' | 'config' | 'myconfig' | 'projects';
+
+/**
+ * 設計完了した案件1件。
+ *
+ * 過去案件を振り返ったり、似た盤をリピートで作り直したりするための記録。
+ * 図を作り直せるだけの情報（盤・設定・機器・加工）をまるごと持つ。
+ */
+export type Project = {
+  id: string;
+  /** 案件名 */
+  name: string;
+  /** 担当者 */
+  owner: string;
+  /** 設計完了日 (YYYY-MM-DD) */
+  completedAt: string;
+  note: string;
+  panel: PanelSpec;
+  profile: Profile;
+  items: LayoutItem[];
+  pinned: PlacedDevice[];
+  machining: Machining[];
+  removedDucts: Partial<Record<FaceId, number[]>>;
+  underlays: Partial<Record<FaceId, DeviceShape>>;
+};
+
+/** 過去案件のファイル。共有フォルダに置いて全員で見る想定。 */
+export type ProjectFile = { schemaVersion: 1; projects: Project[] };
+
+const PROJECT_KEY = 'panel-studio.projects';
+
+/**
+ * 過去案件はブラウザにも残す。閉じたら消えるのでは「振り返る」用途を満たせないため。
+ * file:// で開くと保存できない環境があるので、失敗しても黙って続ける
+ * （JSON 書き出しが本命の受け渡し手段）。
+ */
+function loadProjects(): Project[] {
+  try {
+    const raw = localStorage.getItem(PROJECT_KEY);
+    const data = raw ? (JSON.parse(raw) as ProjectFile) : null;
+    return data?.schemaVersion === 1 ? data.projects : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveProjects(projects: Project[]) {
+  try {
+    localStorage.setItem(PROJECT_KEY, JSON.stringify({ schemaVersion: 1, projects }));
+  } catch {
+    /* 保存できない環境では JSON 書き出しを使ってもらう */
+  }
+}
 
 /** ConfigFile 画面が読み書きするファイルの中身。 */
 export type ConfigFile = {
@@ -55,6 +107,8 @@ type State = {
   myDevices: DeviceSpec[];
   /** 盤マスタ。設定画面で登録し、盤サイズ画面の「型式から選ぶ」に出る */
   enclosures: PanelSpec[];
+  /** 設計完了した過去案件 */
+  projects: Project[];
 
   items: LayoutItem[];
   machining: Machining[];
@@ -92,6 +146,14 @@ type State = {
 
   addOwner: (name: string) => void;
   removeOwner: (name: string) => void;
+
+  /** 設計完了。いまの状態を過去案件として残す */
+  completeDesign: (name: string, owner: string, note: string) => void;
+  /** 過去案件をいまの設計として読み込む（リピート） */
+  repeatProject: (id: string) => void;
+  updateProject: (id: string, patch: Partial<Project>) => void;
+  removeProject: (id: string) => void;
+  loadProjectFile: (f: ProjectFile) => void;
 
   /** 盤マスタ。今の盤の寸法をそのまま型式として登録する */
   addEnclosure: (from?: PanelSpec) => void;
@@ -151,6 +213,7 @@ export const useStore = create<State>((set) => ({
   owners: [],
   myDevices: [],
   enclosures: SAMPLE_ENCLOSURES,
+  projects: loadProjects(),
 
   items: [],
   machining: [],
@@ -239,6 +302,71 @@ export const useStore = create<State>((set) => ({
       owners: s.owners.filter((o) => o !== name),
       myDevices: s.myDevices.filter((d) => d.owner !== name),
     })),
+
+  // --- 過去案件 ---
+  completeDesign: (name, owner, note) =>
+    set((s) => {
+      const project: Project = {
+        id: nextId('prj'),
+        name: name.trim() || s.panel.model || '無題',
+        owner: owner.trim(),
+        completedAt: new Date().toISOString().slice(0, 10),
+        note: note.trim(),
+        // あとで書き換わらないよう、その時点の中身を複製して持つ
+        panel: structuredClone(s.panel),
+        profile: structuredClone(s.profile),
+        items: structuredClone(s.items),
+        pinned: structuredClone(s.pinned),
+        machining: structuredClone(s.machining),
+        removedDucts: structuredClone(s.removedDucts),
+        underlays: structuredClone(s.underlays),
+      };
+      const projects = [project, ...s.projects];
+      saveProjects(projects);
+      return { projects, screen: 'projects' as Screen };
+    }),
+
+  repeatProject: (id) =>
+    set((s) => {
+      const p = s.projects.find((q) => q.id === id);
+      if (!p) return s;
+      return {
+        panel: structuredClone(p.panel),
+        profile: structuredClone(p.profile),
+        items: structuredClone(p.items),
+        pinned: structuredClone(p.pinned),
+        machining: structuredClone(p.machining),
+        removedDucts: structuredClone(p.removedDucts),
+        underlays: structuredClone(p.underlays),
+        selectedUid: null,
+        selectedCut: null,
+        selectedDuct: null,
+        screen: 'faces' as Screen,
+      };
+    }),
+
+  updateProject: (id, patch) =>
+    set((s) => {
+      const projects = s.projects.map((p) => (p.id === id ? { ...p, ...patch } : p));
+      saveProjects(projects);
+      return { projects };
+    }),
+
+  removeProject: (id) =>
+    set((s) => {
+      const projects = s.projects.filter((p) => p.id !== id);
+      saveProjects(projects);
+      return { projects };
+    }),
+
+  loadProjectFile: (f) =>
+    set((s) => {
+      // 同じ案件を二重に持たないよう、id が重なるものは読み込んだほうで置き換える
+      const ids = new Set(f.projects.map((p) => p.id));
+      const projects = [...f.projects, ...s.projects.filter((p) => !ids.has(p.id))];
+      saveProjects(projects);
+      return { projects };
+    }),
 
   // --- 盤マスタ ---
   addEnclosure: (from) =>

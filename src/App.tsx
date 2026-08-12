@@ -6,6 +6,7 @@ import { FacePicker } from './components/FacePicker';
 import { MachiningPanel } from './components/MachiningPanel';
 import { MyConfigScreen } from './components/MyConfigScreen';
 import { PanelCanvas } from './components/PanelCanvas';
+import { ProjectsScreen } from './components/ProjectsScreen';
 import { SettingsPanel } from './components/SettingsPanel';
 import { StartScreen } from './components/StartScreen';
 import { FACE_BY_ID, FACE_LABEL } from './data/faces';
@@ -37,6 +38,7 @@ export default function App() {
     <nav className="nav">
       <button onClick={() => go('start')}>盤サイズ</button>
       <button onClick={() => go('faces')}>面を選ぶ</button>
+      <button onClick={() => go('projects')}>過去案件</button>
       <button onClick={() => go('config')}>設定</button>
       <button onClick={() => go('myconfig')}>My部品</button>
     </nav>
@@ -93,6 +95,7 @@ export default function App() {
         {screen === 'faces' && <FacePicker />}
         {screen === 'config' && <ConfigScreen />}
         {screen === 'myconfig' && <MyConfigScreen />}
+        {screen === 'projects' && <ProjectsScreen />}
       </main>
     </div>
   );
