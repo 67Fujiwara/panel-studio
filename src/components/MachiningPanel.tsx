@@ -6,6 +6,8 @@ import {
   derivedMachining,
   groupByDevice,
   machiningLabel,
+  machiningOverlaps,
+  overlappingCutIds,
   summarizeMachining,
 } from '../lib/machining';
 import type { DeviceLookup } from '../lib/layout';
@@ -44,6 +46,10 @@ export function MachiningPanel({
   const summary = summarizeMachining([...auto, ...mine]);
   const groups = groupByDevice(auto, layout.placed, devices);
   const center = { x: Math.round(size.w / 2), y: Math.round(size.h / 2) };
+  // 加工同士のかぶりは配置の違反と一緒に「チェック」へ出す
+  const allCuts = [...auto, ...mine];
+  const checks = [...layout.violations, ...machiningOverlaps(allCuts)];
+  const hitIds = overlappingCutIds(allCuts);
 
   const addAndOpen = (draft: Parameters<typeof addMachining>[0]) => addMachining(draft);
 
@@ -64,7 +70,7 @@ export function MachiningPanel({
           <h3>{g.model}</h3>
           <ul className="cutlist">
             {g.items.map((m) => (
-              <li key={m.id}>
+              <li key={m.id} className={hitIds.has(m.id) ? 'hit' : undefined}>
                 <span className="cut-kind">{machiningLabel(m)}</span>
                 <span className="cut-pos">
                   X{m.x} Y{m.y}
@@ -77,9 +83,9 @@ export function MachiningPanel({
       ))}
 
       <div className="row-buttons">
-        <button onClick={() => addAndOpen({ kind: 'hole', ...center, dia: 22 })}>＋ 穴あけ</button>
+        <button onClick={() => addAndOpen({ kind: 'hole', ...center, dia: 22 })}>＋ 丸穴</button>
         <button onClick={() => addAndOpen({ kind: 'hole', ...center, dia: TAP_DRILL.M4, tap: 'M4' })}>
-          ＋ タップ穴
+          ＋ タップ
         </button>
         <button onClick={() => addAndOpen({ kind: 'notch', ...center, w: 100, h: 100 })}>
           ＋ 切り欠き
@@ -93,7 +99,12 @@ export function MachiningPanel({
             const open = expanded[m.id] ?? false;
             const on = selectedCut === m.id;
             return (
-              <div key={m.id} className={`cutedit${on ? ' on' : ''}${open ? '' : ' collapsed'}`}>
+              <div
+                key={m.id}
+                className={`cutedit${on ? ' on' : ''}${open ? '' : ' collapsed'}${
+                  hitIds.has(m.id) ? ' hit' : ''
+                }`}
+              >
                 <div className="cutedit-head" onClick={() => selectCut(on ? null : m.id)}>
                   <button
                     className="cut-toggle"
@@ -184,12 +195,14 @@ export function MachiningPanel({
       )}
 
       <h2>チェック</h2>
-      {layout.violations.length === 0 ? (
+      {checks.length === 0 ? (
         <p className="ok">違反なし</p>
       ) : (
         <ul className="violations">
-          {layout.violations.map((v, i) => (
-            <li key={i}>{v.message}</li>
+          {checks.map((v, i) => (
+            <li key={i} className={v.kind === 'cut-overlap' ? 'cut' : undefined}>
+              {v.message}
+            </li>
           ))}
         </ul>
       )}

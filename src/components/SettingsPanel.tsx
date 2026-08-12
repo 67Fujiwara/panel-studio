@@ -99,10 +99,11 @@ export function SettingsPanel({ rowCount }: { rowCount: number }) {
 
       {rowCount > 0 && (
         <>
-          <h3>段ごとのダクト余白</h3>
+          <h3>段ごとの余白</h3>
           <p className="note">
-            段ごとに、上下のダクトとの余白を変えられます。指定しない段は下の
-            「機器 ⇔ ダクト」の値を使います。
+            段ごとに余白を変えられます。<b>上下</b>はダクトとの余白、<b>左右</b>は中板の端からの余白です。
+            指定しない段は、上下が下の「機器 ⇔ ダクト」、左右が「中板の端からの余白」を使います。
+            ダクトの長さも指定した左右に合わせます。
           </p>
           {Array.from({ length: rowCount }, (_, i) => {
             const g = rowGaps[i];
@@ -119,6 +120,8 @@ export function SettingsPanel({ rowCount }: { rowCount: number }) {
                           ? {
                               top: profile.clearance.deviceToDuct.top,
                               bottom: profile.clearance.deviceToDuct.bottom,
+                              left: profile.duct.margin.left,
+                              right: profile.duct.margin.right,
                             }
                           : undefined,
                       )
@@ -133,6 +136,16 @@ export function SettingsPanel({ rowCount }: { rowCount: number }) {
                       label="下"
                       value={g.bottom}
                       onChange={(bottom) => setRowGap(i, { ...g, bottom })}
+                    />
+                    <Num
+                      label="左"
+                      value={g.left ?? profile.duct.margin.left}
+                      onChange={(left) => setRowGap(i, { ...g, left })}
+                    />
+                    <Num
+                      label="右"
+                      value={g.right ?? profile.duct.margin.right}
+                      onChange={(right) => setRowGap(i, { ...g, right })}
                     />
                   </div>
                 )}

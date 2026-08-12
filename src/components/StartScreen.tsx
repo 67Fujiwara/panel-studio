@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { SAMPLE_ENCLOSURES } from '../data/enclosures';
-import { FACES } from '../data/faces';
+import { FACES, FACE_LABEL } from '../data/faces';
 import {
+  analyzeCabinet,
+  analyzePlate,
   extractRegion,
   findRectangles,
+  flatten,
   readDxfText,
   type Prim,
   type RectCandidate,
@@ -41,6 +44,15 @@ function Num({
 }
 
 /**
+ * DXF のファイル名から盤の型式を作る。
+ * メーカーのダウンロードは型式そのままのファイル名なので、そのまま使える。
+ * ブラウザが付ける連番（`[1]` など）と拡張子だけ落とす。
+ */
+function modelFromFileName(name: string): string {
+  return name.replace(/\.[^.]+$/, '').replace(/[[(]\d+[\])]$/, '').trim();
+}
+
+/**
  * 最初の画面。制御盤の寸法をここで確定させてからレイアウトへ進む。
  * 手で入れるか、DXF から拾うかを選べる。
  */
@@ -59,27 +71,77 @@ export function StartScreen() {
   const [candidates, setCandidates] = useState<RectCandidate[]>([]);
   const [prims, setPrims] = useState<Prim[]>([]);
   const [target, setTarget] = useState<FaceId>('plate');
-  const [fileInfo, setFileInfo] = useState<string>('');
+  const [manualOpen, setManualOpen] = useState(false);
+  /** キャビネット図・中板図それぞれの読み込み結果 */
+  const [report, setReport] = useState<{ cabinet?: string; plate?: string }>({});
   const [error, setError] = useState<string>('');
 
-  const onFile = async (file: File | undefined) => {
+  /**
+   * キャビネット（外形の三面図）。
+   * 面の並びから外形寸法を自動で割り出し、各面の図をそのまま下敷きに敷く。
+   */
+  const onCabinet = async (file: File | undefined) => {
     if (!file) return;
     setError('');
-    setCandidates([]);
-    setPrims([]);
     try {
       const text = await readDxfText(file);
-      const { candidates, entityCount, prims } = findRectangles(text);
+      // 面の割り出しは寸法線を落とした図で、下敷きは文字以外すべてで
+      const shapeOnly = flatten(text, 'shape').prims;
+      const everything = flatten(text, 'all').prims;
+      const found = analyzeCabinet(shapeOnly);
+      if (!found) {
+        setError(`${file.name}: 図形が見つかりませんでした。手動で選ぶか手入力にしてください。`);
+        return;
+      }
+      setOuter(found.outer);
+      const model = modelFromFileName(file.name);
+      if (model) setPanel({ model });
+      for (const r of found.regions) {
+        setUnderlay(r.face, extractRegion(everything, r));
+      }
+      // 中板図が無いときのために、外形から見当をつけておく（あとで上書きされる）
+      setPlate({
+        w: Math.max(50, found.outer.w - 60),
+        h: Math.max(50, found.outer.h - 60),
+      });
+      setReport((x) => ({
+        ...x,
+        cabinet:
+          `${file.name} — 外形 ${found.outer.w} × ${found.outer.h} × D${found.outer.d}。` +
+          `${found.note}。図はそのまま各面の下敷きにしました`,
+      }));
+      // 手動で選び直したいときのために候補も出しておく
+      const { candidates } = findRectangles(text);
       setCandidates(candidates.slice(0, 40));
-      setPrims(prims);
-      setFileInfo(`${file.name} — 図形 ${entityCount} 個 / 線 ${prims.length} 本 から候補 ${candidates.length} 件`);
-      if (candidates.length === 0) setError('図形が見つかりませんでした。手入力に切り替えてください。');
+      setPrims(everything);
     } catch (e) {
       setError(`読み込めませんでした: ${String(e)}`);
     }
   };
 
-  /** 選んだ範囲の図をその面の下敷きにする。三面図から1面だけ切り出す。 */
+  /** 中板の図。1枚しか描かれていないので、いちばん大きな四角をそのまま採る。 */
+  const onPlate = async (file: File | undefined) => {
+    if (!file) return;
+    setError('');
+    try {
+      const text = await readDxfText(file);
+      const found = analyzePlate(text);
+      if (!found) {
+        setError(`${file.name}: 四角が見つかりませんでした。手入力にしてください。`);
+        return;
+      }
+      setPlate({ w: found.w, h: found.h });
+      setUnderlay('plate', extractRegion(flatten(text, 'all').prims, found));
+      setReport((x) => ({
+        ...x,
+        plate: `${file.name} — 中板 ${found.w} × ${found.h}。図はそのまま中板の下敷きにしました`,
+      }));
+    } catch (e) {
+      setError(`読み込めませんでした: ${String(e)}`);
+    }
+  };
+
+  /** 選んだ範囲の図をその面の下敷きにする。自動判定を直したいときの逃げ道。 */
   const useAsUnderlay = (c: RectCandidate) => {
     setUnderlay(target, extractRegion(prims, { x: c.x, y: c.y, w: c.w, h: c.h }));
   };
@@ -128,25 +190,44 @@ export function StartScreen() {
       ) : (
         <div className="dxfbox">
           <p className="note">
-            DXF を読み込むと、<b>線で囲まれた四角</b>を拾って並べます。実際の図面では外形が
-            閉じたポリラインではなく4本の線で描かれているため、線から組み立てています。
-            ブロックは展開し、文字・寸法線は除いています。
-            <b>どれが外形でどれが中板かは選んでください。</b>
-            三面図が1ファイルに同居していて機械任せにはできません。
+            <b>キャビネットと中板を別々に読み込みます。</b>
+            キャビネットの図は第三角法の三面図なので、面の並びから
+            <b>外形寸法を自動で判定</b>し、そのまま各面の下敷きにします。
+            文字は落としますが、<b>それ以外の線はすべて</b>取り込みます。
           </p>
-          <p className="note">
-            <b>「下敷きに」</b>を押すと、その四角の中の図だけを切り出して、選んだ面のキャンバスに
-            実寸のまま敷きます。三面図から1面だけ取り出せます。
-          </p>
-          <input
-            type="file"
-            accept=".dxf"
-            onChange={(e) => void onFile(e.target.files?.[0] ?? undefined)}
-          />
-          {fileInfo && <p className="calc">{fileInfo}</p>}
+
+          <div className="dxfslot">
+            <h4>キャビネット（外形の三面図）</h4>
+            <input
+              type="file"
+              accept=".dxf,.DXF"
+              onChange={(e) => void onCabinet(e.target.files?.[0] ?? undefined)}
+            />
+            {report.cabinet && <p className="calc">{report.cabinet}</p>}
+          </div>
+
+          <div className="dxfslot">
+            <h4>中板</h4>
+            <input
+              type="file"
+              accept=".dxf,.DXF"
+              onChange={(e) => void onPlate(e.target.files?.[0] ?? undefined)}
+            />
+            {report.plate && <p className="calc">{report.plate}</p>}
+          </div>
+
           {error && <p className="calc bad">{error}</p>}
+
+          <p className="note">
+            判定結果は下の「外形」「中板」の数値に入ります。
+            <b>違っていたらそのまま直してください。</b>
+          </p>
+
           {candidates.length > 0 && (
-            <>
+            <details className="cands-fallback" open={manualOpen}>
+              <summary onClick={() => setManualOpen((v) => !v)}>
+                自動判定がずれたとき — 四角を選んで割り当てる（{candidates.length} 件）
+              </summary>
               <label className="sel underlay-target">
                 <span>「下敷きに」で使う面</span>
                 <select value={target} onChange={(e) => setTarget(e.target.value as FaceId)}>
@@ -187,7 +268,14 @@ export function StartScreen() {
                   ))}
                 </tbody>
               </table>
-            </>
+            </details>
+          )}
+
+          {FACES.some((f) => underlays[f.id]) && (
+            <p className="note">
+              下敷き済み:{' '}
+              <b>{FACES.filter((f) => underlays[f.id]).map((f) => FACE_LABEL(f.id)).join('・')}</b>
+            </p>
           )}
         </div>
       )}
@@ -210,9 +298,9 @@ export function StartScreen() {
         メーカー図面の「背面→中板上面」は実物と合わないため<b>手入力</b>します。
       </p>
       <p className="note warn">
-        ⚠ <b>側面図から拾った奥行きには扉が含まれていないことがあります。</b>
-        本体だけの寸法が出るためで、扉の厚みぶん実物より小さくなります。
-        外形の奥行きは実際の値（扉を含む）に直してください。
+        ⚠ 奥行きは<b>側面図の外接寸法</b>から拾っています。扉まで描かれていれば扉込みの値になりますが、
+        本体だけの図だと扉の厚みぶん実物より小さく出ます。
+        <b>実物と合っているか確かめてください。</b>
       </p>
       <div className="grid3">
         <Num

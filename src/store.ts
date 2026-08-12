@@ -16,6 +16,7 @@ import type {
   PanelSpec,
   PlacedDevice,
   Profile,
+  RowGap,
 } from './types';
 import type { LayoutItem } from './lib/layout';
 
@@ -56,6 +57,10 @@ type State = {
   selectedUid: string | null;
   /** 手動で追加した加工の選択。キャンバス上で強調するのに使う */
   selectedCut: string | null;
+  /** 選択中のダクトの通し番号。Delete キーで消すのに使う */
+  selectedDuct: number | null;
+  /** 面ごとに消したダクトの通し番号。下に余ったダクトを外すのに使う */
+  removedDucts: Partial<Record<FaceId, number[]>>;
   /** 面ごとの下敷き。DXF から取り込んだ図をキャンバスの背景に敷く */
   underlays: Partial<Record<FaceId, DeviceShape>>;
 
@@ -90,16 +95,20 @@ type State = {
   setMount: (specId: string, mount: MountType) => void;
   /** その面のその型式を何段目に置くか。undefined で自動 */
   setItemRow: (specId: string, row: number | undefined) => void;
-  /** 選択中の機器を1台消す（Delete キー用） */
+  /** 選択中の機器またはダクトを消す（Delete キー用） */
   removeSelected: () => void;
-  setRowGap: (row: number, gap: { top: number; bottom: number } | undefined) => void;
+  /** 消したダクトを全部戻す */
+  restoreDucts: () => void;
+  setRowGap: (row: number, gap: RowGap | undefined) => void;
   select: (uid: string | null) => void;
   selectCut: (id: string | null) => void;
+  selectDuct: (id: number | null) => void;
   /**
    * 機器の並び順を入れ替える。beforeUid の直前へ移す（null なら末尾）。
+   * row を渡すとその機器だけ段を指定する（図の上で上下へ動かしたとき）。
    * 図の上でドラッグしたときに、他の機器の間へ入れ込むために使う。
    */
-  moveItem: (uid: string, beforeUid: string | null) => void;
+  moveItem: (uid: string, beforeUid: string | null, row?: number) => void;
 
   addMachining: (m: MachiningDraft) => void;
   updateMachining: (id: string, patch: Partial<Machining>) => void;
@@ -127,12 +136,14 @@ export const useStore = create<State>((set) => ({
   pinned: [],
   selectedUid: null,
   selectedCut: null,
+  selectedDuct: null,
+  removedDucts: {},
   underlays: {},
 
   go: (screen) => set({ screen, selectedUid: null }),
   setUnderlay: (face, shape) =>
     set((s) => ({ underlays: { ...s.underlays, [face]: shape } })),
-  openFace: (face) => set({ face, screen: 'layout', selectedUid: null }),
+  openFace: (face) => set({ face, screen: 'layout', selectedUid: null, selectedDuct: null }),
 
   setPanel: (patch) => set((s) => ({ panel: { ...s.panel, ...patch } })),
   setOuter: (patch) => set((s) => ({ panel: { ...s.panel, outer: { ...s.panel.outer, ...patch } } })),
@@ -257,6 +268,13 @@ export const useStore = create<State>((set) => ({
 
   removeSelected: () =>
     set((s) => {
+      if (s.selectedDuct !== null) {
+        const cur = s.removedDucts[s.face] ?? [];
+        return {
+          removedDucts: { ...s.removedDucts, [s.face]: [...cur, s.selectedDuct] },
+          selectedDuct: null,
+        };
+      }
       if (!s.selectedUid) return s;
       return {
         items: s.items.filter((i) => i.uid !== s.selectedUid),
@@ -264,6 +282,9 @@ export const useStore = create<State>((set) => ({
         selectedUid: null,
       };
     }),
+
+  restoreDucts: () =>
+    set((s) => ({ removedDucts: { ...s.removedDucts, [s.face]: [] }, selectedDuct: null })),
 
   setRowGap: (row, gap) =>
     set((s) => {
@@ -273,15 +294,17 @@ export const useStore = create<State>((set) => ({
       return { profile: { ...s.profile, duct: { ...s.profile.duct, rowGaps: next } } };
     }),
 
-  select: (uid) => set({ selectedUid: uid, selectedCut: null }),
-  selectCut: (id) => set({ selectedCut: id, selectedUid: null }),
+  select: (uid) => set({ selectedUid: uid, selectedCut: null, selectedDuct: null }),
+  selectCut: (id) => set({ selectedCut: id, selectedUid: null, selectedDuct: null }),
+  selectDuct: (id) => set({ selectedDuct: id, selectedUid: null, selectedCut: null }),
 
-  moveItem: (uid, beforeUid) =>
+  moveItem: (uid, beforeUid, row) =>
     set((s) => {
       const from = s.items.findIndex((i) => i.uid === uid);
       if (from < 0) return s;
       const rest = s.items.filter((i) => i.uid !== uid);
-      const item = s.items[from]!;
+      // 上下に動かしたときだけ段を指定し直す。左右に動かしただけなら「自動」のまま残す
+      const item = row === undefined ? s.items[from]! : { ...s.items[from]!, row };
       const to = beforeUid ? rest.findIndex((i) => i.uid === beforeUid) : -1;
       const next = [...rest];
       next.splice(to < 0 ? next.length : to, 0, item);

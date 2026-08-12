@@ -76,16 +76,21 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const moveItem = useStore((s) => s.moveItem);
   const selectCut = useStore((s) => s.selectCut);
   const selectedCut = useStore((s) => s.selectedCut);
+  const selectDuct = useStore((s) => s.selectDuct);
+  const selectedDuct = useStore((s) => s.selectedDuct);
   const removeSelected = useStore((s) => s.removeSelected);
+  const restoreDucts = useStore((s) => s.restoreDucts);
+  const removedHere = useStore((s) => s.removedDucts[face]?.length ?? 0);
 
-  // 選択中の機器を Delete / Backspace で消す
+  // 選択中の機器・ダクトを Delete / Backspace で消す
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const el = document.activeElement;
       // 入力欄で編集しているときは消さない
       if (el instanceof HTMLElement && /INPUT|TEXTAREA|SELECT/.test(el.tagName)) return;
-      if (!useStore.getState().selectedUid) return;
+      const s = useStore.getState();
+      if (!s.selectedUid && s.selectedDuct === null) return;
       e.preventDefault();
       removeSelected();
     };
@@ -123,15 +128,22 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     return { x: p.x, y: faceH - p.y };
   };
 
-  /** ドラッグ中の位置から「どの機器の直前に入れるか」を決める。 */
-  const insertBefore = (clientX: number, clientY: number, dragUid: string) => {
+  /**
+   * ドラッグ中の位置から、入れ込む先の段と「どの機器の直前に入れるか」を決める。
+   *
+   * 段はいちばん近いものを選ぶ。ダクトの上に落としたときに段が決まらず
+   * 1段目へ飛んでしまうのを避けるため、範囲に入っているかではなく距離で見る。
+   */
+  const dropTarget = (clientX: number, clientY: number, dragUid: string) => {
     const at = toFace(clientX, clientY);
     const rows = layout.rows;
     let targetRow = 0;
     if (rows.length > 0) {
-      const hit = rows.find((r) => at.y >= r.y && at.y <= r.y + r.h);
-      if (hit) targetRow = hit.index;
-      else if (at.y < rows[rows.length - 1]!.y) targetRow = rows[rows.length - 1]!.index;
+      // 段の中心までの距離がいちばん短い段
+      const nearest = rows.reduce((best, r) =>
+        Math.abs(at.y - (r.y + r.h / 2)) < Math.abs(at.y - (best.y + best.h / 2)) ? r : best,
+      );
+      targetRow = nearest.index;
     }
     const others = layout.placed
       .filter((p) => p.uid !== dragUid)
@@ -140,7 +152,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
       const w = devices.get(p.specId)?.size.w ?? 0;
       return p.row > targetRow || (p.row === targetRow && at.x < p.x + w / 2);
     });
-    return before?.uid ?? null;
+    return { row: targetRow, before: before?.uid ?? null };
   };
 
   /** 画面上の px を mm に変換する係数 */
@@ -173,7 +185,10 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     oy: number;
     /** Shift 併用のときは並べ替えではなく座標を自由に動かす */
     free: boolean;
+    /** つかんだときの段。ここから変わったら上下に動かしたとみなす */
+    fromRow: number;
     lastBefore: string | null | undefined;
+    lastRow: number | undefined;
   } | null>(null);
 
   const onPointerDownBg = (e: React.PointerEvent) => {
@@ -204,11 +219,14 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         });
         return;
       }
-      // 既定: 他の機器の間へ入れ込む。並び順が変わると配置がその場で組み直される
-      const before = insertBefore(e.clientX, e.clientY, d.uid);
-      if (before !== d.lastBefore) {
+      // 既定: 他の機器の間へ入れ込む。並び順が変わると配置がその場で組み直される。
+      // 上下に動かしたときは段の指定も付け替える（並び順だけでは段は変わらないため）
+      const { row, before } = dropTarget(e.clientX, e.clientY, d.uid);
+      const movedRow = row !== d.fromRow ? row : undefined;
+      if (before !== d.lastBefore || movedRow !== d.lastRow) {
         d.lastBefore = before;
-        moveItem(d.uid, before);
+        d.lastRow = movedRow;
+        moveItem(d.uid, before, movedRow);
       }
       return;
     }
@@ -337,16 +355,22 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           </text>
         </g>
 
-        {/* 配線ダクト（中板のみ） */}
-        {layout.ducts.map((d, i) => (
+        {/* 配線ダクト（中板のみ）。選んで Delete キーで消せる */}
+        {layout.ducts.map((d) => (
           <rect
-            key={`duct${i}`}
+            key={`duct${d.id}`}
             x={d.x}
             y={toSvgY(faceH, d.y, d.h)}
             width={d.w}
             height={d.h}
-            className="duct"
-          />
+            className={`duct${selectedDuct === d.id ? ' selected' : ''}`}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              selectDuct(selectedDuct === d.id ? null : d.id);
+            }}
+          >
+            <title>ダクト {d.id + 1} 本目（{Math.round(d.w)}mm）／ Delete キーで消せます</title>
+          </rect>
         ))}
 
         {/* 機器 */}
@@ -376,7 +400,9 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                   ox: p.x,
                   oy: p.y,
                   free: e.shiftKey,
+                  fromRow: p.row,
                   lastBefore: undefined,
+                  lastRow: undefined,
                 };
                 (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
               }}
@@ -446,15 +472,22 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         </g>
       </svg>
 
-      {underlay && (
-        <button className="underlay-clear" onClick={() => setUnderlay(face, undefined)}>
-          下敷き（{underlay.w}×{underlay.h}）を消す
-        </button>
-      )}
+      <div className="canvas-overlay">
+        {underlay && (
+          <button onClick={() => setUnderlay(face, undefined)}>
+            下敷き（{underlay.w}×{underlay.h}）を消す
+          </button>
+        )}
+        {removedHere > 0 && (
+          <button onClick={restoreDucts}>消したダクト {removedHere} 本を戻す</button>
+        )}
+      </div>
 
       <div className="canvas-hint">
         {FACE_LABEL(face)}（{faceW} × {faceH}）／ 原点は左下 0,0 ／ ホイールで拡大縮小・背景ドラッグで移動 ／
-        <b>機器をドラッグすると他の機器の間に入ります</b>（Shift＋ドラッグで自由に置く・{SNAP}mm スナップ）
+        <b>機器をドラッグすると上下左右どこへでも入れ込めます</b>
+        （Shift＋ドラッグで自由に置く・{SNAP}mm スナップ）／
+        機器・ダクトを選んで <b>Delete</b> で削除
       </div>
     </div>
   );

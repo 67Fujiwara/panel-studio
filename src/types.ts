@@ -155,6 +155,13 @@ export type DuctLayoutId =
  */
 export type RowHeightMode = 'equal' | 'auto';
 
+/**
+ * 段ごとの余白の上書き。
+ * top/bottom は上下のダクトとの余白、left/right は面の端からの余白。
+ * left/right を省いた古いファイルも読めるよう任意にしてある。
+ */
+export type RowGap = { top: number; bottom: number; left?: number; right?: number };
+
 export type DuctSettings = {
   layout: DuctLayoutId;
   /** ダクト幅 40/50/60/80/100 */
@@ -165,10 +172,10 @@ export type DuctSettings = {
   /** 面の端からの余白 */
   margin: Sides;
   /**
-   * 段ごとのダクトとの余白。段番号をキーにした上書き。
-   * 指定がない段は clearance.deviceToDuct を使う。
+   * 段ごとの余白。段番号をキーにした上書き。
+   * 指定がない段は上下が clearance.deviceToDuct、左右が margin。
    */
-  rowGaps: Record<number, { top: number; bottom: number }>;
+  rowGaps: Record<number, RowGap>;
 };
 
 export type ClearanceSettings = {
@@ -215,13 +222,19 @@ export type DeviceRow = {
 
 export type Violation = {
   uid: string;
-  kind: 'overflow' | 'depth' | 'clearance' | 'overlap';
+  kind: 'overflow' | 'depth' | 'clearance' | 'overlap' | 'cut-overlap';
   message: string;
 };
 
+/**
+ * 1本の配線ダクト。id は上から数えた通し番号で、
+ * 途中のダクトを消しても他の番号がずれないようにしてある（消したダクトの記憶に使う）。
+ */
+export type Duct = Rect & { id: number };
+
 export type LayoutResult = {
   rows: DeviceRow[];
-  ducts: Rect[];
+  ducts: Duct[];
   placed: PlacedDevice[];
   violations: Violation[];
 };

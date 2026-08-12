@@ -4,13 +4,14 @@ import type {
   ClearanceSettings,
   DeviceRow,
   DeviceSpec,
+  Duct,
   FaceId,
   LayoutResult,
   MountType,
   PanelSpec,
   PlacedDevice,
   Profile,
-  Rect,
+  RowGap,
   Sides,
   Violation,
 } from '../types';
@@ -21,12 +22,17 @@ export type DeviceLookup = Map<string, DeviceSpec>;
 /** 発熱機器とみなすしきい値(W)。これを超えると上下に追加離隔を取る。 */
 const HEAT_THRESHOLD_W = 10;
 
-/** その段のダクトとの余白。段ごとの上書きがあればそちらを使う。 */
-export function rowGap(profile: Profile, rowIndex: number): { top: number; bottom: number } {
-  const override = profile.duct.rowGaps?.[rowIndex];
-  return override ?? {
-    top: profile.clearance.deviceToDuct.top,
-    bottom: profile.clearance.deviceToDuct.bottom,
+/**
+ * その段の余白。段ごとの上書きがあればそちらを使う。
+ * 上下はダクトとの余白、左右は面の端からの余白。
+ */
+export function rowGap(profile: Profile, rowIndex: number): Required<RowGap> {
+  const o = profile.duct.rowGaps?.[rowIndex];
+  return {
+    top: o?.top ?? profile.clearance.deviceToDuct.top,
+    bottom: o?.bottom ?? profile.clearance.deviceToDuct.bottom,
+    left: o?.left ?? profile.duct.margin.left,
+    right: o?.right ?? profile.duct.margin.right,
   };
 }
 
@@ -74,7 +80,7 @@ export function computeRows(
   panel: PanelSpec,
   face: FaceId,
   profile: Profile,
-): { rows: DeviceRow[]; ducts: Rect[]; error?: string } {
+): { rows: DeviceRow[]; ducts: Duct[]; error?: string } {
   const { w, h } = faceSize(panel, face);
   const { margin, rowCount: n } = profile.duct;
   const dw = FACE_BY_ID.get(face)?.ducts ? profile.duct.width : 0;
@@ -82,10 +88,7 @@ export function computeRows(
   const usableH = h - margin.top - margin.bottom;
   const rowH = (usableH - (n + 1) * dw) / n;
 
-  const x = margin.left;
-  const ductW = w - margin.left - margin.right;
-
-  if (n < 1 || rowH <= 0 || ductW <= 0) {
+  if (n < 1 || rowH <= 0 || w - margin.left - margin.right <= 0) {
     return {
       rows: [],
       ducts: [],
@@ -93,15 +96,21 @@ export function computeRows(
     };
   }
 
+  // ダクトはその段に指定した左右の余白に合わせる
+  const span = (i: number) => {
+    const g = rowGap(profile, i);
+    return { x: g.left, w: w - g.left - g.right };
+  };
+
   const rows: DeviceRow[] = [];
-  const ducts: Rect[] = [];
+  const ducts: Duct[] = [];
 
   for (let i = 0; i < n; i++) {
     const y = h - margin.top - (i + 1) * (dw + rowH);
     rows.push({ index: i, y, h: rowH });
-    if (dw > 0) ducts.push({ x, y: y + rowH, w: ductW, h: dw });
+    if (dw > 0) ducts.push({ id: i, ...span(i), y: y + rowH, h: dw });
   }
-  if (dw > 0) ducts.push({ x, y: margin.bottom, w: ductW, h: dw });
+  if (dw > 0) ducts.push({ id: n, ...span(n - 1), y: margin.bottom, h: dw });
 
   return { rows, ducts };
 }
@@ -117,12 +126,16 @@ export type LayoutItem = {
 
 type Entry = { item: LayoutItem; spec: DeviceSpec };
 
-/** 面の使える X 範囲（余白と端クリアランスの大きいほうを採る）。 */
-function usableX(panel: PanelSpec, face: FaceId, profile: Profile) {
+/**
+ * その段の使える X 範囲（余白と端クリアランスの大きいほうを採る）。
+ * 段ごとに左右の余白を変えられるので、段番号で変わる。
+ */
+function usableX(panel: PanelSpec, face: FaceId, profile: Profile, rowIndex: number) {
   const c = profile.clearance;
+  const g = rowGap(profile, rowIndex);
   return {
-    xMin: Math.max(profile.duct.margin.left, c.deviceToPlateEdge),
-    xMax: faceSize(panel, face).w - Math.max(profile.duct.margin.right, c.deviceToPlateEdge),
+    xMin: Math.max(g.left, c.deviceToPlateEdge),
+    xMax: faceSize(panel, face).w - Math.max(g.right, c.deviceToPlateEdge),
   };
 }
 
@@ -165,17 +178,26 @@ function buildQueue(items: LayoutItem[], skip: Set<string>, devices: DeviceLooku
  */
 function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry[]) {
   const c = profile.clearance;
-  const { xMin, xMax } = usableX(panel, face, profile);
   const dw = FACE_BY_ID.get(face)?.ducts ? profile.duct.width : 0;
   const size = faceSize(panel, face);
   const violations: Violation[] = [];
 
   type Placed = { e: Entry; x: number; eff: Sides };
-  type Bucket = { entries: Placed[]; h: number; cursor: number; prevRight: number };
-  const newBucket = (): Bucket => ({ entries: [], h: 0, cursor: xMin, prevRight: 0 });
-  const buckets: Bucket[] = [newBucket()];
+  type Bucket = {
+    entries: Placed[];
+    h: number;
+    cursor: number;
+    prevRight: number;
+    xMin: number;
+    xMax: number;
+  };
+  const newBucket = (i: number): Bucket => {
+    const { xMin, xMax } = usableX(panel, face, profile, i);
+    return { entries: [], h: 0, cursor: xMin, prevRight: 0, xMin, xMax };
+  };
+  const buckets: Bucket[] = [newBucket(0)];
   const bucketAt = (i: number) => {
-    while (buckets.length <= i) buckets.push(newBucket());
+    while (buckets.length <= i) buckets.push(newBucket(buckets.length));
     return buckets[i]!;
   };
   let flow = 0;
@@ -187,19 +209,19 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
     let b = bucketAt(index);
     let eff = effectiveClearance(e.spec, c, rowGap(profile, index));
 
-    if (w > xMax - xMin) {
+    if (w > b.xMax - b.xMin) {
       violations.push({
         uid: e.item.uid,
         kind: 'overflow',
-        message: `${e.spec.model}: 幅 ${w}mm が面の使える幅 ${Math.round(xMax - xMin)}mm を超えています`,
+        message: `${e.spec.model}: 幅 ${w}mm が ${index + 1} 段目の使える幅 ${Math.round(b.xMax - b.xMin)}mm を超えています`,
       });
       continue;
     }
 
     const gap = horizontalGap(b.prevRight, eff, c);
-    let x = b.entries.length === 0 ? xMin : b.cursor + gap;
+    let x = b.entries.length === 0 ? b.xMin : b.cursor + gap;
 
-    if (x + w > xMax) {
+    if (x + w > b.xMax) {
       if (forced !== undefined && forced >= 0) {
         // 段を指定されているので、はみ出しても指定どおりの段に置いて知らせる
         violations.push({
@@ -212,7 +234,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
         index = flow;
         b = bucketAt(index);
         eff = effectiveClearance(e.spec, c, rowGap(profile, index));
-        x = xMin;
+        x = b.xMin;
       }
     }
 
@@ -224,19 +246,26 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
 
   const used = buckets.filter((b) => b.entries.length > 0);
   const rows: DeviceRow[] = [];
-  const ducts: Rect[] = [];
+  const ducts: Duct[] = [];
   const placed: PlacedDevice[] = [];
 
-  const x0 = profile.duct.margin.left;
-  const ductW = size.w - profile.duct.margin.left - profile.duct.margin.right;
   const availableH = size.h - profile.duct.margin.top - profile.duct.margin.bottom;
   const requiredH = used.reduce((s, b) => s + b.h, 0) + (dw > 0 ? (used.length + 1) * dw : 0);
+
+  // ダクトはその段に指定した左右の余白に合わせる。段ごとに余白を変えたとき、
+  // ダクトだけ元の位置に残ると図が食い違うため。
+  // 機器⇔端のクリアランスは機器に効かせるもので、ダクトは端まで伸ばしてよい。
+  const ductSpan = (rowIndex: number) => {
+    const g = rowGap(profile, rowIndex);
+    return { x: g.left, w: size.w - g.left - g.right };
+  };
 
   let y = size.h - profile.duct.margin.top;
   used.forEach((b, index) => {
     if (dw > 0) {
       y -= dw;
-      ducts.push({ x: x0, y, w: ductW, h: dw });
+      const span = ductSpan(index);
+      ducts.push({ id: index, x: span.x, y, w: span.w, h: dw });
     }
     y -= b.h;
     const row: DeviceRow = { index, y, h: b.h };
@@ -255,8 +284,10 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
     }
   });
   if (dw > 0 && used.length > 0) {
+    // 最下段のダクトは、その上の段の余白に合わせる
+    const span = ductSpan(used.length - 1);
     y -= dw;
-    ducts.push({ x: x0, y, w: ductW, h: dw });
+    ducts.push({ id: used.length, x: span.x, y, w: span.w, h: dw });
   }
 
   if (requiredH > availableH) {
@@ -288,9 +319,9 @@ function packEqual(
   }
 
   const c = profile.clearance;
-  const { xMin, xMax } = usableX(panel, face, profile);
+  const span = rows.map((r) => usableX(panel, face, profile, r.index));
   const placed: PlacedDevice[] = [];
-  const cursor = rows.map(() => xMin);
+  const cursor = rows.map((_, i) => span[i]!.xMin);
   const prevRight = rows.map(() => 0);
 
   for (const p of pinned) {
@@ -317,6 +348,7 @@ function packEqual(
 
     for (const r of candidates) {
       const rr = rows[r]!;
+      const { xMin, xMax } = span[r] ?? usableX(panel, face, profile, r);
       const eff = effectiveClearance(spec, c, rowGap(profile, r));
       if (spec.size.h + eff.top + eff.bottom > rr.h && candidates.length > 1) {
         tooShort = true;
@@ -465,6 +497,9 @@ function depthViolations(
  *
  * pinned（人が手で動かした機器）は座標を保持する。これにより機器を1台足しても
  * 既存の配置が組み替わらない。
+ *
+ * removedDucts に入れた通し番号のダクトは描かない。段の割り付けはそのままなので、
+ * 下に余ったダクトを消しても上の配置は動かない。
  */
 export function autoLayout(
   panel: PanelSpec,
@@ -473,6 +508,7 @@ export function autoLayout(
   items: LayoutItem[],
   previous: PlacedDevice[],
   devices: DeviceLookup,
+  removedDucts: number[] = [],
 ): LayoutResult {
   const faceItems = items.filter((i) => i.face === face);
   const uids = new Set(faceItems.map((i) => i.uid));
@@ -489,9 +525,10 @@ export function autoLayout(
   // 段の割り付けに参加させず、置かれた座標のまま残す。干渉は重なり検出で拾う。
   const placed = auto ? [...pinned, ...result.placed] : result.placed;
 
+  const gone = new Set(removedDucts);
   return {
     rows: result.rows,
-    ducts: result.ducts,
+    ducts: result.ducts.filter((d) => !gone.has(d.id)),
     placed,
     violations: [
       ...result.violations,

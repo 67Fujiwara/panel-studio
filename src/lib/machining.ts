@@ -1,21 +1,20 @@
 import type { DeviceLookup } from './layout';
-import type { Machining, PlacedDevice, TapSize } from '../types';
+import type { Machining, PlacedDevice, TapSize, Violation } from '../types';
 
 /** タップの下穴径。加工リストにはこの径で出す。 */
 export const TAP_DRILL: Record<TapSize, number> = { M3: 2.5, M4: 3.3, M5: 4.2, M6: 5.0 };
 
 export const TAP_SIZES: TapSize[] = ['M3', 'M4', 'M5', 'M6'];
 
-/** 加工1件の呼び名。タップ穴は呼びで、バカ穴は径で表す。 */
+/** 加工1件の呼び名。タップは呼びで、丸穴は径で表す。 */
 export function machiningLabel(m: Machining): string {
-  if (m.kind === 'notch') return `${m.w}×${m.h} 角穴`;
-  return m.tap ? `${m.tap} タップ` : `φ${m.dia} 穴`;
+  if (m.kind === 'notch') return `${m.w}×${m.h} 切り欠き`;
+  return m.tap ? `${m.tap} タップ` : `φ${m.dia} 丸穴`;
 }
 
 /** 集計用の短い呼び名。 */
 export function machiningKey(m: Machining): string {
-  if (m.kind === 'notch') return `${m.w}×${m.h} 角穴`;
-  return m.tap ? `${m.tap} タップ` : `φ${m.dia} 穴`;
+  return machiningLabel(m);
 }
 
 const round = (v: number) => Number(v.toFixed(1));
@@ -84,6 +83,85 @@ export function derivedMachining(placed: PlacedDevice[], devices: DeviceLookup):
           });
         }
       }
+    }
+  }
+  return out;
+}
+
+/**
+ * 加工同士のかぶりを見つける。
+ *
+ * 同じ座標に穴を重ねて指示すると、加工屋では下穴が潰れて図面どおりに開かない。
+ * 手で足した加工と、機器から自動で出た加工が同じ場所に来ることもあるので、
+ * 座標が一致しているかではなく **実際に形が重なるか** で見る。
+ * 図面上でわざと近づける刻みを考えて、接している程度（1mm 未満の食い込み）は見逃す。
+ */
+const CUT_TOUCH = 1;
+
+/** 加工1件の当たり判定用の形。 */
+function cutHit(a: Machining, b: Machining): boolean {
+  const rect = (m: Machining) =>
+    m.kind === 'notch'
+      ? { x0: m.x - m.w / 2, x1: m.x + m.w / 2, y0: m.y - m.h / 2, y1: m.y + m.h / 2 }
+      : { x0: m.x - m.dia / 2, x1: m.x + m.dia / 2, y0: m.y - m.dia / 2, y1: m.y + m.dia / 2 };
+
+  if (a.kind === 'hole' && b.kind === 'hole') {
+    return Math.hypot(a.x - b.x, a.y - b.y) < (a.dia + b.dia) / 2 - CUT_TOUCH;
+  }
+  // 丸穴と切り欠き、切り欠き同士は外接四角どうしの重なりで見る
+  const ra = rect(a);
+  const rb = rect(b);
+  return (
+    ra.x0 < rb.x1 - CUT_TOUCH &&
+    rb.x0 < ra.x1 - CUT_TOUCH &&
+    ra.y0 < rb.y1 - CUT_TOUCH &&
+    rb.y0 < ra.y1 - CUT_TOUCH
+  );
+}
+
+/** かぶっている加工の組を違反として返す。自動導出ぶんと手動ぶんの両方を見る。 */
+export function machiningOverlaps(items: Machining[]): Violation[] {
+  const out: Violation[] = [];
+  // 同じ機器から出た開口と取付穴の位置関係はメーカーが決めたもので、
+  // こちらの指示ミスではないので数えない
+  const ownerOf = (m: Machining) => (isDerived(m) ? m.id.split('-')[1] : undefined);
+
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      const a = items[i]!;
+      const b = items[j]!;
+      if (a.face !== b.face) continue;
+      const owner = ownerOf(a);
+      if (owner !== undefined && owner === ownerOf(b)) continue;
+      if (!cutHit(a, b)) continue;
+      const same = a.x === b.x && a.y === b.y;
+      out.push({
+        uid: a.id,
+        kind: 'cut-overlap',
+        message:
+          `加工がかぶっています: ${machiningLabel(a)}（X${a.x} Y${a.y}）と ` +
+          `${machiningLabel(b)}（X${b.x} Y${b.y}）` +
+          (same ? ' — 座標が同じです' : ''),
+      });
+    }
+  }
+  return out;
+}
+
+/** かぶっている加工の ID。一覧で赤く出して、どれを直せばいいか分かるようにする。 */
+export function overlappingCutIds(items: Machining[]): Set<string> {
+  const out = new Set<string>();
+  const ownerOf = (m: Machining) => (isDerived(m) ? m.id.split('-')[1] : undefined);
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      const a = items[i]!;
+      const b = items[j]!;
+      if (a.face !== b.face) continue;
+      const owner = ownerOf(a);
+      if (owner !== undefined && owner === ownerOf(b)) continue;
+      if (!cutHit(a, b)) continue;
+      out.add(a.id);
+      out.add(b.id);
     }
   }
   return out;

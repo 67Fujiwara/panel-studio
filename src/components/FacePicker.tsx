@@ -4,11 +4,12 @@ import { buildBom, totalHeatW } from '../lib/bom';
 import { asciiFileName, bomToCsv, downloadCsv, machiningToCsv } from '../lib/csv';
 import { autoLayout } from '../lib/layout';
 import { derivedMachining } from '../lib/machining';
+import { ShapeGeometry } from './ShapeGeometry';
 import { deviceLookup, useStore } from '../store';
-import type { BomSettings, FaceId, PanelSpec } from '../types';
+import type { BomSettings, DeviceShape, FaceId, PanelSpec } from '../types';
 
-/** 展開図の面と面のすき間(mm 相当) */
-const GAP = 14;
+/** 面と面のすき間(mm 相当) */
+const GAP = 40;
 
 type Cell = { id: FaceId; x: number; y: number; w: number; h: number };
 
@@ -29,7 +30,7 @@ function unfold(panel: PanelSpec): { cells: Cell[]; w: number; h: number } {
   const yTop = 0;
   const yMid = D + GAP;
   const yBottom = yMid + H + GAP;
-  const yPlate = yBottom + D + GAP * 3;
+  const yPlate = yBottom + D + GAP * 1.6;
 
   const cells: Cell[] = [
     { id: 'top', x: xDoor, y: yTop, w: W, h: D },
@@ -42,6 +43,123 @@ function unfold(panel: PanelSpec): { cells: Cell[]; w: number; h: number } {
   ];
 
   return { cells, w: xBack + W, h: yPlate + ph };
+}
+
+/**
+ * 面の中身の絵。
+ *
+ * 四角の枠だけではどの面がどれか分からないので、扉ならハンドル、背面なら取付足、
+ * というように**その面らしい形**を描く。メーカー図面の三面図と同じ見え方にして、
+ * 図面を見慣れた人がそのまま読めるようにする。
+ *
+ * DXF を取り込んである面は、絵ではなく**取り込んだ図そのもの**を描く。
+ */
+function FaceArt({
+  id,
+  x,
+  y,
+  w,
+  h,
+  depth,
+  underlay,
+}: {
+  id: FaceId;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  depth: number;
+  underlay?: DeviceShape;
+}) {
+  if (underlay) {
+    // 取り込んだ図は左下原点・Y上向きなので、Y を反転して重ねる
+    return (
+      <g
+        className="ufart from-dxf"
+        transform={`translate(${x} ${y + h}) scale(${w / (underlay.w || 1)} ${-h / (underlay.h || 1)})`}
+      >
+        <ShapeGeometry shape={underlay} color="currentColor" />
+      </g>
+    );
+  }
+
+  // 板金の折り返し。細い面はその幅に合わせて内側に寄せる
+  const inset = Math.max(4, Math.min(w, h) * 0.045);
+  const frame = <rect x={x + inset} y={y + inset} width={w - inset * 2} height={h - inset * 2} />;
+  const foot = Math.min(w, h) * 0.09;
+  const corners = (r: number, square: boolean) =>
+    [
+      [x + inset * 2.2, y + inset * 2.2],
+      [x + w - inset * 2.2, y + inset * 2.2],
+      [x + inset * 2.2, y + h - inset * 2.2],
+      [x + w - inset * 2.2, y + h - inset * 2.2],
+    ].map(([cx, cy], i) =>
+      square ? (
+        <rect key={i} x={cx! - r} y={cy! - r} width={r * 2} height={r * 2} />
+      ) : (
+        <circle key={i} cx={cx} cy={cy} r={r} />
+      ),
+    );
+
+  // 側面・上下面には扉が厚みの線として見える。実寸(mm)でそのまま引く
+  const doorEdge = Math.max(6, Math.min(12, depth * 0.03));
+
+  switch (id) {
+    case 'door':
+      return (
+        <g className="ufart">
+          {frame}
+          {corners(inset * 0.7, false)}
+          {/* ハンドル。扉だと一目で分かる目印 */}
+          <rect
+            x={x + inset * 2.4}
+            y={y + h / 2 - h * 0.06}
+            width={Math.max(6, w * 0.045)}
+            height={h * 0.12}
+            rx={2}
+            className="handle"
+          />
+        </g>
+      );
+    case 'back':
+      return (
+        <g className="ufart">
+          {frame}
+          {/* 取付足 */}
+          {corners(foot / 2, true)}
+        </g>
+      );
+    case 'left':
+    case 'right':
+      return (
+        <g className="ufart">
+          {frame}
+          {/* 手前が扉。左側面なら左端、右側面なら右端に見える */}
+          <line
+            x1={id === 'left' ? x + doorEdge : x + w - doorEdge}
+            y1={y}
+            x2={id === 'left' ? x + doorEdge : x + w - doorEdge}
+            y2={y + h}
+          />
+        </g>
+      );
+    case 'top':
+    case 'bottom':
+      return (
+        <g className="ufart">
+          {frame}
+          {/* 手前が扉。上面図では下端、底面図では上端に見える */}
+          <line
+            x1={x}
+            y1={id === 'top' ? y + h - doorEdge : y + doorEdge}
+            x2={x + w}
+            y2={id === 'top' ? y + h - doorEdge : y + doorEdge}
+          />
+        </g>
+      );
+    case 'plate':
+      return <g className="ufart">{corners(inset * 0.6, false)}</g>;
+  }
 }
 
 /**
@@ -59,12 +177,17 @@ export function FacePicker() {
   const myDevices = useStore((s) => s.myDevices);
   const openFace = useStore((s) => s.openFace);
   const setBom = useStore((s) => s.setBom);
+  const underlays = useStore((s) => s.underlays);
+  const removedDucts = useStore((s) => s.removedDucts);
 
   const lookup = useMemo(() => deviceLookup(devices, myDevices), [devices, myDevices]);
 
   const layouts = useMemo(
-    () => FACES.map((f) => autoLayout(panel, profile, f.id, items, pinned, lookup)),
-    [panel, profile, items, pinned, lookup],
+    () =>
+      FACES.map((f) =>
+        autoLayout(panel, profile, f.id, items, pinned, lookup, removedDucts[f.id] ?? []),
+      ),
+    [panel, profile, items, pinned, lookup, removedDucts],
   );
 
   const bom = buildBom(layouts, profile, lookup);
@@ -96,7 +219,9 @@ export function FacePicker() {
             {panel.plate.h}
           </p>
           <p className="note">
-            制御盤を<b>展開した図</b>です。加工したい面を押すとレイアウト画面に移ります。
+            メーカー図面と同じ<b>三面図の並び</b>です。加工したい面を押すとレイアウト画面に移ります。
+            DXF を取り込んだ面は<b>取り込んだ図そのもの</b>を、無い面は扉のハンドル・背面の取付足といった
+            <b>その面らしい形</b>を描いています。
             中板だけが配線ダクトと DIN レールを扱い、他の面は直接取り付けと穴あけ・切り欠き加工の対象です。
           </p>
         </div>
@@ -115,6 +240,7 @@ export function FacePicker() {
             const fName = fit(def.label, fs);
             const fDim = fit(`${size.w} × ${size.h}`, fs * 0.8);
             const fBadge = fit(badge || ' ', fs * 0.8);
+            const cx = c.x + c.w / 2;
             return (
               <g
                 key={c.id}
@@ -122,24 +248,32 @@ export function FacePicker() {
                 onClick={() => openFace(c.id)}
               >
                 <rect x={c.x} y={c.y} width={c.w} height={c.h} rx={fs / 3} />
-                <text
-                  x={c.x + c.w / 2}
-                  y={c.y + c.h / 2 - fs * 0.9}
-                  fontSize={fName}
-                  className="name"
-                >
+                <FaceArt
+                  id={c.id}
+                  x={c.x}
+                  y={c.y}
+                  w={c.w}
+                  h={c.h}
+                  depth={panel.outer.d}
+                  underlay={underlays[c.id]}
+                />
+                {/* 見出しは絵に重なるので、上端に帯を敷いて読めるようにする */}
+                <rect
+                  className="ufcaption"
+                  x={c.x}
+                  y={c.y}
+                  width={c.w}
+                  height={fs * 2.6}
+                  rx={fs / 3}
+                />
+                <text x={cx} y={c.y + fs * 1.1} fontSize={fName} className="name">
                   {def.label}
                 </text>
-                <text x={c.x + c.w / 2} y={c.y + c.h / 2 + fs * 0.3} fontSize={fDim} className="dim">
+                <text x={cx} y={c.y + fs * 2.2} fontSize={fDim} className="dim">
                   {size.w} × {size.h}
                 </text>
                 {badge && (
-                  <text
-                    x={c.x + c.w / 2}
-                    y={c.y + c.h / 2 + fs * 1.6}
-                    fontSize={fBadge}
-                    className="badge"
-                  >
+                  <text x={cx} y={c.y + c.h - fs * 0.5} fontSize={fBadge} className="badge">
                     {badge}
                   </text>
                 )}

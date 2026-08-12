@@ -1,6 +1,7 @@
 import Encoding from 'encoding-japanese';
 import DxfParser from 'dxf-parser';
-import type { DeviceShape, ShapeEntity } from '../types';
+import { FACE_LABEL } from '../data/faces';
+import type { DeviceShape, FaceId, ShapeEntity } from '../types';
 
 /**
  * DXF の読み込み。
@@ -48,6 +49,15 @@ const NOISE_TYPE = new Set([
   'SOLID',
   'POINT',
 ]);
+/** 文字そのもの。下敷きに敷くときも、これだけは必ず落とす。 */
+const TEXT_TYPE = new Set(['TEXT', 'MTEXT', 'ATTDEF', 'ATTRIB']);
+
+/**
+ * 読み込み方。
+ * - 'shape' : 寸法線・注記レイヤまで落として、形だけにする（面の割り出しに使う）
+ * - 'all'   : **文字以外はすべて**拾う（下敷きに敷くときに使う）
+ */
+export type ReadMode = 'shape' | 'all';
 
 /** 国内の DXF は Shift-JIS のことが多い。文字コードを見て変換する。 */
 export async function readDxfText(file: File): Promise<string> {
@@ -79,7 +89,10 @@ type RawEntity = {
 type Parsed = { entities?: RawEntity[]; blocks?: Record<string, { entities?: RawEntity[] }> };
 
 /** INSERT を展開し、文字などを落として、図形の並びにする。 */
-export function flatten(text: string): { prims: Prim[]; layerOf: string[]; entityCount: number } {
+export function flatten(
+  text: string,
+  mode: ReadMode = 'shape',
+): { prims: Prim[]; layerOf: string[]; entityCount: number } {
   const parsed = (new DxfParser().parseSync(text) ?? {}) as Parsed;
   const blocks = parsed.blocks ?? {};
   const prims: Prim[] = [];
@@ -101,8 +114,12 @@ export function flatten(text: string): { prims: Prim[]; layerOf: string[]; entit
 
     for (const e of entities) {
       const layer = e.layer ?? '0';
-      if (NOISE_TYPE.has(e.type)) continue;
-      if (NOISE_LAYER.test(layer)) continue;
+      if (mode === 'all') {
+        if (TEXT_TYPE.has(e.type)) continue;
+      } else {
+        if (NOISE_TYPE.has(e.type)) continue;
+        if (NOISE_LAYER.test(layer)) continue;
+      }
 
       if (e.type === 'INSERT' && e.name && depth < 4) {
         const block = blocks[e.name];
@@ -361,6 +378,109 @@ export function findRectangles(text: string): {
     (a, b) => priority[a.from] - priority[b.from] || b.w * b.h - a.w * a.h,
   );
   return { candidates, entityCount, prims };
+}
+
+// ---------------------------------------------------------------------------
+// 自動判定
+// ---------------------------------------------------------------------------
+
+/**
+ * メーカーの盤図は第三角法の三面図で、面の並びが決まっている。
+ *
+ *            上面
+ *   左側面   正面   右側面   背面
+ *            底面
+ *
+ * この並びを手がかりに、どのかたまりがどの面かを機械で決める。
+ * 人が27件の候補から選ぶのは現実的ではないため。
+ */
+export type FaceRegion = { face: FaceId; x: number; y: number; w: number; h: number };
+
+export type CabinetAnalysis = {
+  outer: { w: number; h: number; d: number };
+  regions: FaceRegion[];
+  /** 何をどう判定したかの説明。取り違えたときに人が気づけるようにする */
+  note: string;
+};
+
+const boxW = (b: Box) => b.maxX - b.minX;
+const boxH = (b: Box) => b.maxY - b.minY;
+
+/** 2つの範囲がどれだけ重なっているか（狭いほうに対する割合）。 */
+function overlapRatio(a0: number, a1: number, b0: number, b1: number): number {
+  const over = Math.min(a1, b1) - Math.max(a0, b0);
+  const min = Math.min(a1 - a0, b1 - b0);
+  return min <= 0 ? 0 : over / min;
+}
+
+/**
+ * 三面図から外形寸法と各面の位置を割り出す。
+ *
+ * いちばん大きなかたまりを正面とみなし、
+ * 横に並ぶものを側面・背面、縦に並ぶものを上面・底面として拾う。
+ */
+export function analyzeCabinet(prims: Prim[]): CabinetAnalysis | null {
+  const all = clusterBoxes(prims).filter((b) => boxW(b) >= 20 && boxH(b) >= 20);
+  if (all.length === 0) return null;
+
+  const area = (b: Box) => boxW(b) * boxH(b);
+  const biggest = [...all].sort((a, b) => area(b) - area(a))[0]!;
+
+  // 正面と横に並ぶもの（Y の範囲が重なる）
+  const row = all.filter((b) => overlapRatio(b.minY, b.maxY, biggest.minY, biggest.maxY) > 0.6);
+  const maxW = Math.max(...row.map(boxW));
+  const wide = row.filter((b) => boxW(b) >= maxW * 0.8).sort((a, b) => a.minX - b.minX);
+  const narrow = row.filter((b) => boxW(b) < maxW * 0.8).sort((a, b) => a.minX - b.minX);
+
+  const front = wide[0] ?? biggest;
+  const back = wide[1];
+  // 第三角法では正面のすぐ左が左側面、すぐ右が右側面
+  const left = [...narrow].reverse().find((b) => b.maxX <= front.minX + 1);
+  const right = narrow.find(
+    (b) => b.minX >= front.maxX - 1 && (!back || b.maxX <= back.minX + 1),
+  );
+
+  // 正面と縦に並ぶもの（X の範囲が重なる）
+  const col = all.filter(
+    (b) => b !== front && overlapRatio(b.minX, b.maxX, front.minX, front.maxX) > 0.6,
+  );
+  const top = col.filter((b) => b.minY >= front.maxY - 1).sort((a, b) => a.minY - b.minY)[0];
+  const bottom = col.filter((b) => b.maxY <= front.minY + 1).sort((a, b) => b.maxY - a.maxY)[0];
+
+  // 奥行きは側面の幅から。無ければ上下面の高さから
+  const depths = [left, right].filter(Boolean).map((b) => boxW(b!));
+  const heights = [top, bottom].filter(Boolean).map((b) => boxH(b!));
+  const d = depths.length ? Math.min(...depths) : heights.length ? Math.min(...heights) : 0;
+
+  const regions: FaceRegion[] = [];
+  const add = (face: FaceId, b: Box | undefined) => {
+    if (!b) return;
+    regions.push({ face, x: r1(b.minX), y: r1(b.minY), w: r1(boxW(b)), h: r1(boxH(b)) });
+  };
+  add('door', front);
+  add('back', back);
+  add('left', left);
+  add('right', right);
+  add('top', top);
+  add('bottom', bottom);
+
+  const found = regions.map((r) => FACE_LABEL(r.face)).join('・');
+  return {
+    outer: { w: r1(boxW(front)), h: r1(boxH(front)), d: r1(d) },
+    regions,
+    note: `かたまり ${all.length} 個から ${regions.length} 面を判定（${found}）`,
+  };
+}
+
+/**
+ * 中板の DXF から寸法を割り出す。
+ * 三面図と違って1枚しか描かれていないので、いちばん大きな四角を採る。
+ */
+export function analyzePlate(text: string): { w: number; h: number; x: number; y: number } | null {
+  const { candidates } = findRectangles(text);
+  const framed = candidates.filter((c) => c.from === '線で囲まれた四角');
+  const best = (framed.length ? framed : candidates).sort((a, b) => b.w * b.h - a.w * a.h)[0];
+  return best ? { w: best.w, h: best.h, x: best.x, y: best.y } : null;
 }
 
 const r2 = (v: number) => Number(v.toFixed(2));

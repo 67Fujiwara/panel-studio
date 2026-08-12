@@ -60,12 +60,13 @@ main.single {
 }
 
 /* --- 面の選択 --- */
+/* 展開図がこの画面の主役なので、左を広く取る */
 .facepicker {
   display: grid;
-  grid-template-columns: minmax(340px, 460px) minmax(360px, 1fr);
+  grid-template-columns: minmax(340px, 1.15fr) minmax(360px, 0.85fr);
   gap: 28px;
   align-items: start;
-  max-width: 1180px;
+  max-width: 1560px;
   margin: 0 auto;
 }
 @media (max-width: 1100px) {
@@ -84,7 +85,7 @@ main.single {
 svg.unfold {
   display: block;
   width: 100%;
-  max-height: 62vh;
+  max-height: 76vh;
   margin-top: 12px;
 }
 .ufcell rect {
@@ -120,8 +121,44 @@ svg.unfold {
 .ufcell .badge {
   fill: var(--accent);
 }
+/* 面の中身の絵。枠だけではどの面か分からないので、その面らしい形を描く */
+.ufcell .ufart {
+  pointer-events: none;
+}
+.ufcell .ufart rect,
+.ufcell .ufart circle,
+.ufcell .ufart line,
+.ufcell .ufart path,
+.ufcell .ufart polyline {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  stroke-dasharray: none;
+  vector-effect: non-scaling-stroke;
+}
+.ufcell .ufart.from-dxf {
+  color: var(--muted);
+}
+.ufcell .ufart .handle {
+  fill: var(--muted);
+  fill-opacity: 0.4;
+}
+.ufcell:hover .ufart rect,
+.ufcell:hover .ufart circle,
+.ufcell:hover .ufart line {
+  stroke: var(--accent);
+}
+/* 見出しの帯。絵に重なっても文字が読めるようにする */
+.ufcell rect.ufcaption {
+  fill: var(--surface);
+  fill-opacity: 0.85;
+  stroke: none;
+  pointer-events: none;
+}
 .rowgap {
   margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--line);
 }
 .facecard {
   display: flex;
@@ -302,6 +339,17 @@ ul.cutsummary li {
   border-color: #ff8f1f;
   box-shadow: 0 0 0 1px #ff8f1f inset;
 }
+/* 座標がかぶっている加工。どれを直せばいいか一覧から分かるようにする */
+.cutedit.hit {
+  border-color: var(--bad);
+}
+.cutedit.hit .cutedit-head strong,
+ul.cutlist li.hit .cut-kind {
+  color: var(--bad);
+}
+ul.cutlist li.hit {
+  background: rgba(192, 57, 43, 0.08);
+}
 .cutedit-head {
   display: flex;
   align-items: center;
@@ -404,6 +452,27 @@ button.primary:hover:not(:disabled) {
 .dxfbox input[type='file'] {
   margin: 8px 0;
   font: inherit;
+}
+/* キャビネットと中板を別々に読み込む枠 */
+.dxfslot {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.dxfslot h4 {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cands-fallback {
+  margin-top: 12px;
+}
+.cands-fallback summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
 }
 table.cands {
   width: 100%;
@@ -847,6 +916,13 @@ button.reset {
   fill: var(--duct);
   stroke: #aeb9c6;
   stroke-width: 1;
+  cursor: pointer;
+}
+/* 選んだダクトは Delete キーで消せる。消せると分かるよう強調する */
+.duct.selected {
+  stroke: #ff8f1f;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
 }
 .device rect {
   stroke: rgba(0, 0, 0, 0.35);
@@ -910,10 +986,16 @@ button.reset {
   opacity: 0.8;
   pointer-events: none;
 }
-.underlay-clear {
+.canvas-overlay {
   position: absolute;
   right: 10px;
   top: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.canvas-overlay button {
   padding: 3px 10px;
   font-size: 11px;
   background: rgba(255, 255, 255, 0.9);
