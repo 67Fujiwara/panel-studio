@@ -187,6 +187,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     free: boolean;
     /** つかんだときの段。ここから変わったら上下に動かしたとみなす */
     fromRow: number;
+    /** つかんだ時点の段割り。他の機器を動かさないために使う */
+    rowsAtGrab: Map<string, number>;
     lastBefore: string | null | undefined;
     lastRow: number | undefined;
   } | null>(null);
@@ -226,7 +228,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
       if (before !== d.lastBefore || movedRow !== d.lastRow) {
         d.lastBefore = before;
         d.lastRow = movedRow;
-        moveItem(d.uid, before, movedRow);
+        // つかむ前の段割りを渡して、動かした1台以外は今の段にとどめる
+        moveItem(d.uid, before, movedRow, d.rowsAtGrab);
       }
       return;
     }
@@ -415,7 +418,9 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           return (
             <g
               key={p.uid}
-              className={`device${selectedUid === p.uid ? ' selected' : ''}${bad ? ' violation' : ''}`}
+              className={`device${spec.shape ? ' shaped' : ''}${
+                selectedUid === p.uid ? ' selected' : ''
+              }${bad ? ' violation' : ''}`}
               onPointerDown={(e) => {
                 e.stopPropagation();
                 select(p.uid);
@@ -427,6 +432,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                   oy: p.y,
                   free: e.shiftKey,
                   fromRow: p.row,
+                  rowsAtGrab: new Map(layout.placed.map((q) => [q.uid, q.row])),
                   lastBefore: undefined,
                   lastRow: undefined,
                 };
@@ -441,13 +447,17 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                   height={spec.size.h}
                 />
               </clipPath>
+              {/*
+                CAD の外形線がある機器は、外形線そのものが機器の姿。
+                四角の枠と塗りは出さない。枠があると外形線との間が「隙間」に見えて、
+                隣の機器との間隔を読み違えるため（当たり判定用に透明なまま残す）。
+              */}
               <rect
                 x={p.x}
                 y={toSvgY(faceH, p.y, spec.size.h)}
                 width={spec.size.w}
                 height={spec.size.h}
-                fill={colorOf(spec.category)}
-                fillOpacity={spec.shape ? 0.14 : 1}
+                fill={spec.shape ? 'transparent' : colorOf(spec.category)}
               />
               {spec.shape && (
                 // 部品の座標系は左下原点・Y上向きなので、拡縮と同時に Y を反転する

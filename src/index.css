@@ -402,6 +402,60 @@ label.check {
   max-width: 880px;
   margin: 0 auto;
 }
+/* 盤マスタの表は列が多いので広く取る */
+.screen:has(.encl) {
+  max-width: 1100px;
+}
+h3.section {
+  margin: 22px 0 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+.screen-head + h3.section {
+  border-top: 0;
+}
+.tablewrap {
+  overflow-x: auto;
+  margin-top: 8px;
+}
+table.encl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+table.encl th {
+  padding: 4px 5px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+table.encl td {
+  padding: 3px 5px;
+  border-bottom: 1px solid var(--line);
+}
+table.encl input {
+  margin: 0;
+  padding: 3px 5px;
+  font: inherit;
+  font-size: 12px;
+}
+.encl-model {
+  width: 100%;
+  min-width: 160px;
+}
+.encl-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+table.encl button {
+  padding: 2px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
 .screen-head h2,
 .start h2 {
   font-size: 18px;
@@ -954,6 +1008,10 @@ button.reset {
   stroke-width: 1;
   cursor: move;
 }
+/* CAD の外形線がある機器は、外形線だけで姿を表す。四角の枠は出さない */
+.device.shaped rect {
+  stroke: none;
+}
 .device text {
   fill: #fff;
   text-anchor: middle;
@@ -968,6 +1026,16 @@ button.reset {
 .device.violation rect {
   stroke: var(--bad);
   stroke-width: 3;
+}
+/* 外形線つきでも、選択中と違反だけは枠を出す（どれを触っているか要るため）。
+   常時の枠と区別できるよう破線にする */
+.device.shaped.selected rect {
+  stroke: #111;
+  stroke-dasharray: 5 4;
+}
+.device.shaped.violation rect {
+  stroke: var(--bad);
+  stroke-dasharray: 5 4;
 }
 .pin {
   fill: #fff;

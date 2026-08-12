@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { PartEditor } from './PartEditor';
+import { EnclosureTable } from './EnclosureTable';
 import { useStore, type ConfigFile } from '../store';
 import { downloadJson, pickJson } from '../lib/jsonFile';
 
@@ -16,12 +17,13 @@ export function ConfigScreen() {
   const removeCategory = useStore((s) => s.removeCategory);
   const addPart = useStore((s) => s.addPart);
   const loadConfig = useStore((s) => s.loadConfig);
+  const enclosures = useStore((s) => s.enclosures);
 
   const [open, setOpen] = useState<string | null>(categories[0]?.id ?? null);
   const [editing, setEditing] = useState<string | null>(null);
 
   const exportFile = () => {
-    const file: ConfigFile = { schemaVersion: 1, categories, devices, profile };
+    const file: ConfigFile = { schemaVersion: 1, categories, devices, profile, enclosures };
     downloadJson(file, 'panel-studio-settings.json');
   };
 
@@ -33,16 +35,22 @@ export function ConfigScreen() {
   return (
     <div className="screen">
       <div className="screen-head">
-        <h2>設定 — 共通の部品表</h2>
+        <h2>設定 — 盤マスタと共通の部品表</h2>
         <p className="note">
-          分類と部品をここで編集します。レイアウト画面のツリーはこの内容をそのまま表示します。
-          共有フォルダに書き出しておけば、全員が同じ部品表を使えます。
+          制御盤の型式と、分類・部品をここで編集します。レイアウト画面のツリーはこの内容を
+          そのまま表示します。共有フォルダに書き出しておけば、全員が同じ設定を使えます。
         </p>
         <div className="row-buttons">
-          <button onClick={addCategory}>＋ 分類を追加</button>
           <button onClick={exportFile}>書き出し（JSON）</button>
           <button onClick={() => void importFile()}>読み込み（JSON）</button>
         </div>
+      </div>
+
+      <EnclosureTable />
+
+      <h3 className="section">部品表</h3>
+      <div className="row-buttons">
+        <button onClick={addCategory}>＋ 分類を追加</button>
       </div>
 
       <ul className="tree big">

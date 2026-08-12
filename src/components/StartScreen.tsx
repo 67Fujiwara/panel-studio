@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { SAMPLE_ENCLOSURES } from '../data/enclosures';
 import { FACES, FACE_LABEL } from '../data/faces';
 import {
   analyzeCabinet,
@@ -62,6 +61,7 @@ export function StartScreen() {
   const setOuter = useStore((s) => s.setOuter);
   const setPlate = useStore((s) => s.setPlate);
   const setDepth = useStore((s) => s.setDepth);
+  const enclosures = useStore((s) => s.enclosures);
   const go = useStore((s) => s.go);
 
   const setUnderlay = useStore((s) => s.setUnderlay);
@@ -167,17 +167,24 @@ export function StartScreen() {
           <label className="sel">
             <span>型式（登録済みから選ぶ）</span>
             <select
-              value={panel.model}
+              value={enclosures.some((p) => p.model === panel.model) ? panel.model : ''}
               onChange={(e) => {
-                const found = SAMPLE_ENCLOSURES.find((p) => p.model === e.target.value);
+                const found = enclosures.find((p) => p.model === e.target.value);
                 if (found) setPanel(found);
               }}
             >
-              {SAMPLE_ENCLOSURES.map((p) => (
+              {/* 今の盤が未登録のときに、選択が勝手に別の型式へ飛ばないようにする */}
+              {!enclosures.some((p) => p.model === panel.model) && (
+                <option value="">（未登録）{panel.model}</option>
+              )}
+              {enclosures.map((p) => (
                 <option key={p.model}>{p.model}</option>
               ))}
             </select>
           </label>
+          <p className="note">
+            型式の登録・編集は<b>設定</b>画面の「盤マスタ」で行います。
+          </p>
           <label className="num">
             <span>型式名</span>
             <input
@@ -325,8 +332,6 @@ export function StartScreen() {
         <button className="primary" onClick={() => go('faces')}>
           この寸法で進む →
         </button>
-        <button onClick={() => go('config')}>設定</button>
-        <button onClick={() => go('myconfig')}>My部品</button>
       </div>
     </div>
   );

@@ -31,6 +31,8 @@ export type ConfigFile = {
   categories: CategoryDef[];
   devices: DeviceSpec[];
   profile: Profile;
+  /** 盤マスタ。古いファイルには無いので任意 */
+  enclosures?: PanelSpec[];
 };
 
 /** MyConfig 画面が読み書きするファイルの中身。共有フォルダに置いて全員で見る。 */
@@ -50,6 +52,8 @@ type State = {
   devices: DeviceSpec[];
   owners: string[];
   myDevices: DeviceSpec[];
+  /** 盤マスタ。設定画面で登録し、盤サイズ画面の「型式から選ぶ」に出る */
+  enclosures: PanelSpec[];
 
   items: LayoutItem[];
   machining: Machining[];
@@ -87,6 +91,11 @@ type State = {
   addOwner: (name: string) => void;
   removeOwner: (name: string) => void;
 
+  /** 盤マスタ。今の盤の寸法をそのまま型式として登録する */
+  addEnclosure: (from?: PanelSpec) => void;
+  updateEnclosure: (index: number, patch: Partial<PanelSpec>) => void;
+  removeEnclosure: (index: number) => void;
+
   loadConfig: (f: ConfigFile) => void;
   loadMyConfig: (f: MyConfigFile) => void;
 
@@ -107,8 +116,17 @@ type State = {
    * 機器の並び順を入れ替える。beforeUid の直前へ移す（null なら末尾）。
    * row を渡すとその機器だけ段を指定する（図の上で上下へ動かしたとき）。
    * 図の上でドラッグしたときに、他の機器の間へ入れ込むために使う。
+   *
+   * currentRows には「今どの機器がどの段にいるか」を渡す。段をまたいで動かすとき、
+   * 段が「自動」のままの機器を今いる段に固定するのに使う。空いた場所へ
+   * 下の段の機器が繰り上がってくるのを止めるため。
    */
-  moveItem: (uid: string, beforeUid: string | null, row?: number) => void;
+  moveItem: (
+    uid: string,
+    beforeUid: string | null,
+    row?: number,
+    currentRows?: Map<string, number>,
+  ) => void;
 
   addMachining: (m: MachiningDraft) => void;
   updateMachining: (id: string, patch: Partial<Machining>) => void;
@@ -130,6 +148,7 @@ export const useStore = create<State>((set) => ({
   devices: DEFAULT_DEVICES,
   owners: [],
   myDevices: [],
+  enclosures: SAMPLE_ENCLOSURES,
 
   items: [],
   machining: [],
@@ -217,8 +236,31 @@ export const useStore = create<State>((set) => ({
       myDevices: s.myDevices.filter((d) => d.owner !== name),
     })),
 
+  // --- 盤マスタ ---
+  addEnclosure: (from) =>
+    set((s) => {
+      const base = from ?? s.panel;
+      // 同じ型式名が並ぶと選べないので、重なったら連番を足す
+      let model = base.model || '新しい盤';
+      for (let n = 2; s.enclosures.some((e) => e.model === model); n++) {
+        model = `${base.model || '新しい盤'} (${n})`;
+      }
+      return { enclosures: [...s.enclosures, { ...base, model }] };
+    }),
+  updateEnclosure: (index, patch) =>
+    set((s) => ({
+      enclosures: s.enclosures.map((e, i) => (i === index ? { ...e, ...patch } : e)),
+    })),
+  removeEnclosure: (index) =>
+    set((s) => ({ enclosures: s.enclosures.filter((_, i) => i !== index) })),
+
   loadConfig: (f) =>
-    set({ categories: f.categories, devices: f.devices, profile: f.profile }),
+    set((s) => ({
+      categories: f.categories,
+      devices: f.devices,
+      profile: f.profile,
+      enclosures: f.enclosures ?? s.enclosures,
+    })),
   loadMyConfig: (f) => set({ owners: f.owners, myDevices: f.devices }),
 
   // --- レイアウト ---
@@ -304,13 +346,25 @@ export const useStore = create<State>((set) => ({
   selectCut: (id) => set({ selectedCut: id, selectedUid: null, selectedDuct: null }),
   selectDuct: (id) => set({ selectedDuct: id, selectedUid: null, selectedCut: null }),
 
-  moveItem: (uid, beforeUid, row) =>
+  moveItem: (uid, beforeUid, row, currentRows) =>
     set((s) => {
       const from = s.items.findIndex((i) => i.uid === uid);
       if (from < 0) return s;
-      const rest = s.items.filter((i) => i.uid !== uid);
+      const moved = s.items[from]!;
+
+      // 段をまたぐときは、他の機器を今いる段に固定してから動かす。
+      // そうしないと空いた場所へ下の段の機器が繰り上がってきて、
+      // 1台動かしただけのつもりが盤全体の並びが変わってしまう。
+      const freeze = (i: LayoutItem): LayoutItem => {
+        if (row === undefined || !currentRows) return i;
+        if (i.uid === uid || i.face !== moved.face || i.row !== undefined) return i;
+        const at = currentRows.get(i.uid);
+        return at === undefined ? i : { ...i, row: at };
+      };
+
+      const rest = s.items.filter((i) => i.uid !== uid).map(freeze);
       // 上下に動かしたときだけ段を指定し直す。左右に動かしただけなら「自動」のまま残す
-      const item = row === undefined ? s.items[from]! : { ...s.items[from]!, row };
+      const item = row === undefined ? moved : { ...moved, row };
       const to = beforeUid ? rest.findIndex((i) => i.uid === beforeUid) : -1;
       const next = [...rest];
       next.splice(to < 0 ? next.length : to, 0, item);
