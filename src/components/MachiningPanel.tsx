@@ -3,7 +3,7 @@ import { faceSize } from '../data/faces';
 import {
   TAP_DRILL,
   TAP_SIZES,
-  derivedMachining,
+  autoMachining,
   groupByDevice,
   machiningLabel,
   machiningOverlaps,
@@ -28,6 +28,7 @@ export function MachiningPanel({
 }) {
   const face = useStore((s) => s.face);
   const panel = useStore((s) => s.panel);
+  const profile = useStore((s) => s.profile);
   const manual = useStore((s) => s.machining);
   const addMachining = useStore((s) => s.addMachining);
   const updateMachining = useStore((s) => s.updateMachining);
@@ -41,7 +42,7 @@ export function MachiningPanel({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const size = faceSize(panel, face);
-  const auto = derivedMachining(layout.placed, devices);
+  const auto = autoMachining(face, layout, devices, profile);
   const mine = manual.filter((m) => m.face === face);
   const summary = summarizeMachining([...auto, ...mine]);
   const groups = groupByDevice(auto, layout.placed, devices);

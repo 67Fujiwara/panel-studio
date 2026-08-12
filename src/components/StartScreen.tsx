@@ -301,24 +301,17 @@ export function StartScreen() {
       </div>
 
       <h3>奥行きの内訳</h3>
-      <p className="note">
-        メーカー図面の「背面→中板上面」は実物と合わないため<b>手入力</b>します。
-      </p>
-      <p className="note warn">
-        ⚠ 奥行きは<b>側面図の外接寸法</b>から拾っています。扉まで描かれていれば扉込みの値になりますが、
-        本体だけの図だと扉の厚みぶん実物より小さく出ます。
-        <b>実物と合っているか確かめてください。</b>
-      </p>
       <div className="grid3">
         <Num
           label="背面→中板上面"
-          hint="手入力"
+          hint="納入仕様書を確認"
           value={panel.depth.backToPlate}
           onChange={(backToPlate) => setDepth({ backToPlate })}
           step={5}
         />
         <Num
           label="扉裏の突出"
+          hint="納入仕様書を確認"
           value={panel.depth.doorProjection}
           onChange={(doorProjection) => setDepth({ doorProjection })}
           step={5}

@@ -5,6 +5,7 @@ import type {
   DeviceRow,
   DeviceSpec,
   Duct,
+  DuctLayoutId,
   FaceId,
   LayoutResult,
   MountType,
@@ -139,6 +140,93 @@ function usableX(panel: PanelSpec, face: FaceId, profile: Profile, rowIndex: num
   };
 }
 
+// ---------------------------------------------------------------------------
+// ダクトレイアウト
+// ---------------------------------------------------------------------------
+
+/**
+ * レイアウトごとの決まりごと。
+ *
+ * ダクトの引き方の違いは、結局のところ
+ *  - 縦ダクトをどこに立てるか
+ *  - 段と段の間に横ダクトを入れるか
+ *  - 機器をどの区画に流し込むか
+ * の3つに落ちる。ここで表にしておき、詰め込みの処理は共通にする。
+ */
+type LayoutRule = {
+  /** 縦ダクトの位置。面の幅に対する比で持つ（0=左端, 0.5=中央, 1=右端） */
+  verticals: number[];
+  /** 段と段の間に横ダクトを入れるか */
+  horizontals: boolean;
+  /** 区画を機能で分ける（動力＝左／制御＝右） */
+  zoned?: boolean;
+  /** 端子台を必ず最下段に置く */
+  terminalLast?: boolean;
+};
+
+const LAYOUT_RULES: Record<DuctLayoutId, LayoutRule> = {
+  // 横ダクトだけ。いちばん一般的で、段の増減がそのまま見える
+  'horizontal-rows': { verticals: [], horizontals: true },
+  // 両サイドに縦ダクト。段間に横ダクトを入れず、配線は左右へ逃がす
+  'vertical-sides': { verticals: [0, 1], horizontals: false },
+  // 外周＋十字。両サイドと中央に縦ダクト、段間にも横ダクト
+  cross: { verticals: [0, 0.5, 1], horizontals: true },
+  // 中央の縦ダクトで動力（左）と制御（右）を分ける
+  zoned: { verticals: [0.5], horizontals: true, zoned: true },
+  // 横ダクト段組みのまま、端子台だけ最下段にまとめる
+  'terminal-bottom': { verticals: [], horizontals: true, terminalLast: true },
+};
+
+/** 動力側に置く分類。ゾーン分割で左の区画に入れる。 */
+const POWER_CATEGORIES = new Set(['breaker', 'contactor']);
+
+export type Segment = { x0: number; x1: number };
+
+/**
+ * 縦ダクトの帯。面の幅に対する比から実際の位置に直す。
+ * 端に立てる縦ダクトは面からはみ出さないよう内側に寄せる。
+ */
+function verticalBands(panel: PanelSpec, face: FaceId, profile: Profile): Segment[] {
+  const rule = LAYOUT_RULES[profile.duct.layout];
+  if (!FACE_BY_ID.get(face)?.ducts) return [];
+  const { w } = faceSize(panel, face);
+  const dw = profile.duct.width;
+  const m = profile.duct.margin;
+  return rule.verticals.map((t) => {
+    const center = t === 0 ? m.left + dw / 2 : t === 1 ? w - m.right - dw / 2 : w * t;
+    return { x0: center - dw / 2, x1: center + dw / 2 };
+  });
+}
+
+/** その段で機器を置ける X 区画。縦ダクトで分断された残りを左から順に返す。 */
+function rowSegments(
+  panel: PanelSpec,
+  face: FaceId,
+  profile: Profile,
+  rowIndex: number,
+  bands: Segment[],
+): Segment[] {
+  const { xMin, xMax } = usableX(panel, face, profile, rowIndex);
+  const gapToDuct = Math.max(
+    profile.clearance.deviceToDuct.left,
+    profile.clearance.deviceToDuct.right,
+  );
+  let out: Segment[] = [{ x0: xMin, x1: xMax }];
+  for (const b of bands) {
+    const next: Segment[] = [];
+    for (const s of out) {
+      // 帯の左側
+      if (b.x0 - gapToDuct > s.x0) next.push({ x0: s.x0, x1: Math.min(s.x1, b.x0 - gapToDuct) });
+      // 帯の右側
+      if (b.x1 + gapToDuct < s.x1) next.push({ x0: Math.max(s.x0, b.x1 + gapToDuct), x1: s.x1 });
+      // 帯に完全に隠れる区画は捨てる
+      if (b.x0 - gapToDuct <= s.x0 && b.x1 + gapToDuct >= s.x1) continue;
+    }
+    out = next;
+  }
+  return out.filter((s) => s.x1 - s.x0 > 0);
+}
+
 /** 機器同士の水平方向の間隔。 */
 function horizontalGap(prevRight: number, eff: Sides, c: ClearanceSettings) {
   return Math.max(prevRight, eff.left, c.deviceToDevice.sameRow);
@@ -178,23 +266,30 @@ function buildQueue(items: LayoutItem[], skip: Set<string>, devices: DeviceLooku
  */
 function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry[]) {
   const c = profile.clearance;
-  const dw = FACE_BY_ID.get(face)?.ducts ? profile.duct.width : 0;
+  const hasDucts = FACE_BY_ID.get(face)?.ducts ?? false;
+  const rule = LAYOUT_RULES[profile.duct.layout];
+  const dw = hasDucts ? profile.duct.width : 0;
+  // 段と段の間に横ダクトを入れないレイアウトでは、代わりに段間クリアランスを取る
+  const rowSpacing = rule.horizontals ? dw : hasDucts ? c.deviceToDevice.betweenRows : 0;
   const size = faceSize(panel, face);
+  const bands = verticalBands(panel, face, profile);
   const violations: Violation[] = [];
 
   type Placed = { e: Entry; x: number; eff: Sides };
-  type Bucket = {
-    entries: Placed[];
-    h: number;
-    cursor: number;
-    prevRight: number;
-    xMin: number;
-    xMax: number;
-  };
-  const newBucket = (i: number): Bucket => {
-    const { xMin, xMax } = usableX(panel, face, profile, i);
-    return { entries: [], h: 0, cursor: xMin, prevRight: 0, xMin, xMax };
-  };
+  /** 段の中の区画。縦ダクトで分断されたそれぞれを別に詰める */
+  type Slot = Segment & { cursor: number; prevRight: number; used: boolean };
+  type Bucket = { entries: Placed[]; h: number; slots: Slot[] };
+
+  const newBucket = (i: number): Bucket => ({
+    entries: [],
+    h: 0,
+    slots: rowSegments(panel, face, profile, i, bands).map((s) => ({
+      ...s,
+      cursor: s.x0,
+      prevRight: 0,
+      used: false,
+    })),
+  });
   const buckets: Bucket[] = [newBucket(0)];
   const bucketAt = (i: number) => {
     while (buckets.length <= i) buckets.push(newBucket(buckets.length));
@@ -202,46 +297,81 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   };
   let flow = 0;
 
-  for (const e of queue) {
+  /** ゾーン分割のとき、その機器が入るべき区画。動力は左、制御は右 */
+  const zoneOf = (e: Entry, slots: Slot[]) => {
+    if (!rule.zoned || slots.length < 2) return 0;
+    return POWER_CATEGORIES.has(e.spec.category) ? 0 : slots.length - 1;
+  };
+
+  // 端子台最下段: 端子台は他をすべて置いてから最後の段にまとめる
+  const main = rule.terminalLast ? queue.filter((e) => e.spec.category !== 'terminal') : queue;
+  const tail = rule.terminalLast ? queue.filter((e) => e.spec.category === 'terminal') : [];
+
+  const place = (e: Entry, forceLast: boolean) => {
     const w = e.spec.size.w;
     const forced = e.item.row;
-    let index = forced !== undefined && forced >= 0 ? forced : flow;
+    let index = forced !== undefined && forced >= 0 ? forced : forceLast ? buckets.length - 1 : flow;
     let b = bucketAt(index);
     let eff = effectiveClearance(e.spec, c, rowGap(profile, index));
 
-    if (w > b.xMax - b.xMin) {
+    const widest = (bk: Bucket) => Math.max(0, ...bk.slots.map((s) => s.x1 - s.x0));
+    if (w > widest(b)) {
       violations.push({
         uid: e.item.uid,
         kind: 'overflow',
-        message: `${e.spec.model}: 幅 ${w}mm が ${index + 1} 段目の使える幅 ${Math.round(b.xMax - b.xMin)}mm を超えています`,
+        message: `${e.spec.model}: 幅 ${w}mm が ${index + 1} 段目の使える幅 ${Math.round(widest(b))}mm を超えています`,
       });
-      continue;
+      return;
     }
 
-    const gap = horizontalGap(b.prevRight, eff, c);
-    let x = b.entries.length === 0 ? b.xMin : b.cursor + gap;
+    /** その段の中で置ける場所を探す。ゾーン指定があればそこから見る */
+    const findSlot = (bk: Bucket) => {
+      const from = zoneOf(e, bk.slots);
+      const order = rule.zoned ? [from] : bk.slots.map((_, i) => i).filter((i) => i >= from);
+      for (const i of order) {
+        const s = bk.slots[i];
+        if (!s) continue;
+        const gap = horizontalGap(s.prevRight, eff, c);
+        const x = s.used ? s.cursor + gap : s.x0;
+        if (x + w <= s.x1) return { slot: s, x };
+      }
+      return null;
+    };
 
-    if (x + w > b.xMax) {
+    let hit = findSlot(b);
+    if (!hit) {
       if (forced !== undefined && forced >= 0) {
         // 段を指定されているので、はみ出しても指定どおりの段に置いて知らせる
+        const s = b.slots[zoneOf(e, b.slots)] ?? b.slots[0];
+        if (!s) return;
         violations.push({
           uid: e.item.uid,
           kind: 'overflow',
           message: `${e.spec.model}: 指定された ${forced + 1} 段目に横幅が足りません`,
         });
+        hit = { slot: s, x: s.used ? s.cursor + horizontalGap(s.prevRight, eff, c) : s.x0 };
       } else {
         flow = buckets.length;
         index = flow;
         b = bucketAt(index);
         eff = effectiveClearance(e.spec, c, rowGap(profile, index));
-        x = b.xMin;
+        hit = findSlot(b);
+        if (!hit) return;
       }
     }
 
-    b.entries.push({ e, x, eff });
-    b.cursor = x + w;
-    b.prevRight = eff.right;
+    b.entries.push({ e, x: hit.x, eff });
+    hit.slot.cursor = hit.x + w;
+    hit.slot.prevRight = eff.right;
+    hit.slot.used = true;
     b.h = Math.max(b.h, e.spec.size.h + eff.top + eff.bottom);
+  };
+
+  for (const e of main) place(e, false);
+  if (tail.length > 0) {
+    // 端子台は必ず新しい最下段から始める
+    bucketAt(buckets.length);
+    for (const e of tail) place(e, true);
   }
 
   const used = buckets.filter((b) => b.entries.length > 0);
@@ -250,7 +380,9 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   const placed: PlacedDevice[] = [];
 
   const availableH = size.h - profile.duct.margin.top - profile.duct.margin.bottom;
-  const requiredH = used.reduce((s, b) => s + b.h, 0) + (dw > 0 ? (used.length + 1) * dw : 0);
+  const requiredH =
+    used.reduce((s, b) => s + b.h, 0) +
+    (rule.horizontals && dw > 0 ? (used.length + 1) * dw : rowSpacing * Math.max(0, used.length - 1));
 
   // ダクトはその段に指定した左右の余白に合わせる。段ごとに余白を変えたとき、
   // ダクトだけ元の位置に残ると図が食い違うため。
@@ -261,11 +393,15 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   };
 
   let y = size.h - profile.duct.margin.top;
+  const top = y;
+  let id = 0;
   used.forEach((b, index) => {
-    if (dw > 0) {
+    if (rule.horizontals && dw > 0) {
       y -= dw;
       const span = ductSpan(index);
-      ducts.push({ id: index, x: span.x, y, w: span.w, h: dw });
+      ducts.push({ id: id++, x: span.x, y, w: span.w, h: dw });
+    } else if (index > 0) {
+      y -= rowSpacing;
     }
     y -= b.h;
     const row: DeviceRow = { index, y, h: b.h };
@@ -283,11 +419,24 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
       });
     }
   });
-  if (dw > 0 && used.length > 0) {
+  if (rule.horizontals && dw > 0 && used.length > 0) {
     // 最下段のダクトは、その上の段の余白に合わせる
     const span = ductSpan(used.length - 1);
     y -= dw;
-    ducts.push({ id: used.length, x: span.x, y, w: span.w, h: dw });
+    ducts.push({ id: id++, x: span.x, y, w: span.w, h: dw });
+  }
+
+  // 縦ダクトは中板の余白いっぱいに通す。実際の盤でも上下いっぱいに立てるので、
+  // 機器の量で長さが変わると必要本数が読みにくくなる。
+  const bottom = profile.duct.margin.bottom;
+  for (const band of bands) {
+    ducts.push({
+      id: id++,
+      x: band.x0,
+      y: bottom,
+      w: band.x1 - band.x0,
+      h: Math.max(0, top - bottom),
+    });
   }
 
   if (requiredH > availableH) {
@@ -396,7 +545,7 @@ function packEqual(
   return { rows, ducts, placed, violations };
 }
 
-/** DINレールの両端に確保する余長(mm)。エンドストッパの分。 */
+/** DINレールの両端に確保する余長(mm)の既定値。エンドストッパの分。 */
 export const RAIL_END_MARGIN = 20;
 
 export type RailRun = { row: number; x: number; y: number; length: number };
@@ -404,8 +553,15 @@ export type RailRun = { row: number; x: number; y: number; length: number };
 /**
  * 段ごとの DINレール。BOM と作図の両方がここを使う。
  * 正面視ではレールは高さ 35mm の帯として見えるので、機器の下端に合わせて描く。
+ *
+ * 両端の余長は設定で変えられる。エンドストッパの厚みや、あとから機器を足せるよう
+ * 長めに切る現場の習慣に合わせるため。
  */
-export function computeRails(layout: LayoutResult, devices: DeviceLookup): RailRun[] {
+export function computeRails(
+  layout: LayoutResult,
+  devices: DeviceLookup,
+  endMargin: number = RAIL_END_MARGIN,
+): RailRun[] {
   const out: RailRun[] = [];
   for (const row of layout.rows) {
     const inRow = layout.placed
@@ -414,9 +570,10 @@ export function computeRails(layout: LayoutResult, devices: DeviceLookup): RailR
       .filter((e): e is { p: PlacedDevice; spec: DeviceSpec } => Boolean(e.spec));
     if (inRow.length === 0) continue;
 
-    const left = Math.max(0, Math.min(...inRow.map((e) => e.p.x)) - RAIL_END_MARGIN);
-    const right = Math.max(...inRow.map((e) => e.p.x + e.spec.size.w)) + RAIL_END_MARGIN;
-    const y = Math.min(...inRow.map((e) => e.p.y));
+    const left = Math.max(0, Math.min(...inRow.map((e) => e.p.x)) - endMargin);
+    const right = Math.max(...inRow.map((e) => e.p.x + e.spec.size.w)) + endMargin;
+    // レールの中心は段の中心。機器はここから dinOffset ぶんだけずれて掛かる
+    const y = row.y + row.h / 2;
     out.push({ row: row.index, x: left, y, length: right - left });
   }
   return out;

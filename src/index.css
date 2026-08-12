@@ -935,6 +935,17 @@ button.reset {
   min-width: 0;
   background: #e9edf1;
 }
+/* 機器をつかんで動かすと文字が選択されてしまうので、図の上では選択させない */
+.canvas-wrap {
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* ドラッグ中は図の外へ出ても選択が始まらないようにする */
+body.dragging,
+body.dragging * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
 .canvas-wrap svg {
   width: 100%;
   height: 100%;
@@ -974,6 +985,13 @@ button.reset {
   stroke: #ff8f1f;
   stroke-width: 3;
   vector-effect: non-scaling-stroke;
+}
+/* DINレール。機器の下に敷く帯 */
+.rail {
+  fill: #d8dde4;
+  stroke: #9aa5b1;
+  stroke-width: 1;
+  pointer-events: none;
 }
 /* 消したダクトの跡。押すとそこへ戻せる */
 .duct-slot {

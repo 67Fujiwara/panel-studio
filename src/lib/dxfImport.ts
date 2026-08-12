@@ -195,7 +195,26 @@ export function primBox(p: Prim): Box {
       maxY: Math.max(p.y1, p.y2),
     };
   }
-  return { minX: p.x - p.r, maxX: p.x + p.r, minY: p.y - p.r, maxY: p.y + p.r };
+  if (p.k === 'circle') {
+    return { minX: p.x - p.r, maxX: p.x + p.r, minY: p.y - p.r, maxY: p.y + p.r };
+  }
+
+  // 円弧は「円まるごと」ではなく実際に描かれる範囲で見る。
+  // 円で見ると外接が実物より大きくなり、取り込んだ部品の外形に
+  // 描かれていない余白が付いてしまうため。
+  const sweep = p.a1 >= p.a0 ? p.a1 - p.a0 : p.a1 - p.a0 + Math.PI * 2;
+  const at = (a: number) => ({ x: p.x + p.r * Math.cos(a), y: p.y + p.r * Math.sin(a) });
+  const pts = [at(p.a0), at(p.a0 + sweep)];
+  // 弧が上下左右の頂点をまたぐときだけ、そこも端になる
+  const first = Math.ceil(p.a0 / (Math.PI / 2)) * (Math.PI / 2);
+  for (let a = first; a <= p.a0 + sweep; a += Math.PI / 2) pts.push(at(a));
+
+  return {
+    minX: Math.min(...pts.map((q) => q.x)),
+    maxX: Math.max(...pts.map((q) => q.x)),
+    minY: Math.min(...pts.map((q) => q.y)),
+    maxY: Math.max(...pts.map((q) => q.y)),
+  };
 }
 
 const r1 = (v: number) => Number(v.toFixed(1));

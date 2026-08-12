@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { DIN_RAIL_WIDTH } from '../data/enclosures';
 import { FACE_LABEL, faceSize } from '../data/faces';
+import { computeRails } from '../lib/layout';
 import { ShapeGeometry } from './ShapeGeometry';
-import { derivedMachining } from '../lib/machining';
+import { autoMachining } from '../lib/machining';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
 import type { CategoryDef, FaceId, LayoutResult, Machining, PanelSpec } from '../types';
@@ -67,6 +69,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const [view, setView] = useState<ViewBox>({ x: -PAD, y: -PAD, w: faceW + PAD * 2, h: faceH + PAD * 2 });
   // 目盛りの間引きと文字の大きさを画面の実寸で決めるため、描画領域の幅を測っておく
   const [pxWidth, setPxWidth] = useState(900);
+  const profile = useStore((s) => s.profile);
   const selectedUid = useStore((s) => s.selectedUid);
   const select = useStore((s) => s.select);
   const pin = useStore((s) => s.pin);
@@ -116,8 +119,9 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
 
   const colorOf = (cat: string) => categories.find((c) => c.id === cat)?.color ?? '#7d8894';
   const violatingUids = new Set(layout.violations.map((v) => v.uid));
-  const autoCuts = derivedMachining(layout.placed, devices);
+  const autoCuts = autoMachining(face, layout, devices, profile);
   const manualCuts = manual.filter((m) => m.face === face);
+  const rails = computeRails(layout, devices, profile.rail.endMargin);
 
   /** 画面上の座標を面の座標(mm, 左下原点)に直す。viewBox の余白も含めて正確に変換する。 */
   const toFace = (clientX: number, clientY: number) => {
@@ -193,8 +197,13 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     lastRow: number | undefined;
   } | null>(null);
 
+  /** ドラッグ中は文字が選択されないようにする。図の外へ出ても効くよう body に付ける。 */
+  const holdSelection = (on: boolean) => document.body.classList.toggle('dragging', on);
+
   const onPointerDownBg = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    e.preventDefault();
+    holdSelection(true);
     panRef.current = { x: e.clientX, y: e.clientY };
     (e.target as Element).setPointerCapture?.(e.pointerId);
     select(null);
@@ -244,7 +253,20 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const endPointer = () => {
     panRef.current = null;
     dragRef.current = null;
+    holdSelection(false);
   };
+
+  // 図から離れたところでボタンを放しても選択止めを解く
+  useEffect(() => {
+    const off = () => holdSelection(false);
+    window.addEventListener('pointerup', off);
+    window.addEventListener('pointercancel', off);
+    return () => {
+      window.removeEventListener('pointerup', off);
+      window.removeEventListener('pointercancel', off);
+      holdSelection(false);
+    };
+  }, []);
 
   const ticks = (length: number, step: number) =>
     Array.from({ length: Math.floor(length / step) + 1 }, (_, i) => i * step);
@@ -402,6 +424,22 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           );
         })}
 
+        {/* DINレール。両端の余長は設定で決まる。機器の下に敷く */}
+        {rails.map((r) => (
+          <rect
+            key={`rail${r.row}`}
+            x={r.x}
+            y={toSvgY(faceH, r.y + DIN_RAIL_WIDTH / 2, 0)}
+            width={r.length}
+            height={DIN_RAIL_WIDTH}
+            className="rail"
+          >
+            <title>
+              DINレール {r.row + 1} 段目 — 切断長 {Math.round(r.length)}mm
+            </title>
+          </rect>
+        ))}
+
         {/* 機器 */}
         {layout.placed.map((p) => {
           const spec = devices.get(p.specId);
@@ -423,6 +461,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
               }${bad ? ' violation' : ''}`}
               onPointerDown={(e) => {
                 e.stopPropagation();
+                e.preventDefault();
+                holdSelection(true);
                 select(p.uid);
                 dragRef.current = {
                   uid: p.uid,

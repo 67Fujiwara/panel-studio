@@ -3,7 +3,7 @@ import { FACES, faceSize } from '../data/faces';
 import { buildBom, totalHeatW } from '../lib/bom';
 import { asciiFileName, bomToCsv, downloadCsv, machiningToCsv } from '../lib/csv';
 import { autoLayout } from '../lib/layout';
-import { derivedMachining } from '../lib/machining';
+import { autoMachining, derivedMachining } from '../lib/machining';
 import { ShapeGeometry } from './ShapeGeometry';
 import { deviceLookup, useStore } from '../store';
 import type { BomSettings, DeviceShape, FaceId, PanelSpec } from '../types';
@@ -192,7 +192,10 @@ export function FacePicker() {
 
   const bom = buildBom(layouts, profile, lookup);
   const heat = totalHeatW(layouts, lookup);
-  const cutouts = [...layouts.flatMap((l) => derivedMachining(l.placed, lookup)), ...machining];
+  const cutouts = [
+    ...layouts.flatMap((l, i) => autoMachining(FACES[i]!.id, l, lookup, profile)),
+    ...machining,
+  ];
   const base = asciiFileName(panel.model, 'panel');
 
   const { cells, w: diagW, h: diagH } = unfold(panel);

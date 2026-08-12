@@ -176,6 +176,35 @@ export type DuctSettings = {
    * 指定がない段は上下が clearance.deviceToDuct、左右が margin。
    */
   rowGaps: Record<number, RowGap>;
+  /** ダクトを中板に留める穴 */
+  fixing: FixingSettings;
+};
+
+/**
+ * ダクト・DINレールを中板に留めるための穴。
+ *
+ * 実際の加工では「レール1本につき何か所、どのタップで」を先に決めてから
+ * ピッチを割り付ける。ここもその順で持たせている。
+ */
+export type FixingSettings = {
+  /** 1本あたりの固定か所 */
+  points: number;
+  /** 使うタップの呼び */
+  tap: TapSize;
+  /**
+   * 穴のピッチ(mm)。0 なら「両端の余白を除いて等分」する。
+   * 定尺の穴位置に合わせたいときだけ数値を入れる。
+   */
+  pitch: number;
+  /** 端から最初の穴までの距離(mm) */
+  endOffset: number;
+};
+
+/** DINレールの設定。長さの余長と固定穴。 */
+export type RailSettings = {
+  /** 機器の端からレール端までの余長(mm)。エンドストッパのぶん */
+  endMargin: number;
+  fixing: FixingSettings;
 };
 
 export type ClearanceSettings = {
@@ -206,6 +235,7 @@ export type Profile = {
   schemaVersion: 1;
   profileName: string;
   duct: DuctSettings;
+  rail: RailSettings;
   clearance: ClearanceSettings;
   bom: BomSettings;
 };

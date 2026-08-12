@@ -1,5 +1,17 @@
-import type { DeviceLookup } from './layout';
-import type { Machining, PlacedDevice, TapSize, Violation } from '../types';
+import { FACE_BY_ID } from '../data/faces';
+import { computeRails } from './layout';
+import type { DeviceLookup, RailRun } from './layout';
+import type {
+  Duct,
+  FaceId,
+  FixingSettings,
+  LayoutResult,
+  Machining,
+  PlacedDevice,
+  Profile,
+  TapSize,
+  Violation,
+} from '../types';
 
 /** タップの下穴径。加工リストにはこの径で出す。 */
 export const TAP_DRILL: Record<TapSize, number> = { M3: 2.5, M4: 3.3, M5: 4.2, M6: 5.0 };
@@ -168,7 +180,87 @@ export function overlappingCutIds(items: Machining[]): Set<string> {
 }
 
 /** 自動導出ぶんは編集できない。ID の接頭辞で見分ける。 */
-export const isDerived = (m: Machining) => m.id.startsWith('cut-') || m.id.startsWith('hole-');
+export const isDerived = (m: Machining) =>
+  m.id.startsWith('cut-') || m.id.startsWith('hole-') || m.id.startsWith('fix-');
+
+/**
+ * 1本の帯（ダクト・DINレール）を留める穴の位置を、端からの距離で割り出す。
+ *
+ * ピッチを 0 にしておくと、両端の余白を除いた残りを等分する。定尺の穴位置に
+ * 合わせたいときだけピッチを入れる、という使い分けを想定している。
+ */
+export function fixingOffsets(length: number, f: FixingSettings): number[] {
+  const n = Math.max(1, Math.floor(f.points));
+  const first = Math.min(f.endOffset, length / 2);
+  if (n === 1) return [length / 2];
+
+  if (f.pitch > 0) {
+    // 指定ピッチで端から並べる。入りきらないぶんは落とす
+    const out: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const at = first + f.pitch * i;
+      if (at > length - first + 0.01) break;
+      out.push(at);
+    }
+    return out.length > 0 ? out : [length / 2];
+  }
+
+  const span = Math.max(0, length - first * 2);
+  return Array.from({ length: n }, (_, i) => first + (span * i) / (n - 1));
+}
+
+/**
+ * ダクトと DINレールを中板に留める穴。
+ *
+ * 帯1本ごとに「何か所・どのタップで」を設定から決めて座標に展開する。
+ * 実際の加工では機器の取付穴と同じ図面に出るものなので、同じ仕組みで持たせている。
+ */
+export function fixingMachining(
+  face: FaceId,
+  ducts: Duct[],
+  rails: RailRun[],
+  profile: Profile,
+): Machining[] {
+  const out: Machining[] = [];
+  if (!FACE_BY_ID.get(face)?.ducts) return out;
+
+  for (const d of ducts) {
+    if (d.removed) continue;
+    const f = profile.duct.fixing;
+    const vertical = d.h > d.w;
+    const len = vertical ? d.h : d.w;
+    for (const [i, at] of fixingOffsets(len, f).entries()) {
+      out.push({
+        id: `fix-duct${d.id}-${i}`,
+        face,
+        kind: 'hole',
+        x: round(vertical ? d.x + d.w / 2 : d.x + at),
+        y: round(vertical ? d.y + at : d.y + d.h / 2),
+        dia: TAP_DRILL[f.tap],
+        tap: f.tap,
+        note: `ダクト ${d.id + 1} 本目 固定`,
+      });
+    }
+  }
+
+  for (const r of rails) {
+    const f = profile.rail.fixing;
+    for (const [i, at] of fixingOffsets(r.length, f).entries()) {
+      out.push({
+        id: `fix-rail${r.row}-${i}`,
+        face,
+        kind: 'hole',
+        x: round(r.x + at),
+        y: round(r.y),
+        dia: TAP_DRILL[f.tap],
+        tap: f.tap,
+        note: `DINレール ${r.row + 1} 段目 固定`,
+      });
+    }
+  }
+
+  return out;
+}
 
 /** 同じ寸法の加工をまとめた集計（加工指示に使う）。 */
 export function summarizeMachining(items: Machining[]): { label: string; qty: number }[] {
@@ -188,13 +280,31 @@ export function groupByDevice(
 ): { uid: string; model: string; items: Machining[] }[] {
   const groups = new Map<string, { uid: string; model: string; items: Machining[] }>();
   for (const m of items) {
+    // ダクト・レールの固定穴は機器から出たものではないので、まとめて1つの枝にする
+    const fixing = m.id.startsWith('fix-');
     const uid = m.id.split('-')[1] ?? '';
-    const p = placed.find((q) => q.uid === uid);
-    const model = (p && devices.get(p.specId)?.model) ?? '手動追加';
-    const key = p ? uid : 'manual';
+    const p = fixing ? undefined : placed.find((q) => q.uid === uid);
+    const key = fixing ? 'fixing' : p ? uid : 'manual';
+    const model = fixing ? 'ダクト・DINレール 固定' : (p && devices.get(p.specId)?.model) ?? '手動追加';
     const g = groups.get(key) ?? { uid: key, model, items: [] };
     g.items.push(m);
     groups.set(key, g);
   }
   return [...groups.values()];
+}
+
+/**
+ * その面で自動的に決まる加工をすべて出す。
+ * 機器から出るもの（開口・取付穴）と、ダクト・レールの固定穴の両方。
+ */
+export function autoMachining(
+  face: FaceId,
+  layout: LayoutResult,
+  devices: DeviceLookup,
+  profile: Profile,
+): Machining[] {
+  return [
+    ...derivedMachining(layout.placed, devices),
+    ...fixingMachining(face, layout.ducts, computeRails(layout, devices, profile.rail.endMargin), profile),
+  ];
 }

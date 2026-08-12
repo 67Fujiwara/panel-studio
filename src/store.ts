@@ -16,6 +16,7 @@ import type {
   PanelSpec,
   PlacedDevice,
   Profile,
+  RailSettings,
   RowGap,
 } from './types';
 import type { LayoutItem } from './lib/layout';
@@ -77,6 +78,7 @@ type State = {
   setPlate: (patch: Partial<PanelSpec['plate']>) => void;
   setDepth: (patch: Partial<PanelSpec['depth']>) => void;
   setDuct: (patch: Partial<DuctSettings>) => void;
+  setRail: (patch: Partial<RailSettings>) => void;
   setClearance: (patch: Partial<ClearanceSettings>) => void;
   setBom: (patch: Partial<BomSettings>) => void;
 
@@ -171,6 +173,8 @@ export const useStore = create<State>((set) => ({
 
   setDuct: (patch) =>
     set((s) => ({ profile: { ...s.profile, duct: { ...s.profile.duct, ...patch } } })),
+  setRail: (patch) =>
+    set((s) => ({ profile: { ...s.profile, rail: { ...s.profile.rail, ...patch } } })),
   setClearance: (patch) =>
     set((s) => ({ profile: { ...s.profile, clearance: { ...s.profile.clearance, ...patch } } })),
   setBom: (patch) => set((s) => ({ profile: { ...s.profile, bom: { ...s.profile.bom, ...patch } } })),

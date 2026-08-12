@@ -55,6 +55,11 @@ export const DEFAULT_PROFILE: Profile = {
     rowCount: 3,
     margin: { top: 30, bottom: 30, left: 30, right: 30 },
     rowGaps: {},
+    fixing: { points: 3, tap: 'M4', pitch: 0, endOffset: 30 },
+  },
+  rail: {
+    endMargin: 20,
+    fixing: { points: 3, tap: 'M4', pitch: 0, endOffset: 25 },
   },
   clearance: {
     deviceToDuct: { top: 10, bottom: 10, left: 10, right: 10 },
@@ -80,11 +85,22 @@ export const DUCT_LAYOUT_LABEL: Record<Profile['duct']['layout'], string> = {
   'terminal-bottom': '端子台最下段専用',
 };
 
+/** レイアウトごとの説明。選んだときに何が変わるかを示す。 */
+export const DUCT_LAYOUT_HINT: Record<Profile['duct']['layout'], string> = {
+  'horizontal-rows': '段と段の間に横ダクトを通します。いちばん一般的な組み方です。',
+  'vertical-sides':
+    '両サイドに縦ダクトを立て、段間には入れません。配線を左右へ逃がすぶん、段を詰めて置けます。',
+  cross: '両サイドと中央に縦ダクト、段間にも横ダクト。中央の縦ダクトで段が左右に分かれます。',
+  zoned:
+    '中央の縦ダクトで左を動力（ブレーカ・電磁接触器）、右を制御に分けます。段間には横ダクトを通します。',
+  'terminal-bottom': '横ダクト段組みのまま、端子台だけを最下段にまとめます。',
+};
+
 /** まだ実装できていないダクトレイアウト。UI では選べないようにする。 */
 export const DUCT_LAYOUT_READY: Record<Profile['duct']['layout'], boolean> = {
   'horizontal-rows': true,
-  'vertical-sides': false,
-  cross: false,
-  zoned: false,
-  'terminal-bottom': false,
+  'vertical-sides': true,
+  cross: true,
+  zoned: true,
+  'terminal-bottom': true,
 };

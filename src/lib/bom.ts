@@ -37,7 +37,7 @@ export function buildBom(
   }
 
   // --- DINレール（段ごとに1本。作図と同じ計算を共有する） ---
-  const rails = layouts.flatMap((l) => computeRails(l, devices));
+  const rails = layouts.flatMap((l) => computeRails(l, devices, profile.rail.endMargin));
   const railTotal = rails.reduce((s, r) => s + Math.ceil(r.length), 0);
   const railCount = rails.length;
   if (railCount > 0) {
@@ -60,10 +60,11 @@ export function buildBom(
   }
 
   // --- 配線ダクト（レイアウト上のダクト矩形の総延長から。消したぶんは数えない） ---
+  // 縦ダクトは長辺が高さなので、長いほうを延長として採る
   const ductTotal = layouts
     .flatMap((l) => l.ducts)
     .filter((d) => !d.removed)
-    .reduce((sum, d) => sum + d.w, 0);
+    .reduce((sum, d) => sum + Math.max(d.w, d.h), 0);
   if (ductTotal > 0) {
     const stockQty = Math.ceil(ductTotal / DUCT_STOCK_LENGTH);
     const offcut = stockQty * DUCT_STOCK_LENGTH - ductTotal;
