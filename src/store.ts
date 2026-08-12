@@ -18,6 +18,7 @@ import type {
   PlacedDevice,
   Profile,
   RailSettings,
+  Rotation,
   RowGap,
 } from './types';
 import type { LayoutItem } from './lib/layout';
@@ -201,6 +202,8 @@ type State = {
   select: (uid: string | null) => void;
   selectCut: (id: string | null) => void;
   selectDuct: (id: number | null) => void;
+  /** 機器を 90° ずつ回す（図の上でダブルクリック） */
+  rotateItem: (uid: string) => void;
   /**
    * 機器の並び順を入れ替える。beforeUid の直前へ移す（null なら末尾）。
    * row を渡すとその機器だけ段を指定する（図の上で上下へ動かしたとき）。
@@ -253,7 +256,18 @@ export const useStore = create<State>((set) => ({
   go: (screen) => set({ screen, selectedUid: null }),
 
   newDesign: () =>
-    set({
+    set((s) => ({
+      // 案件ごとに選ぶもの（ダクトの引き方・段ごとの余白）は初期値へ戻す。
+      // 登録した幅や固定穴は「うちはこう作る」の決め事なので残す
+      profile: {
+        ...s.profile,
+        duct: {
+          ...s.profile.duct,
+          layout: DEFAULT_PROFILE.duct.layout,
+          rowHeightMode: DEFAULT_PROFILE.duct.rowHeightMode,
+          rowGaps: {},
+        },
+      },
       panel: structuredClone(BLANK_PANEL),
       items: [],
       pinned: [],
@@ -263,9 +277,10 @@ export const useStore = create<State>((set) => ({
       selectedUid: null,
       selectedCut: null,
       selectedDuct: null,
-      face: 'plate',
-      screen: 'start',
-    }),
+      face: 'plate' as FaceId,
+      screen: 'start' as Screen,
+    })),
+
   setUnderlay: (face, shape) =>
     set((s) => ({ underlays: { ...s.underlays, [face]: shape } })),
   openFace: (face) => set({ face, screen: 'layout', selectedUid: null, selectedDuct: null }),
@@ -553,6 +568,15 @@ export const useStore = create<State>((set) => ({
   select: (uid) => set({ selectedUid: uid, selectedCut: null, selectedDuct: null }),
   selectCut: (id) => set({ selectedCut: id, selectedUid: null, selectedDuct: null }),
   selectDuct: (id) => set({ selectedDuct: id, selectedUid: null, selectedCut: null }),
+
+  rotateItem: (uid) =>
+    set((s) => ({
+      items: s.items.map((i) =>
+        i.uid === uid ? { ...i, rot: (((i.rot ?? 0) + 90) % 360) as Rotation } : i,
+      ),
+      // 回すと外形が変わるので、手で固定していた座標は捨てて置き直す
+      pinned: s.pinned.filter((p) => p.uid !== uid),
+    })),
 
   moveItem: (uid, beforeUid, row, currentRows) =>
     set((s) => {

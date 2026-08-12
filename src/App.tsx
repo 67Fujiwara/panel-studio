@@ -46,7 +46,7 @@ export default function App() {
     newDesign();
   };
 
-  // 設計の流れ（盤サイズ→面選択）と設定はタブ、完了案件と新規作成はボタンで分ける
+  // 画面の移動はタブ。新規作成だけは移動ではなく操作なのでボタンで分ける
   const tab = (id: Screen, label: string) => (
     <button
       className={`navtab${screen === id ? ' on' : ''}`}
@@ -61,11 +61,9 @@ export default function App() {
     <nav className="nav">
       {tab('start', '盤サイズ')}
       {tab('faces', '面選択')}
-      <button className="navbtn" onClick={() => go('projects')}>
-        完了案件
-      </button>
       {tab('config', '設定')}
       {tab('myconfig', 'My部品')}
+      {tab('projects', '完了案件')}
       <button className="navbtn primary" onClick={startNew}>
         ＋ 新規作成
       </button>
@@ -90,7 +88,10 @@ export default function App() {
           <aside className="left">
             {/* 中板はダクトとクリアランス、それ以外は座標。使用部品は共通 */}
             {hasDucts ? (
-              <SettingsPanel rowCount={layout.rows.length} />
+              <SettingsPanel
+                rowCount={layout.rows.length}
+                ductCount={layout.ducts.filter((d) => !d.removed && d.w >= d.h).length}
+              />
             ) : (
               <CoordPanel layout={layout} devices={lookup} />
             )}

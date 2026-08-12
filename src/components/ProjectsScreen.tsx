@@ -3,6 +3,8 @@ import { FACES } from '../data/faces';
 import { buildBom } from '../lib/bom';
 import { autoLayout } from '../lib/layout';
 import { downloadJson, pickJson } from '../lib/jsonFile';
+import { buildDxfSet, downloadDxfSet } from '../lib/dxfExport';
+import { asciiFileName } from '../lib/csv';
 import { deviceLookup, useStore, type ProjectFile } from '../store';
 import type { Project } from '../store';
 
@@ -70,6 +72,7 @@ export function ProjectsScreen() {
         <p className="note">
           「設計完了」で残した案件です。<b>複製</b>を押すと、その案件の盤・設定・機器・加工を
           そのまま読み込んで続きから作れます。似た盤を一から組み直す必要がなくなります。
+          <b>DXF</b> はその案件の図面4ファイル（キャビネット／中板 × 機器つき／加工穴のみ）を出します。
         </p>
         <p className="note">
           このブラウザにも残していますが、<b>共有フォルダで引き継ぐときは JSON で書き出して</b>
@@ -121,6 +124,7 @@ export function ProjectsScreen() {
                   <th>機器</th>
                   <th />
                   <th />
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -147,6 +151,29 @@ export function ProjectsScreen() {
                           {qty} 台 / {kinds} 型式
                         </td>
                         <td>
+                          <button
+                            onClick={() =>
+                              void downloadDxfSet(
+                                buildDxfSet(
+                                  {
+                                    panel: p.panel,
+                                    profile: p.profile,
+                                    items: p.items,
+                                    pinned: p.pinned,
+                                    machining: p.machining,
+                                    removedDucts: p.removedDucts,
+                                    devices: lookup,
+                                  },
+                                  asciiFileName(p.jobNo || p.panel.model, 'panel'),
+                                ),
+                              )
+                            }
+                            title="キャビネット／中板 × 機器つき／加工穴のみ の4ファイル"
+                          >
+                            DXF
+                          </button>
+                        </td>
+                        <td>
                           <button className="primary" onClick={() => repeatProject(p.id)}>
                             複製
                           </button>
@@ -159,7 +186,7 @@ export function ProjectsScreen() {
                       </tr>
                       {isOpen && (
                         <tr key={`${p.id}-detail`} className="detail">
-                          <td colSpan={9}>
+                          <td colSpan={10}>
                             <div className="grid4">
                               <label className="num">
                                 <span>会社名</span>

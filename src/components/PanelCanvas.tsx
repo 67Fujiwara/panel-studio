@@ -6,6 +6,7 @@ import { ShapeGeometry } from './ShapeGeometry';
 import { autoMachining } from '../lib/machining';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
+import { rotatedSize } from '../types';
 import type { CategoryDef, FaceId, LayoutResult, Machining, PanelSpec } from '../types';
 
 /** 手動配置時のスナップ間隔(mm) */
@@ -82,6 +83,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const selectDuct = useStore((s) => s.selectDuct);
   const selectedDuct = useStore((s) => s.selectedDuct);
   const removeSelected = useStore((s) => s.removeSelected);
+  const rotateItem = useStore((s) => s.rotateItem);
   const restoreDucts = useStore((s) => s.restoreDucts);
   const removedHere = useStore((s) => s.removedDucts[face]?.length ?? 0);
 
@@ -153,7 +155,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
       .filter((p) => p.uid !== dragUid)
       .sort((a, b) => a.row - b.row || a.x - b.x);
     const before = others.find((p) => {
-      const w = devices.get(p.specId)?.size.w ?? 0;
+      const spec = devices.get(p.specId);
+      const w = spec ? rotatedSize(spec.size, p.rot).w : 0;
       return p.row > targetRow || (p.row === targetRow && at.x < p.x + w / 2);
     });
     return { row: targetRow, before: before?.uid ?? null };
@@ -220,13 +223,14 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         const placed = layout.placed.find((p) => p.uid === d.uid);
         const spec = placed && devices.get(placed.specId);
         if (!placed || !spec) return;
+        const size = rotatedSize(spec.size, placed.rot);
         const nx = Math.round((d.ox + dx) / SNAP) * SNAP;
         // SVG は Y 下向きなので、面の座標では符号が反転する
         const ny = Math.round((d.oy - dy) / SNAP) * SNAP;
         pin({
           ...placed,
-          x: Math.max(0, Math.min(faceW - spec.size.w, nx)),
-          y: Math.max(0, Math.min(faceH - spec.size.h, ny)),
+          x: Math.max(0, Math.min(faceW - size.w, nx)),
+          y: Math.max(0, Math.min(faceH - size.h, ny)),
         });
         return;
       }
@@ -446,13 +450,15 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           if (!spec) return null;
           const bad = violatingUids.has(p.uid);
           const label = spec.model.split(' ')[0] ?? '';
-          const fontSize = Math.min(14, Math.max(spec.size.w, spec.size.h) / 5);
+          // 見かけの寸法。90/270 回すと幅と高さが入れ替わる
+          const size = rotatedSize(spec.size, p.rot);
+          const fontSize = Math.min(14, Math.max(size.w, size.h) / 5);
           const need = label.length * fontSize * 0.6;
           // 横に入らなければ 90 度（反時計回り）に倒して縦に出す
-          const horizontal = need <= spec.size.w - 4;
-          const vertical = !horizontal && need <= spec.size.h - 4 && spec.size.w >= fontSize * 1.2;
-          const cx = p.x + spec.size.w / 2;
-          const cy = toSvgY(faceH, p.y, spec.size.h) + spec.size.h / 2;
+          const horizontal = need <= size.w - 4;
+          const vertical = !horizontal && need <= size.h - 4 && size.w >= fontSize * 1.2;
+          const cx = p.x + size.w / 2;
+          const cy = toSvgY(faceH, p.y, size.h) + size.h / 2;
           return (
             <g
               key={p.uid}
@@ -478,14 +484,14 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                 };
                 (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
               }}
+              onDoubleClick={(e) => {
+                // ダブルクリックで 90° ずつ回す
+                e.stopPropagation();
+                rotateItem(p.uid);
+              }}
             >
               <clipPath id={`clip-${p.uid}`}>
-                <rect
-                  x={p.x}
-                  y={toSvgY(faceH, p.y, spec.size.h)}
-                  width={spec.size.w}
-                  height={spec.size.h}
-                />
+                <rect x={p.x} y={toSvgY(faceH, p.y, size.h)} width={size.w} height={size.h} />
               </clipPath>
               {/*
                 CAD の外形線がある機器は、外形線そのものが機器の姿。
@@ -494,19 +500,25 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
               */}
               <rect
                 x={p.x}
-                y={toSvgY(faceH, p.y, spec.size.h)}
-                width={spec.size.w}
-                height={spec.size.h}
+                y={toSvgY(faceH, p.y, size.h)}
+                width={size.w}
+                height={size.h}
                 fill={spec.shape ? 'transparent' : colorOf(spec.category)}
               />
               {spec.shape && (
-                // 部品の座標系は左下原点・Y上向きなので、拡縮と同時に Y を反転する
-                <g
-                  transform={`translate(${p.x} ${faceH - p.y}) scale(${
-                    spec.size.w / (spec.shape.w || 1)
-                  } ${-spec.size.h / (spec.shape.h || 1)})`}
-                >
-                  <ShapeGeometry shape={spec.shape} color={colorOf(spec.category)} />
+                /*
+                  回転は外形の中心まわりで掛ける。SVG は Y 下向きなので、
+                  面の座標での反時計回りは SVG では逆回りになる。
+                  その内側で、部品の座標系（左下原点・Y上向き）を中心合わせで敷く。
+                */
+                <g transform={`rotate(${-(p.rot ?? 0)} ${cx} ${cy})`}>
+                  <g
+                    transform={`translate(${cx - spec.size.w / 2} ${cy + spec.size.h / 2}) scale(${
+                      spec.size.w / (spec.shape.w || 1)
+                    } ${-spec.size.h / (spec.shape.h || 1)})`}
+                  >
+                    <ShapeGeometry shape={spec.shape} color={colorOf(spec.category)} />
+                  </g>
                 </g>
               )}
               {(horizontal || vertical) && !spec.shape && (
@@ -521,7 +533,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                 </text>
               )}
               {p.pinned && (
-                <circle cx={p.x + 5} cy={toSvgY(faceH, p.y, spec.size.h) + 5} r={3} className="pin" />
+                <circle cx={p.x + 5} cy={toSvgY(faceH, p.y, size.h) + 5} r={3} className="pin" />
               )}
             </g>
           );

@@ -36,7 +36,7 @@ function Num({
  * 中板の左ペイン。案件ごとに動かす余白とクリアランスだけを扱う。
  * ダクトの引き方・幅・固定穴と DINレールは設定画面（盤マスタと同じ場所）で登録する。
  */
-export function SettingsPanel({ rowCount }: { rowCount: number }) {
+export function SettingsPanel({ rowCount, ductCount }: { rowCount: number; ductCount: number }) {
   const face = useStore((s) => s.face);
   const panel = useStore((s) => s.panel);
   const profile = useStore((s) => s.profile);
@@ -49,6 +49,8 @@ export function SettingsPanel({ rowCount }: { rowCount: number }) {
 
   const isEqual = profile.duct.rowHeightMode === 'equal';
   const rowH = computeRows(panel, face, profile).rows[0]?.h ?? 0;
+  // 段と横ダクトの本数がずれて見えるので、見出しに両方を出す
+  const bandCount = ductCount;
 
   return (
     <div className="panel">
@@ -119,9 +121,17 @@ export function SettingsPanel({ rowCount }: { rowCount: number }) {
 
       {rowCount > 0 && (
         <>
-          <h3>段ごとの余白</h3>
+          <h3>
+            段ごとの余白（{rowCount} 段 / 横ダクト {bandCount} 本）
+          </h3>
           <p className="note">
-            段ごとに余白を変えられます。<b>上下</b>はダクトとの余白、<b>左右</b>は中板の端からの余白です。
+            <b>段は機器の行</b>で、横ダクトはその上下に付きます。だから
+            <b>N 段なら横ダクトは N＋1 本</b>になり、数が1つずれて見えます。
+            ここで動かすのは段なので、たとえば 1 段目の「上」は<b>1本目のダクト</b>、
+            「下」は<b>2本目のダクト</b>の位置に効きます。
+          </p>
+          <p className="note">
+            <b>上下</b>はダクトとの余白、<b>左右</b>は中板の端からの余白です。
             指定しない段は、上下が下の「機器 ⇔ ダクト」、左右が「中板の端からの余白」を使います。
             ダクトの長さも指定した左右に合わせます。
           </p>
@@ -147,7 +157,10 @@ export function SettingsPanel({ rowCount }: { rowCount: number }) {
                       )
                     }
                   />
-                  <span>{i + 1} 段目を個別に決める</span>
+                  <span>
+                    {i + 1} 段目を個別に決める
+                    <em>（ダクト {i + 1}↔{i + 2} 本目）</em>
+                  </span>
                 </label>
                 {g && (
                   <div className="grid2">

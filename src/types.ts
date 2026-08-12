@@ -89,12 +89,25 @@ export type DeviceSpec = {
   panelCutout?: { kind: 'hole'; dia: number } | { kind: 'notch'; w: number; h: number };
 };
 
+/** 機器の向き。図の上でダブルクリックすると 90° ずつ回る。 */
+export type Rotation = 0 | 90 | 180 | 270;
+
+/**
+ * 向きを踏まえた見かけの寸法。90/270 では幅と高さが入れ替わる。
+ * 配置・作図・加工の座標がすべてこれを基準にする。
+ */
+export function rotatedSize(size: { w: number; h: number }, rot: Rotation | undefined) {
+  return rot === 90 || rot === 270 ? { w: size.h, h: size.w } : { w: size.w, h: size.h };
+}
+
 /** 面上に配置された機器1台。 */
 export type PlacedDevice = {
   uid: string;
   specId: string;
   face: FaceId;
   mount: MountType;
+  /** 向き(0/90/180/270)。既定は 0 */
+  rot?: Rotation;
   /** 機器の左下角の座標(mm) */
   x: number;
   y: number;

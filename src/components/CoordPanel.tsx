@@ -1,5 +1,6 @@
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
+import { rotatedSize } from '../types';
 import type { LayoutResult } from '../types';
 
 const r1 = (v: number) => Number(v.toFixed(1));
@@ -49,8 +50,10 @@ export function CoordPanel({ layout, devices }: { layout: LayoutResult; devices:
           {rows.map((p) => {
             const spec = devices.get(p.specId);
             if (!spec) return null;
-            const cx = r1(p.x + spec.size.w / 2);
-            const cy = r1(p.y + spec.size.h / 2);
+            // 回した機器は幅と高さが入れ替わるので、見かけの寸法で中心を出す
+            const size = rotatedSize(spec.size, p.rot);
+            const cx = r1(p.x + size.w / 2);
+            const cy = r1(p.y + size.h / 2);
             return (
               <tr
                 key={p.uid}
@@ -60,7 +63,7 @@ export function CoordPanel({ layout, devices }: { layout: LayoutResult; devices:
                 <td>
                   <strong>{spec.model}</strong>
                   <span>
-                    {spec.size.w}×{spec.size.h}
+                    {size.w}×{size.h}
                   </span>
                 </td>
                 <td>
@@ -68,7 +71,7 @@ export function CoordPanel({ layout, devices }: { layout: LayoutResult; devices:
                     type="number"
                     value={cx}
                     step={5}
-                    onChange={(e) => setCenter(p, spec.size, Number(e.target.value), cy)}
+                    onChange={(e) => setCenter(p, size, Number(e.target.value), cy)}
                   />
                 </td>
                 <td>
@@ -76,7 +79,7 @@ export function CoordPanel({ layout, devices }: { layout: LayoutResult; devices:
                     type="number"
                     value={cy}
                     step={5}
-                    onChange={(e) => setCenter(p, spec.size, cx, Number(e.target.value))}
+                    onChange={(e) => setCenter(p, size, cx, Number(e.target.value))}
                   />
                 </td>
               </tr>

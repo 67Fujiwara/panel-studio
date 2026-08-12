@@ -3,6 +3,7 @@ import { FACES, faceSize } from '../data/faces';
 import { buildBom, totalHeatW } from '../lib/bom';
 import { asciiFileName, bomToCsv, downloadCsv, machiningToCsv } from '../lib/csv';
 import { autoLayout } from '../lib/layout';
+import { buildDxfSet, downloadDxfSet } from '../lib/dxfExport';
 import { autoMachining, derivedMachining } from '../lib/machining';
 import { ShapeGeometry } from './ShapeGeometry';
 import { deviceLookup, useStore } from '../store';
@@ -199,6 +200,7 @@ export function FacePicker() {
   const [jobDate, setJobDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [jobOwner, setJobOwner] = useState('');
   const [jobNote, setJobNote] = useState('');
+  const [withDxf, setWithDxf] = useState(true);
 
   const lookup = useMemo(() => deviceLookup(devices, myDevices), [devices, myDevices]);
 
@@ -430,12 +432,31 @@ export function FacePicker() {
             onChange={(e) => setJobNote(e.target.value)}
           />
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={withDxf}
+            onChange={(e) => setWithDxf(e.target.checked)}
+          />
+          <span>
+            設計完了と同時に <b>DXF を4ファイル書き出す</b>
+            （キャビネット／中板 × 機器つき／加工穴のみ）
+          </span>
+        </label>
         <div className="row-buttons">
           <button
             className="primary"
             disabled={!jobOwner.trim()}
             title={jobOwner.trim() ? undefined : '担当者を入れてください'}
             onClick={() => {
+              if (withDxf) {
+                void downloadDxfSet(
+                  buildDxfSet(
+                    { panel, profile, items, pinned, machining, removedDucts, devices: lookup },
+                    asciiFileName(jobNo || panel.model, 'panel'),
+                  ),
+                );
+              }
               completeDesign({
                 company: jobCompany,
                 jobNo,

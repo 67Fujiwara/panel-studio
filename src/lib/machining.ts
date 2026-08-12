@@ -1,4 +1,5 @@
 import { FACE_BY_ID } from '../data/faces';
+import { rotatedSize } from '../types';
 import { computeRails } from './layout';
 import type { DeviceLookup, RailRun } from './layout';
 import type {
@@ -44,8 +45,10 @@ export function derivedMachining(placed: PlacedDevice[], devices: DeviceLookup):
   for (const p of placed) {
     const spec = devices.get(p.specId);
     if (!spec) continue;
-    const cx = p.x + spec.size.w / 2;
-    const cy = p.y + spec.size.h / 2;
+    // 回した機器は幅と高さが入れ替わるので、見かけの寸法で中心を出す
+    const size = rotatedSize(spec.size, p.rot);
+    const cx = p.x + size.w / 2;
+    const cy = p.y + size.h / 2;
 
     // パネルの開口（押ボタン穴・表示器の角穴など）
     const cut = spec.panelCutout;

@@ -1,4 +1,5 @@
 import { DIN_RAIL_HEIGHT } from '../data/enclosures';
+import { rotatedSize } from '../types';
 import { FACE_BY_ID, faceSize } from '../data/faces';
 import type {
   ClearanceSettings,
@@ -12,6 +13,7 @@ import type {
   PanelSpec,
   PlacedDevice,
   Profile,
+  Rotation,
   RowGap,
   Sides,
   Violation,
@@ -84,10 +86,15 @@ export function computeRows(
 ): { rows: DeviceRow[]; ducts: Duct[]; error?: string } {
   const { w, h } = faceSize(panel, face);
   const { margin, rowCount: n } = profile.duct;
-  const dw = FACE_BY_ID.get(face)?.ducts ? profile.duct.width : 0;
+  const hasDucts = FACE_BY_ID.get(face)?.ducts ?? false;
+  const rule = LAYOUT_RULES[profile.duct.layout];
+  const dw = hasDucts ? profile.duct.width : 0;
 
   const usableH = h - margin.top - margin.bottom;
-  const rowH = (usableH - (n + 1) * dw) / n;
+  // 段間に横ダクトを入れないレイアウトでは、代わりに段間クリアランスを取る
+  const rowSpacing = rule.horizontals ? dw : hasDucts ? profile.clearance.deviceToDevice.betweenRows : 0;
+  const bandCount = rule.horizontals ? n + 1 : Math.max(0, n - 1);
+  const rowH = (usableH - bandCount * rowSpacing) / n;
 
   if (n < 1 || rowH <= 0 || w - margin.left - margin.right <= 0) {
     return {
@@ -97,7 +104,8 @@ export function computeRows(
     };
   }
 
-  // ダクトはその段に指定した左右の余白に合わせる
+  const bands = verticalBands(panel, face, profile);
+  // ダクトはその段に指定した左右の余白に合わせ、縦ダクトのところで切る
   const span = (i: number) => {
     const g = rowGap(profile, i);
     return { x: g.left, w: w - g.left - g.right };
@@ -105,13 +113,29 @@ export function computeRows(
 
   const rows: DeviceRow[] = [];
   const ducts: Duct[] = [];
+  let id = 0;
+  const pushHorizontal = (rowIndex: number, y: number) => {
+    const s = span(rowIndex);
+    for (const p of splitByBands(bands, s.x, s.w)) {
+      ducts.push({ id: id++, x: p.x0, y, w: p.x1 - p.x0, h: dw });
+    }
+  };
 
   for (let i = 0; i < n; i++) {
-    const y = h - margin.top - (i + 1) * (dw + rowH);
+    const y = h - margin.top - rowH * (i + 1) - rowSpacing * (rule.horizontals ? i + 1 : i);
     rows.push({ index: i, y, h: rowH });
-    if (dw > 0) ducts.push({ id: i, ...span(i), y: y + rowH, h: dw });
+    if (rule.horizontals && dw > 0) pushHorizontal(i, y + rowH);
   }
-  if (dw > 0) ducts.push({ id: n, ...span(n - 1), y: margin.bottom, h: dw });
+  if (rule.horizontals && dw > 0) {
+    // 全周囲いは外周を閉じるので、最下段のダクトは面の下端（座標 0）に置く
+    pushHorizontal(n - 1, profile.duct.layout === 'perimeter' ? 0 : margin.bottom);
+  }
+
+  // 縦ダクトは全段そろえるときも同じように立てる
+  const bottom = profile.duct.layout === 'perimeter' ? 0 : margin.bottom;
+  for (const b of bands) {
+    ducts.push({ id: id++, x: b.x0, y: bottom, w: b.x1 - b.x0, h: h - margin.top - bottom });
+  }
 
   return { rows, ducts };
 }
@@ -123,9 +147,14 @@ export type LayoutItem = {
   mount: MountType;
   /** 何段目に置くかの指定。未指定なら順番に流し込む */
   row?: number;
+  /** 向き(0/90/180/270)。図の上でダブルクリックすると回る */
+  rot?: Rotation;
 };
 
 type Entry = { item: LayoutItem; spec: DeviceSpec };
+
+/** その1台の見かけの寸法。向きが 90/270 なら幅と高さが入れ替わる。 */
+const sizeOf = (e: Entry) => rotatedSize(e.spec.size, e.item.rot);
 
 /**
  * その段の使える X 範囲（余白と端クリアランスの大きいほうを採る）。
@@ -234,6 +263,27 @@ function rowSegments(
   return out.filter((s) => s.x1 - s.x0 > 0);
 }
 
+/**
+ * 横ダクトを縦ダクトで切り分ける。
+ *
+ * 実物は同じ場所に2本置けないので、**縦ダクトを通し**にして横ダクトを
+ * その幅ぶん短くする。切られて2本以上になることもあるので、切れ端ごとに1本として返す。
+ */
+function splitByBands(bands: Segment[], x: number, w: number): Segment[] {
+  let parts: Segment[] = [{ x0: x, x1: x + w }];
+  for (const b of bands) {
+    const next: Segment[] = [];
+    for (const s of parts) {
+      if (b.x0 > s.x0) next.push({ x0: s.x0, x1: Math.min(s.x1, b.x0) });
+      if (b.x1 < s.x1) next.push({ x0: Math.max(s.x0, b.x1), x1: s.x1 });
+      if (b.x0 <= s.x0 && b.x1 >= s.x1) continue;
+    }
+    parts = next;
+  }
+  // 切れ端が細すぎるものは実物として成り立たないので落とす
+  return parts.filter((s) => s.x1 - s.x0 >= 1);
+}
+
 /** 機器同士の水平方向の間隔。 */
 function horizontalGap(prevRight: number, eff: Sides, c: ClearanceSettings) {
   return Math.max(prevRight, eff.left, c.deviceToDevice.sameRow);
@@ -243,9 +293,9 @@ function horizontalGap(prevRight: number, eff: Sides, c: ClearanceSettings) {
  * 段の中での上下位置。中央合わせを基準に、DINレール取付なら
  * 部品ごとのオフセットぶんだけずらす。
  */
-function placeY(row: DeviceRow, spec: DeviceSpec, mount: MountType) {
+function placeY(row: DeviceRow, spec: DeviceSpec, mount: MountType, rot?: Rotation) {
   const offset = mount === 'din' ? (spec.dinOffset ?? 0) : 0;
-  return row.y + (row.h - spec.size.h) / 2 + offset;
+  return row.y + (row.h - rotatedSize(spec.size, rot).h) / 2 + offset;
 }
 
 /**
@@ -314,10 +364,23 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   const main = rule.terminalLast ? queue.filter((e) => e.spec.category !== 'terminal') : queue;
   const tail = rule.terminalLast ? queue.filter((e) => e.spec.category === 'terminal') : [];
 
+  /** 何か入っている段のうち、いちばん下（＝いちばん大きい番号）。 */
+  const lastUsed = () => {
+    for (let i = buckets.length - 1; i >= 0; i--) if (buckets[i]!.entries.length > 0) return i;
+    return 0;
+  };
+
   const place = (e: Entry, forceLast: boolean) => {
-    const w = e.spec.size.w;
+    const { w, h } = sizeOf(e);
     const forced = e.item.row;
-    let index = forced !== undefined && forced >= 0 ? forced : forceLast ? buckets.length - 1 : flow;
+    // 段の指定がない機器は「いま使っている一番下の段」から探す。
+    // あとから足した機器が1段目の空きに入ってしまうと、増やすたびに上へ潜り込んで見える
+    let index =
+      forced !== undefined && forced >= 0
+        ? forced
+        : forceLast
+          ? buckets.length - 1
+          : Math.max(flow, lastUsed());
     let b = bucketAt(index);
     let eff = effectiveClearance(e.spec, c, rowGap(profile, index));
 
@@ -371,7 +434,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
     hit.slot.cursor = hit.x + w;
     hit.slot.prevRight = eff.right;
     hit.slot.used = true;
-    b.h = Math.max(b.h, e.spec.size.h + eff.top + eff.bottom);
+    b.h = Math.max(b.h, h + eff.top + eff.bottom);
   };
 
   for (const e of main) place(e, false);
@@ -399,30 +462,9 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
     return { x: g.left, w: size.w - g.left - g.right };
   };
 
-  /**
-   * 横ダクトを縦ダクトで切り分ける。
-   *
-   * 実物は同じ場所に2本置けないので、**縦ダクトを通し**にして横ダクトを
-   * その幅ぶん短くする。切られて2本以上になることもあるので、切れ端ごとに1本として返す。
-   */
-  const splitByBands = (x: number, w: number): Segment[] => {
-    let parts: Segment[] = [{ x0: x, x1: x + w }];
-    for (const b of bands) {
-      const next: Segment[] = [];
-      for (const s of parts) {
-        if (b.x0 > s.x0) next.push({ x0: s.x0, x1: Math.min(s.x1, b.x0) });
-        if (b.x1 < s.x1) next.push({ x0: Math.max(s.x0, b.x1), x1: s.x1 });
-        if (b.x0 <= s.x0 && b.x1 >= s.x1) continue;
-      }
-      parts = next;
-    }
-    // 切れ端が細すぎるものは実物として成り立たないので落とす
-    return parts.filter((s) => s.x1 - s.x0 >= 1);
-  };
-
   const pushHorizontal = (rowIndex: number, yAt: number) => {
     const span = ductSpan(rowIndex);
-    for (const s of splitByBands(span.x, span.w)) {
+    for (const s of splitByBands(bands, span.x, span.w)) {
       ducts.push({ id: id++, x: s.x0, y: yAt, w: s.x1 - s.x0, h: dw });
     }
   };
@@ -447,21 +489,25 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
         face,
         mount: e.item.mount,
         x,
-        y: placeY(row, e.spec, e.item.mount),
+        y: placeY(row, e.spec, e.item.mount, e.item.rot),
+        rot: e.item.rot ?? 0,
         row: index,
         pinned: false,
       });
     }
   });
+  // 全周囲いは外周を閉じるのが目的なので、最下段のダクトを面の下端（座標 0）に置く。
+  // 段の中身で長さが決まる auto モードでも、外周だけは面に合わせる。
+  const closed = profile.duct.layout === 'perimeter';
+  const bottom = closed ? 0 : profile.duct.margin.bottom;
   if (rule.horizontals && dw > 0 && used.length > 0) {
     // 最下段のダクトは、その上の段の余白に合わせる
-    y -= dw;
+    y = closed ? bottom : y - dw;
     pushHorizontal(used.length - 1, y);
   }
 
   // 縦ダクトは中板の余白いっぱいに通す。実際の盤でも上下いっぱいに立てるので、
   // 機器の量で長さが変わると必要本数が読みにくくなる。
-  const bottom = profile.duct.margin.bottom;
   for (const band of bands) {
     ducts.push({
       id: id++,
@@ -511,7 +557,7 @@ function packEqual(
     if (!spec) continue;
     placed.push(p);
     if (cursor[p.row] !== undefined) {
-      cursor[p.row] = Math.max(cursor[p.row]!, p.x + spec.size.w);
+      cursor[p.row] = Math.max(cursor[p.row]!, p.x + rotatedSize(spec.size, p.rot).w);
       prevRight[p.row] = effectiveClearance(spec, c, rowGap(profile, p.row)).right;
     }
   }
@@ -520,6 +566,7 @@ function packEqual(
   // 行の高さが足りないだけの場合はその行を他の機器がまだ使えるので、row は動かさない。
   let flow = 0;
   for (const { item, spec } of queue) {
+    const size = rotatedSize(spec.size, item.rot);
     let done = false;
     let tooShort = false;
     const forced = item.row;
@@ -532,13 +579,13 @@ function packEqual(
       const rr = rows[r]!;
       const { xMin, xMax } = span[r] ?? usableX(panel, face, profile, r);
       const eff = effectiveClearance(spec, c, rowGap(profile, r));
-      if (spec.size.h + eff.top + eff.bottom > rr.h && candidates.length > 1) {
+      if (size.h + eff.top + eff.bottom > rr.h && candidates.length > 1) {
         tooShort = true;
         continue;
       }
       const gap = horizontalGap(prevRight[r] ?? 0, eff, c);
       const startX = cursor[r] === xMin ? xMin : (cursor[r] ?? xMin) + gap;
-      const fits = startX + spec.size.w <= xMax;
+      const fits = startX + size.w <= xMax;
       if (fits || candidates.length === 1) {
         placed.push({
           uid: item.uid,
@@ -546,11 +593,12 @@ function packEqual(
           face,
           mount: item.mount,
           x: startX,
-          y: placeY(rr, spec, item.mount),
+          y: placeY(rr, spec, item.mount, item.rot),
+          rot: item.rot ?? 0,
           row: r,
           pinned: false,
         });
-        cursor[r] = startX + spec.size.w;
+        cursor[r] = startX + size.w;
         prevRight[r] = eff.right;
         done = true;
         if (!fits) {
@@ -569,7 +617,7 @@ function packEqual(
         uid: item.uid,
         kind: tooShort ? 'clearance' : 'overflow',
         message: tooShort
-          ? `${spec.model}: 高さ ${spec.size.h}mm ＋ クリアランスが段の高さに収まりません（段数を減らすか盤を大きく）`
+          ? `${spec.model}: 高さ ${size.h}mm ＋ クリアランスが段の高さに収まりません（段数を減らすか盤を大きく）`
           : `${spec.model}: 横幅が足りません（盤を大きくするか段数を増やしてください）`,
       });
     }
@@ -604,7 +652,7 @@ export function computeRails(
     if (inRow.length === 0) continue;
 
     const left = Math.max(0, Math.min(...inRow.map((e) => e.p.x)) - endMargin);
-    const right = Math.max(...inRow.map((e) => e.p.x + e.spec.size.w)) + endMargin;
+    const right = Math.max(...inRow.map((e) => e.p.x + rotatedSize(e.spec.size, e.p.rot).w)) + endMargin;
     // レールの中心は段の中心。機器はここから dinOffset ぶんだけずれて掛かる
     const y = row.y + row.h / 2;
     out.push({ row: row.index, x: left, y, length: right - left });
@@ -623,11 +671,10 @@ function detectOverlaps(placed: PlacedDevice[], devices: DeviceLookup): Violatio
     for (let j = i + 1; j < rects.length; j++) {
       const a = rects[i]!;
       const b = rects[j]!;
+      const sa = rotatedSize(a.spec.size, a.p.rot);
+      const sb = rotatedSize(b.spec.size, b.p.rot);
       const hit =
-        a.p.x < b.p.x + b.spec.size.w &&
-        b.p.x < a.p.x + a.spec.size.w &&
-        a.p.y < b.p.y + b.spec.size.h &&
-        b.p.y < a.p.y + a.spec.size.h;
+        a.p.x < b.p.x + sb.w && b.p.x < a.p.x + sa.w && a.p.y < b.p.y + sb.h && b.p.y < a.p.y + sa.h;
       if (hit) {
         out.push({
           uid: a.p.uid,
