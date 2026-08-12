@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { PartEditor } from './PartEditor';
 import { EnclosureTable } from './EnclosureTable';
 import { DuctRailSettings } from './DuctRailSettings';
+import { DuctTable } from './DuctTable';
 import { useStore, type ConfigFile } from '../store';
 import { downloadJson, pickJson } from '../lib/jsonFile';
 
@@ -19,12 +20,13 @@ export function ConfigScreen() {
   const addPart = useStore((s) => s.addPart);
   const loadConfig = useStore((s) => s.loadConfig);
   const enclosures = useStore((s) => s.enclosures);
+  const ducts = useStore((s) => s.ducts);
 
   const [open, setOpen] = useState<string | null>(categories[0]?.id ?? null);
   const [editing, setEditing] = useState<string | null>(null);
 
   const exportFile = () => {
-    const file: ConfigFile = { schemaVersion: 1, categories, devices, profile, enclosures };
+    const file: ConfigFile = { schemaVersion: 1, categories, devices, profile, enclosures, ducts };
     downloadJson(file, 'panel-studio-settings.json');
   };
 
@@ -49,6 +51,8 @@ export function ConfigScreen() {
       </div>
 
       <EnclosureTable />
+
+      <DuctTable />
 
       <DuctRailSettings />
 

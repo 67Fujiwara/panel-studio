@@ -165,9 +165,28 @@ export type RowHeightMode = 'equal' | 'auto';
  */
 export type RowGap = { top: number; bottom: number; left?: number; right?: number };
 
+/**
+ * 配線ダクト1品種。部品と同じように型式で登録して選ぶ。
+ * 数値を都度打ち込むと、実在しない寸法の組み合わせが図に出てしまうため。
+ */
+export type DuctSpec = {
+  id: string;
+  maker: string;
+  /** 型式。BOM のキーになる */
+  model: string;
+  /** 幅(mm)。図では帯の太さになる */
+  width: number;
+  /** 高さ(mm)。中板からの立ち上がり。奥行きの目安に使う */
+  height: number;
+  /** 定尺(mm)。必要本数の計算に使う */
+  stock: number;
+};
+
 export type DuctSettings = {
   layout: DuctLayoutId;
-  /** ダクト幅 40/50/60/80/100 */
+  /** 使うダクトの型式。ダクトマスタを引く */
+  ductId: string;
+  /** ダクト幅。ductId が見つからないときの控え */
   width: number;
   rowHeightMode: RowHeightMode;
   /** 機器行の数。equal のときだけ使う */
@@ -244,6 +263,21 @@ export type Profile = {
 };
 
 export type Rect = { x: number; y: number; w: number; h: number };
+
+/** 使うダクトの仕様を引く。登録が消えていても図が出せるよう控えを返す。 */
+export function ductSpecOf(profile: Profile, ducts: DuctSpec[]): DuctSpec {
+  const found = ducts.find((d) => d.id === profile.duct.ductId);
+  return (
+    found ?? {
+      id: '',
+      maker: '—',
+      model: `配線ダクト 幅${profile.duct.width}`,
+      width: profile.duct.width,
+      height: profile.duct.width,
+      stock: 2000,
+    }
+  );
+}
 
 /** 機器を並べる1行。 */
 export type DeviceRow = {

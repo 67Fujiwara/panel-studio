@@ -1,4 +1,4 @@
-import type { PanelSpec, Profile } from '../types';
+import type { DuctSpec, PanelSpec, Profile } from '../types';
 
 /**
  * 盤マスタのサンプル。
@@ -45,11 +45,25 @@ export const DIN_RAIL_HEIGHT = 7.5;
 /** DINレール(TH35)の幅。正面視ではこの高さの帯として描かれる。 */
 export const DIN_RAIL_WIDTH = 35;
 
+/**
+ * 配線ダクトのサンプル。
+ *
+ * ⚠ 型式・寸法は仮値です。実案件で使う前にメーカーのカタログで確認してください。
+ */
+export const SAMPLE_DUCTS: DuctSpec[] = [
+  { id: 'duct-40x40', maker: '—', model: '配線ダクト 40×40', width: 40, height: 40, stock: 2000 },
+  { id: 'duct-50x50', maker: '—', model: '配線ダクト 50×50', width: 50, height: 50, stock: 2000 },
+  { id: 'duct-60x60', maker: '—', model: '配線ダクト 60×60', width: 60, height: 60, stock: 2000 },
+  { id: 'duct-80x50', maker: '—', model: '配線ダクト 80×50', width: 80, height: 50, stock: 2000 },
+  { id: 'duct-100x50', maker: '—', model: '配線ダクト 100×50', width: 100, height: 50, stock: 2000 },
+];
+
 export const DEFAULT_PROFILE: Profile = {
   schemaVersion: 1,
   profileName: '標準',
   duct: {
     layout: 'horizontal-rows',
+    ductId: 'duct-50x50',
     width: 50,
     rowHeightMode: 'auto',
     rowCount: 3,

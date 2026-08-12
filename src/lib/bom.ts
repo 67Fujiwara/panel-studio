@@ -1,6 +1,7 @@
 import { computeRails } from './layout';
 import type { DeviceLookup } from './layout';
-import type { BomLine, LayoutResult, Profile } from '../types';
+import { ductSpecOf } from '../types';
+import type { BomLine, DuctSpec, LayoutResult, Profile } from '../types';
 
 /** 配線ダクト・DINレールの定尺(mm)。社内の調達に合わせて変更する。 */
 const DUCT_STOCK_LENGTH = 2000;
@@ -16,8 +17,10 @@ export function buildBom(
   layouts: LayoutResult[],
   profile: Profile,
   devices: DeviceLookup,
+  ducts: DuctSpec[] = [],
 ): BomLine[] {
   const lines: BomLine[] = [];
+  const ductSpec = ductSpecOf(profile, ducts);
   const placed = layouts.flatMap((l) => l.placed);
 
   // --- 機器本体（型式で集約） ---
@@ -66,14 +69,15 @@ export function buildBom(
     .filter((d) => !d.removed)
     .reduce((sum, d) => sum + Math.max(d.w, d.h), 0);
   if (ductTotal > 0) {
-    const stockQty = Math.ceil(ductTotal / DUCT_STOCK_LENGTH);
-    const offcut = stockQty * DUCT_STOCK_LENGTH - ductTotal;
+    const stock = ductSpec.stock > 0 ? ductSpec.stock : DUCT_STOCK_LENGTH;
+    const stockQty = Math.ceil(ductTotal / stock);
+    const offcut = stockQty * stock - ductTotal;
     lines.push({
-      model: `配線ダクト 幅${profile.duct.width}（必要長 ${Math.ceil(ductTotal)}mm / 端材 ${Math.ceil(offcut)}mm）`,
-      maker: '—',
+      model: `${ductSpec.model}（必要長 ${Math.ceil(ductTotal)}mm / 端材 ${Math.ceil(offcut)}mm）`,
+      maker: ductSpec.maker || '—',
       name: '配線ダクト',
       qty: stockQty,
-      unit: '本(2000mm定尺)',
+      unit: `本(${stock}mm定尺)`,
       source: 'derived',
     });
   }

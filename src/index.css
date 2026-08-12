@@ -510,7 +510,17 @@ table.encl button {
   font-size: 11px;
   padding: 3px 8px;
 }
-/* 過去案件 */
+/* 使用中のダクト。どれが効いているか一目で分かるようにする */
+table.encl tr.on > td {
+  background: var(--accent-soft);
+}
+.using {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+/* 完了案件 */
 table.projects td button.linky {
   display: flex;
   align-items: center;

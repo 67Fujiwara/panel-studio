@@ -1,6 +1,7 @@
-import { DUCT_LAYOUT_LABEL } from '../data/enclosures';
+import { DUCT_LAYOUT_HINT, DUCT_LAYOUT_LABEL, DUCT_LAYOUT_READY } from '../data/enclosures';
 import { computeRows } from '../lib/layout';
 import { useStore } from '../store';
+import type { DuctLayoutId, RowHeightMode } from '../types';
 
 function Num({
   label,
@@ -42,7 +43,8 @@ export function SettingsPanel({ rowCount }: { rowCount: number }) {
   const setDuct = useStore((s) => s.setDuct);
   const setClearance = useStore((s) => s.setClearance);
   const setRowGap = useStore((s) => s.setRowGap);
-  const go = useStore((s) => s.go);
+  const ducts = useStore((s) => s.ducts);
+  const selectDuctSpec = useStore((s) => s.selectDuctSpec);
   const rowGaps = profile.duct.rowGaps ?? {};
 
   const isEqual = profile.duct.rowHeightMode === 'equal';
@@ -50,41 +52,70 @@ export function SettingsPanel({ rowCount }: { rowCount: number }) {
 
   return (
     <div className="panel">
-      {/*
-        ダクトの引き方・幅・固定穴と DINレールは「うちはこう作る」という決め事なので
-        設定画面で登録する。ここには案件ごとに動かすものだけを置く。
-      */}
-      <div className="applied">
-        <h2>いまの決め事</h2>
-        <ul>
-          <li>
-            <span>ダクト</span>
-            <b>
-              {DUCT_LAYOUT_LABEL[profile.duct.layout]} ／ 幅 {profile.duct.width}
-            </b>
-          </li>
-          <li>
-            <span>段の高さ</span>
-            <b>
-              {isEqual
-                ? `全段そろえる（${profile.duct.rowCount}段・${rowH > 0 ? rowH.toFixed(0) : '—'}mm）`
-                : '中身に合わせる'}
-            </b>
-          </li>
-          <li>
-            <span>固定穴</span>
-            <b>
-              ダクト {profile.duct.fixing.points}か所 {profile.duct.fixing.tap} ／ レール{' '}
-              {profile.rail.fixing.points}か所 {profile.rail.fixing.tap}
-            </b>
-          </li>
-          <li>
-            <span>レール余長</span>
-            <b>両端 {profile.rail.endMargin}mm</b>
-          </li>
-        </ul>
-        <button onClick={() => go('config')}>設定画面で変更する →</button>
-      </div>
+      <h2>ダクト</h2>
+      <label className="sel">
+        <span>レイアウト</span>
+        <select
+          value={profile.duct.layout}
+          onChange={(e) => setDuct({ layout: e.target.value as DuctLayoutId })}
+        >
+          {(Object.keys(DUCT_LAYOUT_LABEL) as DuctLayoutId[]).map((id) => (
+            <option key={id} value={id} disabled={!DUCT_LAYOUT_READY[id]}>
+              {DUCT_LAYOUT_LABEL[id]}
+              {DUCT_LAYOUT_READY[id] ? '' : '（準備中）'}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="note">{DUCT_LAYOUT_HINT[profile.duct.layout]}</p>
+
+      {/* 幅は数値で打たず、設定画面に登録した型式から選ぶ */}
+      <label className="sel">
+        <span>使うダクト</span>
+        <select value={profile.duct.ductId} onChange={(e) => selectDuctSpec(e.target.value)}>
+          {ducts.length === 0 && <option value="">（登録なし — 幅 {profile.duct.width}）</option>}
+          {!ducts.some((d) => d.id === profile.duct.ductId) && ducts.length > 0 && (
+            <option value={profile.duct.ductId}>（未登録 — 幅 {profile.duct.width}）</option>
+          )}
+          {ducts.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.model}（幅 {d.width} / 高さ {d.height}）
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="note">
+        型式の登録は<b>設定</b>画面の「ダクトマスタ」で行います。
+      </p>
+
+      <label className="sel">
+        <span>段の高さ</span>
+        <select
+          value={profile.duct.rowHeightMode}
+          onChange={(e) => setDuct({ rowHeightMode: e.target.value as RowHeightMode })}
+        >
+          <option value="auto">中身に合わせる（段ごとに可変）</option>
+          <option value="equal">全段そろえる（段数を指定）</option>
+        </select>
+      </label>
+      {isEqual && (
+        <div className="grid2">
+          <Num
+            label="機器行の数"
+            value={profile.duct.rowCount}
+            onChange={(rowCount) => setDuct({ rowCount })}
+          />
+        </div>
+      )}
+      {isEqual ? (
+        <p className={`calc${rowH <= 0 ? ' bad' : ''}`}>
+          機器行の高さ = {rowH > 0 ? rowH.toFixed(1) : '—'} mm
+        </p>
+      ) : (
+        <p className="note">
+          段に入った機器の背丈から段ごとに高さを決めます。段数は自動で決まるので指定不要です。
+        </p>
+      )}
 
       {rowCount > 0 && (
         <>

@@ -15,13 +15,14 @@ function scaleOf(p: Project) {
 /**
  * 設計完了した案件の一覧。
  *
- * 過去案件を振り返るためと、似た盤をもう一度作る（リピート）ための画面。
+ * 過去の案件を振り返るためと、似た盤をもう一度作る（複製）ための画面。
  * 誰が設計したかが分かるよう担当者を必ず持たせる。
  */
 export function ProjectsScreen() {
   const projects = useStore((s) => s.projects);
   const devices = useStore((s) => s.devices);
   const myDevices = useStore((s) => s.myDevices);
+  const ducts = useStore((s) => s.ducts);
   const repeatProject = useStore((s) => s.repeatProject);
   const updateProject = useStore((s) => s.updateProject);
   const removeProject = useStore((s) => s.removeProject);
@@ -39,7 +40,8 @@ export function ProjectsScreen() {
     (p) =>
       (!owner || p.owner === owner) &&
       (!q ||
-        p.name.toLowerCase().includes(q) ||
+        p.company.toLowerCase().includes(q) ||
+        p.jobNo.toLowerCase().includes(q) ||
         p.panel.model.toLowerCase().includes(q) ||
         p.note.toLowerCase().includes(q)),
   );
@@ -49,7 +51,7 @@ export function ProjectsScreen() {
     const layouts = FACES.map((f) =>
       autoLayout(p.panel, p.profile, f.id, p.items, p.pinned, lookup, p.removedDucts[f.id] ?? []),
     );
-    return buildBom(layouts, p.profile, lookup);
+    return buildBom(layouts, p.profile, lookup, ducts);
   };
 
   const exportFile = () => {
@@ -64,9 +66,9 @@ export function ProjectsScreen() {
   return (
     <div className="screen">
       <div className="screen-head">
-        <h2>設計完了した案件</h2>
+        <h2>完了案件</h2>
         <p className="note">
-          「設計完了」で残した案件です。<b>リピート</b>を押すと、その案件の盤・設定・機器・加工を
+          「設計完了」で残した案件です。<b>複製</b>を押すと、その案件の盤・設定・機器・加工を
           そのまま読み込んで続きから作れます。似た盤を一から組み直す必要がなくなります。
         </p>
         <p className="note">
@@ -83,7 +85,7 @@ export function ProjectsScreen() {
 
       {projects.length === 0 ? (
         <p className="note">
-          まだ登録がありません。<b>面を選ぶ</b>画面の「設計完了」で残せます。
+          まだ登録がありません。<b>面選択</b>画面の「設計完了」で残せます。
         </p>
       ) : (
         <>
@@ -91,7 +93,7 @@ export function ProjectsScreen() {
             <input
               type="search"
               className="search"
-              placeholder="案件名・盤の型式・メモで絞り込み"
+              placeholder="会社名・案件番号・盤の型式・メモで絞り込み"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -110,9 +112,10 @@ export function ProjectsScreen() {
             <table className="encl projects">
               <thead>
                 <tr>
-                  <th>案件名</th>
+                  <th>会社名</th>
+                  <th>案件番号</th>
+                  <th>日付</th>
                   <th>担当者</th>
-                  <th>完了日</th>
                   <th>盤の型式</th>
                   <th>外形</th>
                   <th>機器</th>
@@ -130,11 +133,12 @@ export function ProjectsScreen() {
                         <td>
                           <button className="linky" onClick={() => setOpen(isOpen ? null : p.id)}>
                             <span className={`caret${isOpen ? ' open' : ''}`} aria-hidden="true" />
-                            {p.name}
+                            {p.company || '（会社名なし）'}
                           </button>
                         </td>
-                        <td>{p.owner || '—'}</td>
+                        <td>{p.jobNo || '—'}</td>
                         <td className="qty">{p.completedAt}</td>
+                        <td>{p.owner || '—'}</td>
                         <td>{p.panel.model}</td>
                         <td className="qty">
                           {p.panel.outer.w}×{p.panel.outer.h}×D{p.panel.outer.d}
@@ -144,7 +148,7 @@ export function ProjectsScreen() {
                         </td>
                         <td>
                           <button className="primary" onClick={() => repeatProject(p.id)}>
-                            リピート
+                            複製
                           </button>
                         </td>
                         <td>
@@ -155,14 +159,32 @@ export function ProjectsScreen() {
                       </tr>
                       {isOpen && (
                         <tr key={`${p.id}-detail`} className="detail">
-                          <td colSpan={8}>
-                            <div className="grid2">
+                          <td colSpan={9}>
+                            <div className="grid4">
                               <label className="num">
-                                <span>案件名</span>
+                                <span>会社名</span>
                                 <input
                                   type="text"
-                                  value={p.name}
-                                  onChange={(e) => updateProject(p.id, { name: e.target.value })}
+                                  value={p.company}
+                                  onChange={(e) => updateProject(p.id, { company: e.target.value })}
+                                />
+                              </label>
+                              <label className="num">
+                                <span>案件番号</span>
+                                <input
+                                  type="text"
+                                  value={p.jobNo}
+                                  onChange={(e) => updateProject(p.id, { jobNo: e.target.value })}
+                                />
+                              </label>
+                              <label className="num">
+                                <span>日付</span>
+                                <input
+                                  type="date"
+                                  value={p.completedAt}
+                                  onChange={(e) =>
+                                    updateProject(p.id, { completedAt: e.target.value })
+                                  }
                                 />
                               </label>
                               <label className="num">

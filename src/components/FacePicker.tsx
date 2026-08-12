@@ -181,16 +181,22 @@ export function FacePicker() {
   const removedDucts = useStore((s) => s.removedDucts);
   const completeDesign = useStore((s) => s.completeDesign);
   const owners = useStore((s) => s.owners);
+  const ducts = useStore((s) => s.ducts);
   // ストアの参照をそのまま取る。ここで map すると毎回新しい配列になり再描画が止まらなくなる
   const projects = useStore((s) => s.projects);
-  const go = useStore((s) => s.go);
 
-  // 担当者は My部品の担当者と、過去案件で使った名前の両方から選べるようにする
+  // 担当者は My部品の担当者と、完了案件で使った名前の両方から選べるようにする
   const ownerChoices = useMemo(
     () => [...new Set([...owners, ...projects.map((p) => p.owner)].filter(Boolean))].sort(),
     [owners, projects],
   );
-  const [jobName, setJobName] = useState('');
+  const companyChoices = useMemo(
+    () => [...new Set(projects.map((p) => p.company).filter(Boolean))].sort(),
+    [projects],
+  );
+  const [jobCompany, setJobCompany] = useState('');
+  const [jobNo, setJobNo] = useState('');
+  const [jobDate, setJobDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [jobOwner, setJobOwner] = useState('');
   const [jobNote, setJobNote] = useState('');
 
@@ -204,7 +210,7 @@ export function FacePicker() {
     [panel, profile, items, pinned, lookup, removedDucts],
   );
 
-  const bom = buildBom(layouts, profile, lookup);
+  const bom = buildBom(layouts, profile, lookup, ducts);
   const heat = totalHeatW(layouts, lookup);
   const cutouts = [
     ...layouts.flatMap((l, i) => autoMachining(FACES[i]!.id, l, lookup, profile)),
@@ -367,18 +373,37 @@ export function FacePicker() {
         </div>
         <h3>設計完了</h3>
         <p className="note">
-          この設計を<b>過去案件として残します</b>。あとから振り返ったり、
-          <b>リピート</b>で同じ内容を読み込んで似た盤を作れます。
+          この設計を<b>完了案件として残します</b>。あとから振り返ったり、
+          <b>複製</b>で同じ内容を読み込んで似た盤を作れます。
         </p>
         <div className="grid2">
           <label className="num">
-            <span>案件名</span>
+            <span>会社名</span>
             <input
               type="text"
-              value={jobName}
-              placeholder={panel.model}
-              onChange={(e) => setJobName(e.target.value)}
+              list="ps-companies"
+              value={jobCompany}
+              placeholder="納入先"
+              onChange={(e) => setJobCompany(e.target.value)}
             />
+            <datalist id="ps-companies">
+              {companyChoices.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+          </label>
+          <label className="num">
+            <span>案件番号</span>
+            <input
+              type="text"
+              value={jobNo}
+              placeholder="例 2026-013"
+              onChange={(e) => setJobNo(e.target.value)}
+            />
+          </label>
+          <label className="num">
+            <span>日付</span>
+            <input type="date" value={jobDate} onChange={(e) => setJobDate(e.target.value)} />
           </label>
           <label className="num">
             <span>担当者</span>
@@ -401,7 +426,7 @@ export function FacePicker() {
           <input
             type="text"
             value={jobNote}
-            placeholder="納入先・特記事項など"
+            placeholder="特記事項など"
             onChange={(e) => setJobNote(e.target.value)}
           />
         </label>
@@ -411,14 +436,19 @@ export function FacePicker() {
             disabled={!jobOwner.trim()}
             title={jobOwner.trim() ? undefined : '担当者を入れてください'}
             onClick={() => {
-              completeDesign(jobName, jobOwner, jobNote);
-              setJobName('');
+              completeDesign({
+                company: jobCompany,
+                jobNo,
+                owner: jobOwner,
+                completedAt: jobDate,
+                note: jobNote,
+              });
+              setJobNo('');
               setJobNote('');
             }}
           >
-            ✓ 設計完了として残す
+            ✓ 設計完了
           </button>
-          <button onClick={() => go('projects')}>過去案件を見る（{projects.length}）</button>
         </div>
 
         <h3>CSV 書き出し</h3>

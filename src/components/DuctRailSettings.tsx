@@ -1,7 +1,6 @@
-import { DUCT_LAYOUT_HINT, DUCT_LAYOUT_LABEL, DUCT_LAYOUT_READY } from '../data/enclosures';
 import { TAP_DRILL, TAP_SIZES } from '../lib/machining';
 import { useStore } from '../store';
-import type { DuctLayoutId, FixingSettings, RowHeightMode, TapSize } from '../types';
+import type { FixingSettings, TapSize } from '../types';
 
 function Num({
   label,
@@ -76,67 +75,19 @@ function FixingFields({
 }
 
 /**
- * ダクトと DINレールの登録。
+ * ダクトと DINレールの固定穴・余長の登録。
  *
- * どれも案件ごとに変えるものではなく「うちはこう作る」という決め事なので、
- * レイアウト画面ではなく設定画面に置く。
- * 案件ごとに変えたい段ごとの余白だけはレイアウト画面に残してある。
+ * 加工屋への指示の作法なので案件ごとには変えない。ここで登録しておく。
+ * レイアウトの引き方・使うダクト・段の高さは案件ごとに選ぶものなので中板画面に置いてある。
  */
 export function DuctRailSettings() {
   const profile = useStore((s) => s.profile);
   const setDuct = useStore((s) => s.setDuct);
   const setRail = useStore((s) => s.setRail);
 
-  const isEqual = profile.duct.rowHeightMode === 'equal';
-
   return (
     <>
-      <h3 className="section">配線ダクト</h3>
-      <div className="grid2">
-        <label className="sel">
-          <span>レイアウト</span>
-          <select
-            value={profile.duct.layout}
-            onChange={(e) => setDuct({ layout: e.target.value as DuctLayoutId })}
-          >
-            {(Object.keys(DUCT_LAYOUT_LABEL) as DuctLayoutId[]).map((id) => (
-              <option key={id} value={id} disabled={!DUCT_LAYOUT_READY[id]}>
-                {DUCT_LAYOUT_LABEL[id]}
-                {DUCT_LAYOUT_READY[id] ? '' : '（準備中）'}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="sel">
-          <span>段の高さ</span>
-          <select
-            value={profile.duct.rowHeightMode}
-            onChange={(e) => setDuct({ rowHeightMode: e.target.value as RowHeightMode })}
-          >
-            <option value="auto">中身に合わせる（段ごとに可変）</option>
-            <option value="equal">全段そろえる（段数を指定）</option>
-          </select>
-        </label>
-      </div>
-      <p className="note">{DUCT_LAYOUT_HINT[profile.duct.layout]}</p>
-
-      <div className="grid4">
-        <Num
-          label="ダクト幅"
-          value={profile.duct.width}
-          onChange={(width) => setDuct({ width })}
-          step={10}
-        />
-        {isEqual && (
-          <Num
-            label="機器行の数"
-            value={profile.duct.rowCount}
-            onChange={(rowCount) => setDuct({ rowCount })}
-          />
-        )}
-      </div>
-
-      <h4>ダクトの固定穴</h4>
+      <h3 className="section">ダクトの固定穴</h3>
       <p className="note">
         ダクト1本あたりの固定か所とタップです。穴の座標はレイアウト画面の<b>加工</b>に出ます。
         ピッチを 0 にすると、両端の余白を除いた残りを<b>等分</b>します。

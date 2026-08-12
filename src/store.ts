@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { DEFAULT_PROFILE, SAMPLE_ENCLOSURES } from './data/enclosures';
+import { DEFAULT_PROFILE, SAMPLE_DUCTS, SAMPLE_ENCLOSURES } from './data/enclosures';
 import { DEFAULT_CATEGORIES, DEFAULT_DEVICES } from './data/devices';
 import { FACE_BY_ID } from './data/faces';
 import type {
@@ -9,6 +9,7 @@ import type {
   DeviceShape,
   DeviceSpec,
   DuctSettings,
+  DuctSpec,
   FaceId,
   Machining,
   MachiningDraft,
@@ -34,8 +35,10 @@ export type Screen = 'start' | 'faces' | 'layout' | 'config' | 'myconfig' | 'pro
  */
 export type Project = {
   id: string;
-  /** 案件名 */
-  name: string;
+  /** 会社名（納入先） */
+  company: string;
+  /** 案件番号 */
+  jobNo: string;
   /** 担当者 */
   owner: string;
   /** 設計完了日 (YYYY-MM-DD) */
@@ -86,6 +89,8 @@ export type ConfigFile = {
   profile: Profile;
   /** 盤マスタ。古いファイルには無いので任意 */
   enclosures?: PanelSpec[];
+  /** ダクトマスタ。古いファイルには無いので任意 */
+  ducts?: DuctSpec[];
 };
 
 /** MyConfig 画面が読み書きするファイルの中身。共有フォルダに置いて全員で見る。 */
@@ -107,7 +112,9 @@ type State = {
   myDevices: DeviceSpec[];
   /** 盤マスタ。設定画面で登録し、盤サイズ画面の「型式から選ぶ」に出る */
   enclosures: PanelSpec[];
-  /** 設計完了した過去案件 */
+  /** ダクトマスタ。設定画面で登録し、中板画面のプルダウンに出る */
+  ducts: DuctSpec[];
+  /** 設計完了した案件 */
   projects: Project[];
 
   items: LayoutItem[];
@@ -147,9 +154,15 @@ type State = {
   addOwner: (name: string) => void;
   removeOwner: (name: string) => void;
 
-  /** 設計完了。いまの状態を過去案件として残す */
-  completeDesign: (name: string, owner: string, note: string) => void;
-  /** 過去案件をいまの設計として読み込む（リピート） */
+  /** 設計完了。いまの状態を完了案件として残す */
+  completeDesign: (v: {
+    company: string;
+    jobNo: string;
+    owner: string;
+    completedAt: string;
+    note: string;
+  }) => void;
+  /** 完了案件をいまの設計として読み込む（複製） */
   repeatProject: (id: string) => void;
   updateProject: (id: string, patch: Partial<Project>) => void;
   removeProject: (id: string) => void;
@@ -159,6 +172,13 @@ type State = {
   addEnclosure: (from?: PanelSpec) => void;
   updateEnclosure: (index: number, patch: Partial<PanelSpec>) => void;
   removeEnclosure: (index: number) => void;
+
+  /** ダクトマスタ */
+  addDuct: () => void;
+  updateDuct: (id: string, patch: Partial<DuctSpec>) => void;
+  removeDuct: (id: string) => void;
+  /** 使うダクトを選ぶ。幅も控えとして書き写す */
+  selectDuctSpec: (id: string) => void;
 
   loadConfig: (f: ConfigFile) => void;
   loadMyConfig: (f: MyConfigFile) => void;
@@ -213,6 +233,7 @@ export const useStore = create<State>((set) => ({
   owners: [],
   myDevices: [],
   enclosures: SAMPLE_ENCLOSURES,
+  ducts: SAMPLE_DUCTS,
   projects: loadProjects(),
 
   items: [],
@@ -304,14 +325,15 @@ export const useStore = create<State>((set) => ({
     })),
 
   // --- 過去案件 ---
-  completeDesign: (name, owner, note) =>
+  completeDesign: (v) =>
     set((s) => {
       const project: Project = {
         id: nextId('prj'),
-        name: name.trim() || s.panel.model || '無題',
-        owner: owner.trim(),
-        completedAt: new Date().toISOString().slice(0, 10),
-        note: note.trim(),
+        company: v.company.trim(),
+        jobNo: v.jobNo.trim(),
+        owner: v.owner.trim(),
+        completedAt: v.completedAt || new Date().toISOString().slice(0, 10),
+        note: v.note.trim(),
         // あとで書き換わらないよう、その時点の中身を複製して持つ
         panel: structuredClone(s.panel),
         profile: structuredClone(s.profile),
@@ -386,12 +408,46 @@ export const useStore = create<State>((set) => ({
   removeEnclosure: (index) =>
     set((s) => ({ enclosures: s.enclosures.filter((_, i) => i !== index) })),
 
+  // --- ダクトマスタ ---
+  addDuct: () =>
+    set((s) => ({
+      ducts: [
+        ...s.ducts,
+        { id: nextId('dt'), maker: '', model: '新しいダクト', width: 50, height: 50, stock: 2000 },
+      ],
+    })),
+  updateDuct: (id, patch) =>
+    set((s) => {
+      const ducts = s.ducts.map((d) => (d.id === id ? { ...d, ...patch } : d));
+      // 使用中のダクトの幅を変えたら、控えの幅も追従させる
+      const cur = ducts.find((d) => d.id === s.profile.duct.ductId);
+      return {
+        ducts,
+        profile: cur
+          ? { ...s.profile, duct: { ...s.profile.duct, width: cur.width } }
+          : s.profile,
+      };
+    }),
+  removeDuct: (id) => set((s) => ({ ducts: s.ducts.filter((d) => d.id !== id) })),
+
+  selectDuctSpec: (id) =>
+    set((s) => {
+      const d = s.ducts.find((q) => q.id === id);
+      return {
+        profile: {
+          ...s.profile,
+          duct: { ...s.profile.duct, ductId: id, width: d?.width ?? s.profile.duct.width },
+        },
+      };
+    }),
+
   loadConfig: (f) =>
     set((s) => ({
       categories: f.categories,
       devices: f.devices,
       profile: f.profile,
       enclosures: f.enclosures ?? s.enclosures,
+      ducts: f.ducts ?? s.ducts,
     })),
   loadMyConfig: (f) => set({ owners: f.owners, myDevices: f.devices }),
 

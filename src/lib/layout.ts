@@ -399,14 +399,41 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
     return { x: g.left, w: size.w - g.left - g.right };
   };
 
+  /**
+   * 横ダクトを縦ダクトで切り分ける。
+   *
+   * 実物は同じ場所に2本置けないので、**縦ダクトを通し**にして横ダクトを
+   * その幅ぶん短くする。切られて2本以上になることもあるので、切れ端ごとに1本として返す。
+   */
+  const splitByBands = (x: number, w: number): Segment[] => {
+    let parts: Segment[] = [{ x0: x, x1: x + w }];
+    for (const b of bands) {
+      const next: Segment[] = [];
+      for (const s of parts) {
+        if (b.x0 > s.x0) next.push({ x0: s.x0, x1: Math.min(s.x1, b.x0) });
+        if (b.x1 < s.x1) next.push({ x0: Math.max(s.x0, b.x1), x1: s.x1 });
+        if (b.x0 <= s.x0 && b.x1 >= s.x1) continue;
+      }
+      parts = next;
+    }
+    // 切れ端が細すぎるものは実物として成り立たないので落とす
+    return parts.filter((s) => s.x1 - s.x0 >= 1);
+  };
+
+  const pushHorizontal = (rowIndex: number, yAt: number) => {
+    const span = ductSpan(rowIndex);
+    for (const s of splitByBands(span.x, span.w)) {
+      ducts.push({ id: id++, x: s.x0, y: yAt, w: s.x1 - s.x0, h: dw });
+    }
+  };
+
   let y = size.h - profile.duct.margin.top;
   const top = y;
   let id = 0;
   used.forEach((b, index) => {
     if (rule.horizontals && dw > 0) {
       y -= dw;
-      const span = ductSpan(index);
-      ducts.push({ id: id++, x: span.x, y, w: span.w, h: dw });
+      pushHorizontal(index, y);
     } else if (index > 0) {
       y -= rowSpacing;
     }
@@ -428,9 +455,8 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   });
   if (rule.horizontals && dw > 0 && used.length > 0) {
     // 最下段のダクトは、その上の段の余白に合わせる
-    const span = ductSpan(used.length - 1);
     y -= dw;
-    ducts.push({ id: id++, x: span.x, y, w: span.w, h: dw });
+    pushHorizontal(used.length - 1, y);
   }
 
   // 縦ダクトは中板の余白いっぱいに通す。実際の盤でも上下いっぱいに立てるので、

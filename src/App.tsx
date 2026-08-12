@@ -37,8 +37,8 @@ export default function App() {
   const nav = (
     <nav className="nav">
       <button onClick={() => go('start')}>盤サイズ</button>
-      <button onClick={() => go('faces')}>面を選ぶ</button>
-      <button onClick={() => go('projects')}>過去案件</button>
+      <button onClick={() => go('faces')}>面選択</button>
+      <button onClick={() => go('projects')}>完了案件</button>
       <button onClick={() => go('config')}>設定</button>
       <button onClick={() => go('myconfig')}>My部品</button>
     </nav>
@@ -49,7 +49,7 @@ export default function App() {
       <div className="app">
         <header>
           <button className="back" onClick={() => go('faces')}>
-            ← 面を選ぶ
+            ← 面選択
           </button>
           <h1>{FACE_LABEL(face)}</h1>
           <span className="tag">
