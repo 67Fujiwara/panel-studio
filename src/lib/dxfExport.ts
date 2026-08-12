@@ -278,10 +278,14 @@ export function plateDxf(input: ExportInput, kind: ExportKind): string {
   return w.finish();
 }
 
-/** ダウンロード1件。中身は Shift-JIS に変換する。 */
-function download(text: string, filename: string) {
-  const bytes = Encoding.convert(Encoding.stringToCode(text), { to: 'SJIS', from: 'UNICODE' });
-  const blob = new Blob([new Uint8Array(bytes)], { type: 'application/dxf' });
+/** DXF の中身を Shift-JIS のバイト列にする。国内の CAD はこちら。 */
+function toSjis(text: string): Uint8Array {
+  return new Uint8Array(
+    Encoding.convert(Encoding.stringToCode(text), { to: 'SJIS', from: 'UNICODE' }),
+  );
+}
+
+function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -290,6 +294,107 @@ function download(text: string, filename: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ---------------------------------------------------------------------------
+// ZIP
+// ---------------------------------------------------------------------------
+
+/**
+ * 無圧縮(store)の ZIP を組み立てる。
+ *
+ * 4ファイルをバラバラに落とすとブラウザが毎回確認を出すうえ、
+ * ダウンロードフォルダに散らばる。1つのフォルダにまとめて渡したい。
+ * DXF はテキストなので圧縮しなくても実用上困らず、
+ * 圧縮を入れないぶんライブラリを足さずに済む。
+ */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[i] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(data: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < data.length; i++) c = CRC_TABLE[(c ^ data[i]!) & 0xff]! ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+type ZipEntry = { name: string; data: Uint8Array };
+
+function buildZip(entries: ZipEntry[]): Blob {
+  const enc = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  const central: Uint8Array[] = [];
+  let offset = 0;
+
+  const u16 = (v: number) => [v & 0xff, (v >> 8) & 0xff];
+  const u32 = (v: number) => [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >>> 24) & 0xff];
+
+  for (const e of entries) {
+    const name = enc.encode(e.name);
+    const crc = crc32(e.data);
+    const local = Uint8Array.from([
+      ...u32(0x04034b50),
+      ...u16(20), // 展開に必要なバージョン
+      ...u16(0x0800), // ファイル名は UTF-8
+      ...u16(0), // 無圧縮
+      ...u16(0),
+      ...u16(0), // 時刻は持たない
+      ...u32(crc),
+      ...u32(e.data.length),
+      ...u32(e.data.length),
+      ...u16(name.length),
+      ...u16(0),
+      ...name,
+    ]);
+    chunks.push(local, e.data);
+
+    central.push(
+      Uint8Array.from([
+        ...u32(0x02014b50),
+        ...u16(20),
+        ...u16(20),
+        ...u16(0x0800),
+        ...u16(0),
+        ...u16(0),
+        ...u16(0),
+        ...u32(crc),
+        ...u32(e.data.length),
+        ...u32(e.data.length),
+        ...u16(name.length),
+        ...u16(0),
+        ...u16(0),
+        ...u16(0),
+        ...u16(0),
+        ...u32(0),
+        ...u32(offset),
+        ...name,
+      ]),
+    );
+    offset += local.length + e.data.length;
+  }
+
+  const centralSize = central.reduce((s, c) => s + c.length, 0);
+  const end = Uint8Array.from([
+    ...u32(0x06054b50),
+    ...u16(0),
+    ...u16(0),
+    ...u16(entries.length),
+    ...u16(entries.length),
+    ...u32(centralSize),
+    ...u32(offset),
+    ...u16(0),
+  ]);
+
+  const parts: BlobPart[] = [...chunks, ...central, end].map(
+    (u) => u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer,
+  );
+  return new Blob(parts, { type: 'application/zip' });
 }
 
 export type DxfSet = { name: string; text: string }[];
@@ -312,14 +417,16 @@ export function buildDxfSet(input: ExportInput, base: string): DxfSet {
 }
 
 /**
- * 4ファイルをまとめてダウンロードする。
- * ブラウザは連続ダウンロードを1回だけ確認するので、間隔を空けて順に出す。
+ * 4ファイルを1つのフォルダにまとめて ZIP で渡す。
+ *
+ * バラバラに落とすとブラウザが毎回確認を出すうえ、ダウンロードフォルダに
+ * 散らばって「どれが今回の4枚か」が分からなくなる。
+ * ZIP の中は案件名のフォルダ1つにしてあり、解凍すればそのまま案件フォルダになる。
  */
-export async function downloadDxfSet(set: DxfSet) {
-  for (const [i, f] of set.entries()) {
-    download(f.text, f.name);
-    if (i < set.length - 1) await new Promise((r) => setTimeout(r, 350));
-  }
+export function downloadDxfSet(set: DxfSet, folder: string) {
+  const dir = folder || 'panel';
+  const zip = buildZip(set.map((f) => ({ name: `${dir}/${f.name}`, data: toSjis(f.text) })));
+  saveBlob(zip, `${dir}_dxf.zip`);
 }
 
 /** 全面ぶんの機器と加工の数。書き出す前に中身があるか確かめるのに使う。 */

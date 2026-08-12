@@ -439,7 +439,7 @@ export function FacePicker() {
             onChange={(e) => setWithDxf(e.target.checked)}
           />
           <span>
-            設計完了と同時に <b>DXF を4ファイル書き出す</b>
+            設計完了と同時に <b>DXF 4ファイルを ZIP で書き出す</b>
             （キャビネット／中板 × 機器つき／加工穴のみ）
           </span>
         </label>
@@ -450,11 +450,13 @@ export function FacePicker() {
             title={jobOwner.trim() ? undefined : '担当者を入れてください'}
             onClick={() => {
               if (withDxf) {
-                void downloadDxfSet(
+                const base = asciiFileName(jobNo || panel.model, 'panel');
+                downloadDxfSet(
                   buildDxfSet(
                     { panel, profile, items, pinned, machining, removedDucts, devices: lookup },
-                    asciiFileName(jobNo || panel.model, 'panel'),
+                    base,
                   ),
+                  base,
                 );
               }
               completeDesign({

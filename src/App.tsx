@@ -86,11 +86,17 @@ export default function App() {
         </header>
         <main>
           <aside className="left">
-            {/* 中板はダクトとクリアランス、それ以外は座標。使用部品は共通 */}
+            {/*
+              中板はダクトとクリアランス、それ以外は座標。使用部品は共通。
+              調整はダクト単位なので、図に出ている横ダクトの本数をそのまま渡す
+            */}
             {hasDucts ? (
               <SettingsPanel
-                rowCount={layout.rows.length}
-                ductCount={layout.ducts.filter((d) => !d.removed && d.w >= d.h).length}
+                ductCount={
+                  new Set(
+                    layout.ducts.filter((d) => !d.removed && d.w >= d.h).map((d) => d.id),
+                  ).size
+                }
               />
             ) : (
               <CoordPanel layout={layout} devices={lookup} />

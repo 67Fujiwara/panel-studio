@@ -189,27 +189,32 @@ export const isDerived = (m: Machining) =>
 /**
  * 1本の帯（ダクト・DINレール）を留める穴の位置を、端からの距離で割り出す。
  *
- * ピッチを 0 にしておくと、両端の余白を除いた残りを等分する。定尺の穴位置に
- * 合わせたいときだけピッチを入れる、という使い分けを想定している。
+ * 留め方の考え方は現場と同じで **「両端はできるだけ外側、残りは真ん中に寄せる」**。
+ * 端を押さえないと帯が浮くし、真ん中が偏っていると図面として見苦しいため。
+ *
+ * - 両端の穴は端から endOffset のところ
+ * - 間の穴は指定ピッチのまま、帯の中心を軸に振り分ける
+ * - ピッチ 0 なら両端の間を等分する（定尺の穴位置に縛られないとき）
  */
 export function fixingOffsets(length: number, f: FixingSettings): number[] {
   const n = Math.max(1, Math.floor(f.points));
   const first = Math.min(f.endOffset, length / 2);
+  const last = length - first;
   if (n === 1) return [length / 2];
+  if (n === 2) return [first, last];
 
+  const inner = n - 2;
+  const mid = length / 2;
+  let middles: number[];
   if (f.pitch > 0) {
-    // 指定ピッチで端から並べる。入りきらないぶんは落とす
-    const out: number[] = [];
-    for (let i = 0; i < n; i++) {
-      const at = first + f.pitch * i;
-      if (at > length - first + 0.01) break;
-      out.push(at);
-    }
-    return out.length > 0 ? out : [length / 2];
+    // 中の穴は帯の中心を軸に、指定ピッチで左右対称に並べる
+    middles = Array.from({ length: inner }, (_, i) => mid + (i - (inner - 1) / 2) * f.pitch);
+  } else {
+    middles = Array.from({ length: inner }, (_, i) => first + ((last - first) * (i + 1)) / (n - 1));
   }
-
-  const span = Math.max(0, length - first * 2);
-  return Array.from({ length: n }, (_, i) => first + (span * i) / (n - 1));
+  // 端の穴より外へ出さない
+  const clamp = (v: number) => Math.min(last, Math.max(first, v));
+  return [first, ...middles.map(clamp), last];
 }
 
 /**

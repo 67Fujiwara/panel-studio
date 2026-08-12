@@ -172,11 +172,22 @@ export type DuctLayoutId =
 export type RowHeightMode = 'equal' | 'auto';
 
 /**
- * 段ごとの余白の上書き。
- * top/bottom は上下のダクトとの余白、left/right は面の端からの余白。
- * left/right を省いた古いファイルも読めるよう任意にしてある。
+ * ダクト1本ごとの調整。
+ *
+ * 人はダクトの本数で数えるので、機器の段ではなく**ダクトを単位**にして持つ。
+ * above/below はそのダクトの上下にある機器との余白、left/right はそのダクトの
+ * 左右の位置（面の端からの余白）。省いた項目は共通の設定を使う。
  */
-export type RowGap = { top: number; bottom: number; left?: number; right?: number };
+export type DuctGap = {
+  /** このダクトの上にある機器との余白 */
+  above?: number;
+  /** このダクトの下にある機器との余白 */
+  below?: number;
+  /** 面の左端からの位置 */
+  left?: number;
+  /** 面の右端からの位置 */
+  right?: number;
+};
 
 /**
  * 配線ダクト1品種。部品と同じように型式で登録して選ぶ。
@@ -207,10 +218,10 @@ export type DuctSettings = {
   /** 面の端からの余白 */
   margin: Sides;
   /**
-   * 段ごとの余白。段番号をキーにした上書き。
-   * 指定がない段は上下が clearance.deviceToDuct、左右が margin。
+   * ダクトごとの調整。**上から数えたダクトの通し番号**をキーにする。
+   * 指定がないダクトは上下が clearance.deviceToDuct、左右が margin。
    */
-  rowGaps: Record<number, RowGap>;
+  ductGaps: Record<number, DuctGap>;
   /** ダクトを中板に留める穴 */
   fixing: FixingSettings;
 };

@@ -36,21 +36,19 @@ function Num({
  * 中板の左ペイン。案件ごとに動かす余白とクリアランスだけを扱う。
  * ダクトの引き方・幅・固定穴と DINレールは設定画面（盤マスタと同じ場所）で登録する。
  */
-export function SettingsPanel({ rowCount, ductCount }: { rowCount: number; ductCount: number }) {
+export function SettingsPanel({ ductCount }: { ductCount: number }) {
   const face = useStore((s) => s.face);
   const panel = useStore((s) => s.panel);
   const profile = useStore((s) => s.profile);
   const setDuct = useStore((s) => s.setDuct);
   const setClearance = useStore((s) => s.setClearance);
-  const setRowGap = useStore((s) => s.setRowGap);
+  const setDuctGap = useStore((s) => s.setDuctGap);
   const ducts = useStore((s) => s.ducts);
   const selectDuctSpec = useStore((s) => s.selectDuctSpec);
-  const rowGaps = profile.duct.rowGaps ?? {};
+  const ductGaps = profile.duct.ductGaps ?? {};
 
   const isEqual = profile.duct.rowHeightMode === 'equal';
   const rowH = computeRows(panel, face, profile).rows[0]?.h ?? 0;
-  // 段と横ダクトの本数がずれて見えるので、見出しに両方を出す
-  const bandCount = ductCount;
 
   return (
     <div className="panel">
@@ -119,24 +117,18 @@ export function SettingsPanel({ rowCount, ductCount }: { rowCount: number; ductC
         </p>
       )}
 
-      {rowCount > 0 && (
+      {ductCount > 0 && (
         <>
-          <h3>
-            段ごとの余白（{rowCount} 段 / 横ダクト {bandCount} 本）
-          </h3>
+          <h3>ダクトごとの調整（{ductCount} 本）</h3>
           <p className="note">
-            <b>段は機器の行</b>で、横ダクトはその上下に付きます。だから
-            <b>N 段なら横ダクトは N＋1 本</b>になり、数が1つずれて見えます。
-            ここで動かすのは段なので、たとえば 1 段目の「上」は<b>1本目のダクト</b>、
-            「下」は<b>2本目のダクト</b>の位置に効きます。
+            図に出ている<b>横ダクト1本ずつ</b>を上から順に並べています。
+            <b>上下</b>はそのダクトに接する機器との余白、<b>左右</b>はそのダクトの位置です。
+            指定しないダクトは下の「機器 ⇔ ダクト」と「中板の端からの余白」を使います。
           </p>
-          <p className="note">
-            <b>上下</b>はダクトとの余白、<b>左右</b>は中板の端からの余白です。
-            指定しない段は、上下が下の「機器 ⇔ ダクト」、左右が「中板の端からの余白」を使います。
-            ダクトの長さも指定した左右に合わせます。
-          </p>
-          {Array.from({ length: rowCount }, (_, i) => {
-            const g = rowGaps[i];
+          {Array.from({ length: ductCount }, (_, i) => {
+            const g = ductGaps[i];
+            const first = i === 0;
+            const last = i === ductCount - 1;
             return (
               <div key={i} className="rowgap">
                 <label className="check">
@@ -144,12 +136,12 @@ export function SettingsPanel({ rowCount, ductCount }: { rowCount: number; ductC
                     type="checkbox"
                     checked={Boolean(g)}
                     onChange={(e) =>
-                      setRowGap(
+                      setDuctGap(
                         i,
                         e.target.checked
                           ? {
-                              top: profile.clearance.deviceToDuct.top,
-                              bottom: profile.clearance.deviceToDuct.bottom,
+                              above: profile.clearance.deviceToDuct.bottom,
+                              below: profile.clearance.deviceToDuct.top,
                               left: profile.duct.margin.left,
                               right: profile.duct.margin.right,
                             }
@@ -157,28 +149,34 @@ export function SettingsPanel({ rowCount, ductCount }: { rowCount: number; ductC
                       )
                     }
                   />
-                  <span>
-                    {i + 1} 段目を個別に決める
-                    <em>（ダクト {i + 1}↔{i + 2} 本目）</em>
-                  </span>
+                  <span>ダクト {i + 1} 本目を個別に決める</span>
                 </label>
                 {g && (
                   <div className="grid2">
-                    <Num label="上" value={g.top} onChange={(top) => setRowGap(i, { ...g, top })} />
-                    <Num
-                      label="下"
-                      value={g.bottom}
-                      onChange={(bottom) => setRowGap(i, { ...g, bottom })}
-                    />
+                    {/* いちばん上のダクトの上、いちばん下のダクトの下には機器が無い */}
+                    {!first && (
+                      <Num
+                        label="上の余白"
+                        value={g.above ?? profile.clearance.deviceToDuct.bottom}
+                        onChange={(above) => setDuctGap(i, { ...g, above })}
+                      />
+                    )}
+                    {!last && (
+                      <Num
+                        label="下の余白"
+                        value={g.below ?? profile.clearance.deviceToDuct.top}
+                        onChange={(below) => setDuctGap(i, { ...g, below })}
+                      />
+                    )}
                     <Num
                       label="左"
                       value={g.left ?? profile.duct.margin.left}
-                      onChange={(left) => setRowGap(i, { ...g, left })}
+                      onChange={(left) => setDuctGap(i, { ...g, left })}
                     />
                     <Num
                       label="右"
                       value={g.right ?? profile.duct.margin.right}
-                      onChange={(right) => setRowGap(i, { ...g, right })}
+                      onChange={(right) => setDuctGap(i, { ...g, right })}
                     />
                   </div>
                 )}

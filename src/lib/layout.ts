@@ -12,9 +12,9 @@ import type {
   MountType,
   PanelSpec,
   PlacedDevice,
+  DuctGap,
   Profile,
   Rotation,
-  RowGap,
   Sides,
   Violation,
 } from '../types';
@@ -26,16 +26,35 @@ export type DeviceLookup = Map<string, DeviceSpec>;
 const HEAT_THRESHOLD_W = 10;
 
 /**
- * その段の余白。段ごとの上書きがあればそちらを使う。
- * 上下はダクトとの余白、左右は面の端からの余白。
+ * ダクト1本ぶんの調整値。指定がなければ共通の設定。
+ * 位置は「上から数えたダクトの通し番号」で引く。
  */
-export function rowGap(profile: Profile, rowIndex: number): Required<RowGap> {
-  const o = profile.duct.rowGaps?.[rowIndex];
+export function ductGap(profile: Profile, ductIndex: number): Required<DuctGap> {
+  const o = profile.duct.ductGaps?.[ductIndex];
   return {
-    top: o?.top ?? profile.clearance.deviceToDuct.top,
-    bottom: o?.bottom ?? profile.clearance.deviceToDuct.bottom,
+    above: o?.above ?? profile.clearance.deviceToDuct.bottom,
+    below: o?.below ?? profile.clearance.deviceToDuct.top,
     left: o?.left ?? profile.duct.margin.left,
     right: o?.right ?? profile.duct.margin.right,
+  };
+}
+
+/**
+ * その段の余白。段 r は「ダクト r の下」と「ダクト r+1 の上」に挟まれている。
+ * 調整はダクト単位で持っているので、ここで段の見方に直す。
+ */
+export function rowGap(
+  profile: Profile,
+  rowIndex: number,
+): { top: number; bottom: number; left: number; right: number } {
+  const above = ductGap(profile, rowIndex);
+  const below = ductGap(profile, rowIndex + 1);
+  return {
+    top: above.below,
+    bottom: below.above,
+    // 機器を置ける幅は、その段の上のダクトに合わせる
+    left: above.left,
+    right: above.right,
   };
 }
 
@@ -105,30 +124,31 @@ export function computeRows(
   }
 
   const bands = verticalBands(panel, face, profile);
-  // ダクトはその段に指定した左右の余白に合わせ、縦ダクトのところで切る
-  const span = (i: number) => {
-    const g = rowGap(profile, i);
+  // 左右はダクト1本ごとに指定できる。縦ダクトのところで切る
+  const span = (ductIndex: number) => {
+    const g = ductGap(profile, ductIndex);
     return { x: g.left, w: w - g.left - g.right };
   };
 
   const rows: DeviceRow[] = [];
   const ducts: Duct[] = [];
   let id = 0;
-  const pushHorizontal = (rowIndex: number, y: number) => {
-    const s = span(rowIndex);
+  const pushHorizontal = (y: number) => {
+    const s = span(id);
     for (const p of splitByBands(bands, s.x, s.w)) {
-      ducts.push({ id: id++, x: p.x0, y, w: p.x1 - p.x0, h: dw });
+      ducts.push({ id, x: p.x0, y, w: p.x1 - p.x0, h: dw });
     }
+    id++;
   };
 
   for (let i = 0; i < n; i++) {
     const y = h - margin.top - rowH * (i + 1) - rowSpacing * (rule.horizontals ? i + 1 : i);
     rows.push({ index: i, y, h: rowH });
-    if (rule.horizontals && dw > 0) pushHorizontal(i, y + rowH);
+    if (rule.horizontals && dw > 0) pushHorizontal(y + rowH);
   }
   if (rule.horizontals && dw > 0) {
     // 全周囲いは外周を閉じるので、最下段のダクトは面の下端（座標 0）に置く
-    pushHorizontal(n - 1, profile.duct.layout === 'perimeter' ? 0 : margin.bottom);
+    pushHorizontal(profile.duct.layout === 'perimeter' ? 0 : margin.bottom);
   }
 
   // 縦ダクトは全段そろえるときも同じように立てる
@@ -457,16 +477,17 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   // ダクトはその段に指定した左右の余白に合わせる。段ごとに余白を変えたとき、
   // ダクトだけ元の位置に残ると図が食い違うため。
   // 機器⇔端のクリアランスは機器に効かせるもので、ダクトは端まで伸ばしてよい。
-  const ductSpan = (rowIndex: number) => {
-    const g = rowGap(profile, rowIndex);
+  const ductSpan = (ductIndex: number) => {
+    const g = ductGap(profile, ductIndex);
     return { x: g.left, w: size.w - g.left - g.right };
   };
 
-  const pushHorizontal = (rowIndex: number, yAt: number) => {
-    const span = ductSpan(rowIndex);
+  const pushHorizontal = (yAt: number) => {
+    const span = ductSpan(id);
     for (const s of splitByBands(bands, span.x, span.w)) {
-      ducts.push({ id: id++, x: s.x0, y: yAt, w: s.x1 - s.x0, h: dw });
+      ducts.push({ id, x: s.x0, y: yAt, w: s.x1 - s.x0, h: dw });
     }
+    id++;
   };
 
   let y = size.h - profile.duct.margin.top;
@@ -475,7 +496,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   used.forEach((b, index) => {
     if (rule.horizontals && dw > 0) {
       y -= dw;
-      pushHorizontal(index, y);
+      pushHorizontal(y);
     } else if (index > 0) {
       y -= rowSpacing;
     }
@@ -503,7 +524,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   if (rule.horizontals && dw > 0 && used.length > 0) {
     // 最下段のダクトは、その上の段の余白に合わせる
     y = closed ? bottom : y - dw;
-    pushHorizontal(used.length - 1, y);
+    pushHorizontal(y);
   }
 
   // 縦ダクトは中板の余白いっぱいに通す。実際の盤でも上下いっぱいに立てるので、

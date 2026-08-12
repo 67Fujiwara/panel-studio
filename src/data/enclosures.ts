@@ -79,8 +79,10 @@ export const DEFAULT_PROFILE: Profile = {
     width: 50,
     rowHeightMode: 'auto',
     rowCount: 3,
-    margin: { top: 30, bottom: 30, left: 30, right: 30 },
-    rowGaps: {},
+    // 余白は既定 0。実盤では中板いっぱいまで使うので、
+    // 勝手に空きを取ると図面が実物と食い違う
+    margin: { top: 0, bottom: 0, left: 0, right: 0 },
+    ductGaps: {},
     fixing: { points: 3, tap: 'M4', pitch: 0, endOffset: 30 },
   },
   rail: {
@@ -88,10 +90,12 @@ export const DEFAULT_PROFILE: Profile = {
     fixing: { points: 3, tap: 'M4', pitch: 0, endOffset: 25 },
   },
   clearance: {
-    deviceToDuct: { top: 10, bottom: 10, left: 10, right: 10 },
-    deviceToDevice: { sameRow: 5, betweenRows: 10 },
-    deviceToPlateEdge: 20,
-    heatExtra: 20,
+    // 機器とダクトの上下だけは配線の曲げ半径ぶん要るので既定 15。
+    // それ以外は 0 から始めて、必要なところだけ人が足す
+    deviceToDuct: { top: 15, bottom: 15, left: 0, right: 0 },
+    deviceToDevice: { sameRow: 0, betweenRows: 0 },
+    deviceToPlateEdge: 0,
+    heatExtra: 0,
   },
   bom: {
     // 国内 ERP は Shift-JIS 指定のことが多いので既定を cp932 にしている。

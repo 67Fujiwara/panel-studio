@@ -16,10 +16,10 @@ import type {
   MountType,
   PanelSpec,
   PlacedDevice,
+  DuctGap,
   Profile,
   RailSettings,
   Rotation,
-  RowGap,
 } from './types';
 import type { LayoutItem } from './lib/layout';
 
@@ -198,7 +198,8 @@ type State = {
   removeSelected: () => void;
   /** 消したダクトを戻す。id を省くとその面のぶんを全部戻す */
   restoreDucts: (id?: number) => void;
-  setRowGap: (row: number, gap: RowGap | undefined) => void;
+  /** ダクト1本ぶんの調整。上から数えた通し番号で指定する */
+  setDuctGap: (ductIndex: number, gap: DuctGap | undefined) => void;
   select: (uid: string | null) => void;
   selectCut: (id: string | null) => void;
   selectDuct: (id: number | null) => void;
@@ -265,7 +266,7 @@ export const useStore = create<State>((set) => ({
           ...s.profile.duct,
           layout: DEFAULT_PROFILE.duct.layout,
           rowHeightMode: DEFAULT_PROFILE.duct.rowHeightMode,
-          rowGaps: {},
+          ductGaps: {},
         },
       },
       panel: structuredClone(BLANK_PANEL),
@@ -557,12 +558,12 @@ export const useStore = create<State>((set) => ({
       selectedDuct: null,
     })),
 
-  setRowGap: (row, gap) =>
+  setDuctGap: (ductIndex, gap) =>
     set((s) => {
-      const next = { ...s.profile.duct.rowGaps };
-      if (gap) next[row] = gap;
-      else delete next[row];
-      return { profile: { ...s.profile, duct: { ...s.profile.duct, rowGaps: next } } };
+      const next = { ...s.profile.duct.ductGaps };
+      if (gap) next[ductIndex] = gap;
+      else delete next[ductIndex];
+      return { profile: { ...s.profile, duct: { ...s.profile.duct, ductGaps: next } } };
     }),
 
   select: (uid) => set({ selectedUid: uid, selectedCut: null, selectedDuct: null }),
