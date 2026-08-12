@@ -355,23 +355,49 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           </text>
         </g>
 
-        {/* 配線ダクト（中板のみ）。選んで Delete キーで消せる */}
-        {layout.ducts.map((d) => (
-          <rect
-            key={`duct${d.id}`}
-            x={d.x}
-            y={toSvgY(faceH, d.y, d.h)}
-            width={d.w}
-            height={d.h}
-            className={`duct${selectedDuct === d.id ? ' selected' : ''}`}
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              selectDuct(selectedDuct === d.id ? null : d.id);
-            }}
-          >
-            <title>ダクト {d.id + 1} 本目（{Math.round(d.w)}mm）／ Delete キーで消せます</title>
-          </rect>
-        ))}
+        {/*
+          配線ダクト（中板のみ）。選んで Delete キーで消せる。
+          消したダクトは消えたまま残らず、薄い枠と＋で位置に出して押し戻せるようにする。
+        */}
+        {layout.ducts.map((d) => {
+          const y = toSvgY(faceH, d.y, d.h);
+          if (d.removed) {
+            return (
+              <g
+                key={`duct${d.id}`}
+                className="duct-slot"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  restoreDucts(d.id);
+                }}
+              >
+                <rect x={d.x} y={y} width={d.w} height={d.h} />
+                <text x={d.x + d.w / 2} y={y + d.h / 2} fontSize={Math.min(d.h * 0.45, 16)}>
+                  ＋ ダクトを戻す
+                </text>
+                <title>ここにダクトを戻す</title>
+              </g>
+            );
+          }
+          return (
+            <rect
+              key={`duct${d.id}`}
+              x={d.x}
+              y={y}
+              width={d.w}
+              height={d.h}
+              className={`duct${selectedDuct === d.id ? ' selected' : ''}`}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                selectDuct(selectedDuct === d.id ? null : d.id);
+              }}
+            >
+              <title>
+                ダクト {d.id + 1} 本目（{Math.round(d.w)}mm）／ Delete キーで消せます
+              </title>
+            </rect>
+          );
+        })}
 
         {/* 機器 */}
         {layout.placed.map((p) => {
@@ -479,7 +505,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           </button>
         )}
         {removedHere > 0 && (
-          <button onClick={restoreDucts}>消したダクト {removedHere} 本を戻す</button>
+          <button onClick={() => restoreDucts()}>消したダクト {removedHere} 本を全部戻す</button>
         )}
       </div>
 

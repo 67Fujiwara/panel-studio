@@ -97,8 +97,8 @@ type State = {
   setItemRow: (specId: string, row: number | undefined) => void;
   /** 選択中の機器またはダクトを消す（Delete キー用） */
   removeSelected: () => void;
-  /** 消したダクトを全部戻す */
-  restoreDucts: () => void;
+  /** 消したダクトを戻す。id を省くとその面のぶんを全部戻す */
+  restoreDucts: (id?: number) => void;
   setRowGap: (row: number, gap: RowGap | undefined) => void;
   select: (uid: string | null) => void;
   selectCut: (id: string | null) => void;
@@ -283,8 +283,14 @@ export const useStore = create<State>((set) => ({
       };
     }),
 
-  restoreDucts: () =>
-    set((s) => ({ removedDucts: { ...s.removedDucts, [s.face]: [] }, selectedDuct: null })),
+  restoreDucts: (id) =>
+    set((s) => ({
+      removedDucts: {
+        ...s.removedDucts,
+        [s.face]: id === undefined ? [] : (s.removedDucts[s.face] ?? []).filter((d) => d !== id),
+      },
+      selectedDuct: null,
+    })),
 
   setRowGap: (row, gap) =>
     set((s) => {

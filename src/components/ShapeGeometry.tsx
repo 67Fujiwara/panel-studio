@@ -39,7 +39,13 @@ export function ShapeGeometry({ shape, color }: { shape: DeviceShape; color: str
   );
 }
 
-/** 部品ひとつぶんの外形線を、指定サイズの枠に収めて表示する（編集画面のプレビュー用）。 */
+/**
+ * 部品ひとつぶんの外形線を、指定サイズの枠に収めて表示する（編集画面のプレビュー用）。
+ *
+ * 外形線のまわりに余白は作らない。余白があると「部品自体に隙間がある」と
+ * 読めてしまい、実物の大きさを取り違えるため。枠は外形線にぴったり合わせ、
+ * 線の太さのはみ出しだけ切らないようにしている。
+ */
 export function ShapePreview({
   shape,
   color,
@@ -53,8 +59,8 @@ export function ShapePreview({
   const w = shape.w * scale;
   const h = shape.h * scale;
   return (
-    <svg className="shapepreview" width={w + 8} height={h + 8} viewBox={`0 0 ${w + 8} ${h + 8}`}>
-      <g transform={`translate(4 ${h + 4}) scale(${scale} ${-scale})`}>
+    <svg className="shapepreview" width={w} height={h} viewBox={`0 0 ${w} ${h}`} overflow="visible">
+      <g transform={`translate(0 ${h}) scale(${scale} ${-scale})`}>
         <ShapeGeometry shape={shape} color={color} />
       </g>
     </svg>

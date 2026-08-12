@@ -99,9 +99,8 @@ svg.unfold {
   stroke: var(--accent);
   stroke-width: 3;
 }
+/* 中板は箱の一部ではないので破線にする。色は他の面と同じ */
 .ufcell.plate rect {
-  fill: var(--accent-soft);
-  stroke: var(--accent);
   stroke-dasharray: 10 6;
 }
 .ufcell text {
@@ -109,6 +108,11 @@ svg.unfold {
   dominant-baseline: middle;
   pointer-events: none;
   font-family: inherit;
+  /* 図の線に重なっても読めるよう、背景を敷かずに文字自身を縁取る */
+  paint-order: stroke fill;
+  stroke: var(--surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }
 .ufcell .name {
   fill: var(--text);
@@ -147,13 +151,6 @@ svg.unfold {
 .ufcell:hover .ufart circle,
 .ufcell:hover .ufart line {
   stroke: var(--accent);
-}
-/* 見出しの帯。絵に重なっても文字が読めるようにする */
-.ufcell rect.ufcaption {
-  fill: var(--surface);
-  fill-opacity: 0.85;
-  stroke: none;
-  pointer-events: none;
 }
 .rowgap {
   margin-bottom: 4px;
@@ -601,11 +598,11 @@ input[type='color'] {
   padding: 3px 8px;
   font-size: 11px;
 }
+/* 外形線にぴったり合わせる。余白があると部品に隙間があると読めてしまう */
 .shapepreview {
   flex-shrink: 0;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--surface);
+  margin: 2px;
+  overflow: visible;
 }
 .swatch.my {
   background: linear-gradient(135deg, var(--accent), #9b59b6);
@@ -923,6 +920,34 @@ button.reset {
   stroke: #ff8f1f;
   stroke-width: 3;
   vector-effect: non-scaling-stroke;
+}
+/* 消したダクトの跡。押すとそこへ戻せる */
+.duct-slot {
+  cursor: pointer;
+}
+.duct-slot rect {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1;
+  stroke-dasharray: 8 6;
+  vector-effect: non-scaling-stroke;
+  /* 塗りが none でも押せるようにする */
+  pointer-events: all;
+}
+.duct-slot text {
+  fill: var(--muted);
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  opacity: 0.7;
+}
+.duct-slot:hover rect {
+  stroke: var(--accent);
+  stroke-dasharray: none;
+}
+.duct-slot:hover text {
+  opacity: 1;
+  fill: var(--accent);
 }
 .device rect {
   stroke: rgba(0, 0, 0, 0.35);

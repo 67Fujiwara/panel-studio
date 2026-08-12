@@ -257,15 +257,7 @@ export function FacePicker() {
                   depth={panel.outer.d}
                   underlay={underlays[c.id]}
                 />
-                {/* 見出しは絵に重なるので、上端に帯を敷いて読めるようにする */}
-                <rect
-                  className="ufcaption"
-                  x={c.x}
-                  y={c.y}
-                  width={c.w}
-                  height={fs * 2.6}
-                  rx={fs / 3}
-                />
+                {/* 見出しは絵に重なるので、帯は敷かず文字自身を縁取って読ませる（CSS） */}
                 <text x={cx} y={c.y + fs * 1.1} fontSize={fName} className="name">
                   {def.label}
                 </text>

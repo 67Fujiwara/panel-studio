@@ -59,8 +59,11 @@ export function buildBom(
     });
   }
 
-  // --- 配線ダクト（レイアウト上のダクト矩形の総延長から） ---
-  const ductTotal = layouts.flatMap((l) => l.ducts).reduce((sum, d) => sum + d.w, 0);
+  // --- 配線ダクト（レイアウト上のダクト矩形の総延長から。消したぶんは数えない） ---
+  const ductTotal = layouts
+    .flatMap((l) => l.ducts)
+    .filter((d) => !d.removed)
+    .reduce((sum, d) => sum + d.w, 0);
   if (ductTotal > 0) {
     const stockQty = Math.ceil(ductTotal / DUCT_STOCK_LENGTH);
     const offcut = stockQty * DUCT_STOCK_LENGTH - ductTotal;

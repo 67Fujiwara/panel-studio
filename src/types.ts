@@ -229,8 +229,11 @@ export type Violation = {
 /**
  * 1本の配線ダクト。id は上から数えた通し番号で、
  * 途中のダクトを消しても他の番号がずれないようにしてある（消したダクトの記憶に使う）。
+ *
+ * 消したダクトも位置を保ったまま removed で残す。図の上に薄く出して、
+ * 押せば元に戻せるようにするため（消したら二度と戻せない、を避ける）。
  */
-export type Duct = Rect & { id: number };
+export type Duct = Rect & { id: number; removed?: boolean };
 
 export type LayoutResult = {
   rows: DeviceRow[];

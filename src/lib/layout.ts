@@ -525,10 +525,11 @@ export function autoLayout(
   // 段の割り付けに参加させず、置かれた座標のまま残す。干渉は重なり検出で拾う。
   const placed = auto ? [...pinned, ...result.placed] : result.placed;
 
+  // 消したダクトは配列から外さず印を付けて残す。図の上に薄く出して押し戻せるようにする
   const gone = new Set(removedDucts);
   return {
     rows: result.rows,
-    ducts: result.ducts.filter((d) => !gone.has(d.id)),
+    ducts: result.ducts.map((d) => (gone.has(d.id) ? { ...d, removed: true } : d)),
     placed,
     violations: [
       ...result.violations,
