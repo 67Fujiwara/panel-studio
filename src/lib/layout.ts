@@ -167,6 +167,9 @@ type LayoutRule = {
 const LAYOUT_RULES: Record<DuctLayoutId, LayoutRule> = {
   // 横ダクトだけ。いちばん一般的で、段の増減がそのまま見える
   'horizontal-rows': { verticals: [], horizontals: true },
+  // 横ダクト段組みに、左端の縦ダクトを1列足したもの。
+  // 主幹からの幹線を左で縦に落とし、各段へ横に振り分ける組み方
+  'horizontal-left': { verticals: [0], horizontals: true },
   // 両サイドに縦ダクト。段間に横ダクトを入れず、配線は左右へ逃がす
   'vertical-sides': { verticals: [0, 1], horizontals: false },
   // 外周＋十字。両サイドと中央に縦ダクト、段間にも横ダクト

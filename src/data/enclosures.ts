@@ -79,6 +79,7 @@ export const DEFAULT_PROFILE: Profile = {
 
 export const DUCT_LAYOUT_LABEL: Record<Profile['duct']['layout'], string> = {
   'horizontal-rows': '横ダクト段組み',
+  'horizontal-left': '横ダクト段組み ＋ 左ダクト1列',
   'vertical-sides': '縦ダクト両サイド',
   cross: '田の字（外周＋十字）',
   zoned: 'ゾーン分割（動力／制御）',
@@ -88,6 +89,8 @@ export const DUCT_LAYOUT_LABEL: Record<Profile['duct']['layout'], string> = {
 /** レイアウトごとの説明。選んだときに何が変わるかを示す。 */
 export const DUCT_LAYOUT_HINT: Record<Profile['duct']['layout'], string> = {
   'horizontal-rows': '段と段の間に横ダクトを通します。いちばん一般的な組み方です。',
+  'horizontal-left':
+    '横ダクト段組みに、左端の縦ダクトを1列足します。幹線を左で縦に落として各段へ振り分ける組み方です。',
   'vertical-sides':
     '両サイドに縦ダクトを立て、段間には入れません。配線を左右へ逃がすぶん、段を詰めて置けます。',
   cross: '両サイドと中央に縦ダクト、段間にも横ダクト。中央の縦ダクトで段が左右に分かれます。',
@@ -99,6 +102,7 @@ export const DUCT_LAYOUT_HINT: Record<Profile['duct']['layout'], string> = {
 /** まだ実装できていないダクトレイアウト。UI では選べないようにする。 */
 export const DUCT_LAYOUT_READY: Record<Profile['duct']['layout'], boolean> = {
   'horizontal-rows': true,
+  'horizontal-left': true,
   'vertical-sides': true,
   cross: true,
   zoned: true,

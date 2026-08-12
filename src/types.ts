@@ -143,6 +143,7 @@ export type PanelSpec = {
 
 export type DuctLayoutId =
   | 'horizontal-rows'
+  | 'horizontal-left'
   | 'vertical-sides'
   | 'cross'
   | 'zoned'

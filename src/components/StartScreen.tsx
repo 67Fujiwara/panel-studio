@@ -72,8 +72,6 @@ export function StartScreen() {
   const [prims, setPrims] = useState<Prim[]>([]);
   const [target, setTarget] = useState<FaceId>('plate');
   const [manualOpen, setManualOpen] = useState(false);
-  /** キャビネット図・中板図それぞれの読み込み結果 */
-  const [report, setReport] = useState<{ cabinet?: string; plate?: string }>({});
   const [error, setError] = useState<string>('');
 
   /**
@@ -104,12 +102,6 @@ export function StartScreen() {
         w: Math.max(50, found.outer.w - 60),
         h: Math.max(50, found.outer.h - 60),
       });
-      setReport((x) => ({
-        ...x,
-        cabinet:
-          `${file.name} — 外形 ${found.outer.w} × ${found.outer.h} × D${found.outer.d}。` +
-          `${found.note}。図はそのまま各面の下敷きにしました`,
-      }));
       // 手動で選び直したいときのために候補も出しておく
       const { candidates } = findRectangles(text);
       setCandidates(candidates.slice(0, 40));
@@ -132,10 +124,6 @@ export function StartScreen() {
       }
       setPlate({ w: found.w, h: found.h });
       setUnderlay('plate', extractRegion(flatten(text, 'all').prims, found));
-      setReport((x) => ({
-        ...x,
-        plate: `${file.name} — 中板 ${found.w} × ${found.h}。図はそのまま中板の下敷きにしました`,
-      }));
     } catch (e) {
       setError(`読み込めませんでした: ${String(e)}`);
     }
@@ -210,7 +198,6 @@ export function StartScreen() {
               accept=".dxf,.DXF"
               onChange={(e) => void onCabinet(e.target.files?.[0] ?? undefined)}
             />
-            {report.cabinet && <p className="calc">{report.cabinet}</p>}
           </div>
 
           <div className="dxfslot">
@@ -220,7 +207,6 @@ export function StartScreen() {
               accept=".dxf,.DXF"
               onChange={(e) => void onPlate(e.target.files?.[0] ?? undefined)}
             />
-            {report.plate && <p className="calc">{report.plate}</p>}
           </div>
 
           {error && <p className="calc bad">{error}</p>}
