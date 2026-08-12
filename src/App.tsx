@@ -11,7 +11,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { StartScreen } from './components/StartScreen';
 import { FACE_BY_ID, FACE_LABEL } from './data/faces';
 import { autoLayout } from './lib/layout';
-import { deviceLookup, useStore } from './store';
+import { deviceLookup, useStore, type Screen } from './store';
 
 export default function App() {
   const screen = useStore((s) => s.screen);
@@ -24,6 +24,7 @@ export default function App() {
   const devices = useStore((s) => s.devices);
   const myDevices = useStore((s) => s.myDevices);
   const go = useStore((s) => s.go);
+  const newDesign = useStore((s) => s.newDesign);
   const removedDucts = useStore((s) => s.removedDucts);
 
   const lookup = useMemo(() => deviceLookup(devices, myDevices), [devices, myDevices]);
@@ -34,13 +35,40 @@ export default function App() {
 
   const hasDucts = FACE_BY_ID.get(face)?.ducts ?? false;
 
+  /**
+   * 新規作成。作りかけがあるときだけ確かめる。
+   * 押し間違いで机の上が消えるのを防ぎつつ、白紙のときは黙って進む。
+   */
+  const startNew = () => {
+    const s = useStore.getState();
+    const dirty = s.items.length > 0 || s.machining.length > 0;
+    if (dirty && !window.confirm('いまの設計を消して新規作成します。よろしいですか？')) return;
+    newDesign();
+  };
+
+  // 設計の流れ（盤サイズ→面選択）と設定はタブ、完了案件と新規作成はボタンで分ける
+  const tab = (id: Screen, label: string) => (
+    <button
+      className={`navtab${screen === id ? ' on' : ''}`}
+      aria-current={screen === id ? 'page' : undefined}
+      onClick={() => go(id)}
+    >
+      {label}
+    </button>
+  );
+
   const nav = (
     <nav className="nav">
-      <button onClick={() => go('start')}>盤サイズ</button>
-      <button onClick={() => go('faces')}>面選択</button>
-      <button onClick={() => go('projects')}>完了案件</button>
-      <button onClick={() => go('config')}>設定</button>
-      <button onClick={() => go('myconfig')}>My部品</button>
+      {tab('start', '盤サイズ')}
+      {tab('faces', '面選択')}
+      <button className="navbtn" onClick={() => go('projects')}>
+        完了案件
+      </button>
+      {tab('config', '設定')}
+      {tab('myconfig', 'My部品')}
+      <button className="navbtn primary" onClick={startNew}>
+        ＋ 新規作成
+      </button>
     </nav>
   );
 
@@ -53,7 +81,7 @@ export default function App() {
           </button>
           <h1>{FACE_LABEL(face)}</h1>
           <span className="tag">
-            {panel.model}
+            {panel.model || '型式未設定'}
             {hasDucts ? '' : ' — 直接取り付け'}
           </span>
           {nav}

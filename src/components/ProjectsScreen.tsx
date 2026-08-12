@@ -139,7 +139,7 @@ export function ProjectsScreen() {
                         <td>{p.jobNo || '—'}</td>
                         <td className="qty">{p.completedAt}</td>
                         <td>{p.owner || '—'}</td>
-                        <td>{p.panel.model}</td>
+                        <td>{p.panel.model || '—'}</td>
                         <td className="qty">
                           {p.panel.outer.w}×{p.panel.outer.h}×D{p.panel.outer.d}
                         </td>

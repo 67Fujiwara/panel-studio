@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { DEFAULT_PROFILE, SAMPLE_DUCTS, SAMPLE_ENCLOSURES } from './data/enclosures';
+import { BLANK_PANEL, DEFAULT_PROFILE, SAMPLE_DUCTS, SAMPLE_ENCLOSURES } from './data/enclosures';
 import { DEFAULT_CATEGORIES, DEFAULT_DEVICES } from './data/devices';
 import { FACE_BY_ID } from './data/faces';
 import type {
@@ -131,6 +131,11 @@ type State = {
   underlays: Partial<Record<FaceId, DeviceShape>>;
 
   go: (screen: Screen) => void;
+  /**
+   * 新規作成。盤・機器・加工・下敷きを白紙に戻して盤サイズ画面へ。
+   * マスタ（盤・ダクト・部品）と設定、完了案件は残す。
+   */
+  newDesign: () => void;
   setUnderlay: (face: FaceId, shape: DeviceShape | undefined) => void;
   openFace: (face: FaceId) => void;
 
@@ -225,7 +230,7 @@ type State = {
 export const useStore = create<State>((set) => ({
   screen: 'start',
   face: 'plate',
-  panel: SAMPLE_ENCLOSURES[1]!,
+  panel: structuredClone(BLANK_PANEL),
   profile: DEFAULT_PROFILE,
 
   categories: DEFAULT_CATEGORIES,
@@ -246,6 +251,21 @@ export const useStore = create<State>((set) => ({
   underlays: {},
 
   go: (screen) => set({ screen, selectedUid: null }),
+
+  newDesign: () =>
+    set({
+      panel: structuredClone(BLANK_PANEL),
+      items: [],
+      pinned: [],
+      machining: [],
+      underlays: {},
+      removedDucts: {},
+      selectedUid: null,
+      selectedCut: null,
+      selectedDuct: null,
+      face: 'plate',
+      screen: 'start',
+    }),
   setUnderlay: (face, shape) =>
     set((s) => ({ underlays: { ...s.underlays, [face]: shape } })),
   openFace: (face) => set({ face, screen: 'layout', selectedUid: null, selectedDuct: null }),

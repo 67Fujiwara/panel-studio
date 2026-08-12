@@ -236,7 +236,7 @@ export function FacePicker() {
     <div className="facepicker">
       <div className="facepicker-left">
         <div className="facepicker-head">
-          <h2>{panel.model}</h2>
+          <h2>{panel.model || '型式未設定'}</h2>
           <p>
             外形 {panel.outer.w} × {panel.outer.h} × D{panel.outer.d} ／ 中板 {panel.plate.w} ×{' '}
             {panel.plate.h}

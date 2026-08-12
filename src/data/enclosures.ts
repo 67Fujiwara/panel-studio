@@ -12,6 +12,18 @@ import type { DuctSpec, PanelSpec, Profile } from '../types';
  *       換気ファン／ルーバーの取付位置による中板の使用不可領域も要検討。
  *       詳細は docs/02-drawing-conventions.md を参照。
  */
+/**
+ * 新規作成したときの盤。
+ * 型式は空にしておき、「型式（登録済みから選ぶ）」を **選択なし** から始める。
+ * 前の案件の型式が残っていると、直し忘れたまま図面が出てしまうため。
+ */
+export const BLANK_PANEL: PanelSpec = {
+  model: '',
+  outer: { w: 600, h: 800, d: 200 },
+  plate: { w: 540, h: 740 },
+  depth: { backToPlate: 40, doorProjection: 60 },
+};
+
 export const SAMPLE_ENCLOSURES: PanelSpec[] = [
   {
     model: '壁掛 600x800（仮）',

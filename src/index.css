@@ -389,11 +389,35 @@ label.check {
 /* --- ナビ --- */
 .nav {
   display: flex;
-  gap: 6px;
+  align-items: stretch;
+  gap: 2px;
   margin-left: auto;
 }
-.nav button {
-  padding: 4px 10px;
+/*
+  設計の流れ（盤サイズ→面選択）と設定はタブにして、いまどこにいるかを見せる。
+  完了案件と新規作成は移動ではなく操作なので、ボタンのまま分ける。
+*/
+.nav .navtab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 6px 14px;
+  background: transparent;
+  color: var(--muted);
+}
+.nav .navtab:hover {
+  color: var(--text);
+  border-bottom-color: var(--line);
+}
+.nav .navtab.on {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.nav .navbtn {
+  align-self: center;
+  margin-left: 8px;
+  padding: 4px 12px;
 }
 
 /* --- 共通の広い画面 --- */
