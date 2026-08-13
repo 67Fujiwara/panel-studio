@@ -280,6 +280,24 @@ export type BomSettings = {
 
 export type BomColumnId = 'model' | 'maker' | 'name' | 'qty' | 'unit' | 'source';
 
+/**
+ * AI 自動配置の接続先。
+ *
+ * ⚠ API キーは**ブラウザにだけ**置く。設定 JSON にも完了案件にも書き出さない。
+ * 共有フォルダに置く HTML にキーを埋めると、フォルダを見られる全員が使えてしまう。
+ * 人数が増えたら社内にプロキシを立てて、キーはそちらに持たせる運用にする。
+ */
+export type AiSettings = {
+  /** 送信先。Anthropic 直か、社内プロキシの URL */
+  endpoint: string;
+  model: string;
+  /** ブラウザに置く API キー。プロキシ運用なら空のまま */
+  apiKey: string;
+  /** ブラウザから直に Anthropic を叩くときの許可ヘッダを付ける */
+  directBrowser: boolean;
+  maxTokens: number;
+};
+
 /** My設定ファイル（*.panelstudio.json）。schemaVersion は最初から入れる。 */
 export type Profile = {
   schemaVersion: 1;

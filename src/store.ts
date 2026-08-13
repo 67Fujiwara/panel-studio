@@ -1,8 +1,11 @@
 import { create } from 'zustand';
 import { BLANK_PANEL, DEFAULT_PROFILE, SAMPLE_DUCTS, SAMPLE_ENCLOSURES } from './data/enclosures';
+import { DEFAULT_AI } from './lib/ai';
+import type { AiPlan } from './lib/ai';
 import { DEFAULT_CATEGORIES, DEFAULT_DEVICES } from './data/devices';
 import { FACE_BY_ID } from './data/faces';
 import type {
+  AiSettings,
   BomSettings,
   CategoryDef,
   ClearanceSettings,
@@ -82,6 +85,29 @@ function saveProjects(projects: Project[]) {
   }
 }
 
+/**
+ * AI の接続先はブラウザにだけ置く。
+ * 設定 JSON に混ぜると、共有フォルダ経由で API キーが配られてしまう。
+ */
+const AI_KEY = 'panel-studio.ai';
+
+function loadAi(): AiSettings {
+  try {
+    const raw = localStorage.getItem(AI_KEY);
+    return raw ? { ...DEFAULT_AI, ...(JSON.parse(raw) as AiSettings) } : DEFAULT_AI;
+  } catch {
+    return DEFAULT_AI;
+  }
+}
+
+function saveAi(s: AiSettings) {
+  try {
+    localStorage.setItem(AI_KEY, JSON.stringify(s));
+  } catch {
+    /* 保存できない環境では毎回入れてもらう */
+  }
+}
+
 /** ConfigFile 画面が読み書きするファイルの中身。 */
 export type ConfigFile = {
   schemaVersion: 1;
@@ -117,6 +143,8 @@ type State = {
   ducts: DuctSpec[];
   /** 設計完了した案件 */
   projects: Project[];
+  /** AI 自動配置の接続先。ブラウザにだけ持つ */
+  ai: AiSettings;
 
   items: LayoutItem[];
   machining: Machining[];
@@ -173,6 +201,13 @@ type State = {
   updateProject: (id: string, patch: Partial<Project>) => void;
   removeProject: (id: string) => void;
   loadProjectFile: (f: ProjectFile) => void;
+
+  setAi: (patch: Partial<AiSettings>) => void;
+  /**
+   * AI が出した段割りを今の面に反映する。
+   * 座標は決めさせず、並び順と段だけを書き換えて詰め込みに任せる。
+   */
+  applyAiPlan: (plan: AiPlan) => void;
 
   /** 盤マスタ。今の盤の寸法をそのまま型式として登録する */
   addEnclosure: (from?: PanelSpec) => void;
@@ -250,6 +285,7 @@ export const useStore = create<State>((set) => ({
   enclosures: SAMPLE_ENCLOSURES,
   ducts: SAMPLE_DUCTS,
   projects: loadProjects(),
+  ai: loadAi(),
 
   items: [],
   machining: [],
@@ -454,6 +490,46 @@ export const useStore = create<State>((set) => ({
       const projects = [...f.projects, ...s.projects.filter((p) => !ids.has(p.id))];
       saveProjects(projects);
       return { projects };
+    }),
+
+  // --- AI 自動配置 ---
+  setAi: (patch) =>
+    set((s) => {
+      const ai = { ...s.ai, ...patch };
+      saveAi(ai);
+      return { ai };
+    }),
+
+  applyAiPlan: (plan) =>
+    set((s) => {
+      const order = new Map<string, { row: number; at: number }>();
+      plan.rows.forEach((r, ri) =>
+        r.uids.forEach((uid, ui) => order.set(uid, { row: r.index >= 0 ? r.index : ri, at: ui })),
+      );
+
+      const face = s.face;
+      const rot = plan.rotate ?? {};
+      const mine = s.items.filter((i) => i.face === face);
+      const others = s.items.filter((i) => i.face !== face);
+
+      const updated = mine.map((i) => {
+        const at = order.get(i.uid);
+        return at ? { ...i, row: at.row, rot: rot[i.uid] ?? i.rot } : i;
+      });
+      // 段 → 段の中の位置、の順に並べ替える。詰め込みはこの順に流し込む
+      updated.sort((a, b) => {
+        const pa = order.get(a.uid);
+        const pb = order.get(b.uid);
+        if (!pa || !pb) return 0;
+        return pa.row - pb.row || pa.at - pb.at;
+      });
+
+      return {
+        items: [...others, ...updated],
+        // 段割りが変わるので、手で固定していた座標は捨てる
+        pinned: s.pinned.filter((p) => p.face !== face),
+        selectedUid: null,
+      };
     }),
 
   // --- 盤マスタ ---

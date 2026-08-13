@@ -498,6 +498,29 @@ table.encl button {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 6px 10px;
 }
+/* AI 自動配置 */
+.ai-box {
+  margin-bottom: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent-soft);
+}
+.ai-box h3 {
+  margin: 0 0 4px;
+  color: var(--accent);
+}
+.ai-box .row-buttons {
+  margin: 6px 0 0;
+}
+.ai-notes {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
 /* 設定画面で登録した決め事の控え。レイアウト画面で見えるようにする */
 .applied {
   margin-bottom: 14px;

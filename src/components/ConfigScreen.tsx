@@ -3,6 +3,7 @@ import { PartEditor } from './PartEditor';
 import { EnclosureTable } from './EnclosureTable';
 import { DuctRailSettings } from './DuctRailSettings';
 import { DuctTable } from './DuctTable';
+import { AiSettingsPanel } from './AiSettingsPanel';
 import { useStore, type ConfigFile } from '../store';
 import { downloadJson, pickJson } from '../lib/jsonFile';
 
@@ -55,6 +56,8 @@ export function ConfigScreen() {
       <DuctTable />
 
       <DuctRailSettings />
+
+      <AiSettingsPanel />
 
       <h3 className="section">部品表</h3>
       <div className="row-buttons">

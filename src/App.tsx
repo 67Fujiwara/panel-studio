@@ -8,6 +8,7 @@ import { MyConfigScreen } from './components/MyConfigScreen';
 import { PanelCanvas } from './components/PanelCanvas';
 import { ProjectsScreen } from './components/ProjectsScreen';
 import { SettingsPanel } from './components/SettingsPanel';
+import { AiLayoutPanel } from './components/AiLayoutPanel';
 import { StartScreen } from './components/StartScreen';
 import { FACE_BY_ID, FACE_LABEL } from './data/faces';
 import { autoLayout } from './lib/layout';
@@ -90,6 +91,7 @@ export default function App() {
               中板はダクトとクリアランス、それ以外は座標。使用部品は共通。
               調整はダクト単位なので、図に出ている横ダクトの本数をそのまま渡す
             */}
+            {hasDucts && <AiLayoutPanel layout={layout} devices={lookup} />}
             {hasDucts ? (
               <SettingsPanel
                 ductCount={
