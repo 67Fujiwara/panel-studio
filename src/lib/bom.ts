@@ -1,6 +1,6 @@
 import { computeRails } from './layout';
 import type { DeviceLookup } from './layout';
-import { ductSpecOf } from '../types';
+import { ductSpecAt } from '../types';
 import type { BomLine, DuctSpec, LayoutResult, Profile } from '../types';
 
 /** 配線ダクト・DINレールの定尺(mm)。社内の調達に合わせて変更する。 */
@@ -68,8 +68,7 @@ export function buildBom(
   const byModel = new Map<string, { spec: DuctSpec; length: number }>();
   for (const d of layouts.flatMap((l) => l.ducts)) {
     if (d.removed) continue;
-    // 縦ダクトは通し番号が本数で動くので、盤ぜんたいの型式で数える
-    const spec = ductSpecOf(profile, ducts, d.h > d.w ? undefined : d.id);
+    const spec = ductSpecAt(profile, ducts, d.vert === undefined ? d.id : { vert: d.vert });
     const cur = byModel.get(spec.model) ?? { spec, length: 0 };
     cur.length += Math.max(d.w, d.h);
     byModel.set(spec.model, cur);

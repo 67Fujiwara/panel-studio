@@ -2,12 +2,22 @@ import { useMemo, useState } from 'react';
 import { FACES, faceSize } from '../data/faces';
 import { buildBom, totalHeatW } from '../lib/bom';
 import { asciiFileName, bomToCsv, downloadCsv, machiningToCsv } from '../lib/csv';
-import { autoLayout } from '../lib/layout';
+import { autoLayout, computeRails } from '../lib/layout';
+import type { DeviceLookup } from '../lib/layout';
+import { DIN_RAIL_WIDTH } from '../data/enclosures';
 import { buildDxfSet, downloadDxfSet } from '../lib/dxfExport';
 import { autoMachining, derivedMachining } from '../lib/machining';
 import { ShapeGeometry } from './ShapeGeometry';
 import { deviceLookup, useStore } from '../store';
-import type { BomSettings, DeviceShape, FaceId, PanelSpec } from '../types';
+import { rotatedSize } from '../types';
+import type {
+  BomSettings,
+  CategoryDef,
+  DeviceShape,
+  FaceId,
+  LayoutResult,
+  PanelSpec,
+} from '../types';
 
 /** 面と面のすき間(mm 相当) */
 const GAP = 40;
@@ -164,6 +174,75 @@ function FaceArt({
 }
 
 /**
+ * 面に配置した中身（ダクト・DINレール・機器）を、展開図のセルの中に実寸で描く。
+ *
+ * 「機器 12」のような数だけでは、どの面がもう埋まっていて、どこが空いているかが
+ * 分からない。盤ぜんたいの絵として見えていないと、面を1つずつ開いて確かめる羽目になる。
+ * ここでは形と量が伝わればよいので、文字は入れない（この縮尺では潰れて読めない）。
+ */
+function FaceContents({
+  cell,
+  size,
+  layout,
+  devices,
+  categories,
+  railMargin,
+}: {
+  cell: Cell;
+  size: { w: number; h: number };
+  layout: LayoutResult;
+  devices: DeviceLookup;
+  categories: CategoryDef[];
+  railMargin: number;
+}) {
+  if (size.w <= 0 || size.h <= 0) return null;
+  const rails = computeRails(layout, devices, railMargin);
+  if (layout.placed.length === 0 && layout.ducts.length === 0) return null;
+
+  const colorOf = (cat: string) => categories.find((c) => c.id === cat)?.color ?? '#7d8894';
+  // 面の座標（左下原点・Y上向き）をセルの中へ。Y を反転して重ねる
+  const transform = `translate(${cell.x} ${cell.y + cell.h}) scale(${cell.w / size.w} ${-cell.h / size.h})`;
+
+  return (
+    <g className="ufbody" transform={transform}>
+      {layout.ducts
+        .filter((d) => !d.removed)
+        .map((d) => (
+          <rect key={`d${d.id}`} className="ufduct" x={d.x} y={d.y} width={d.w} height={d.h} />
+        ))}
+      {rails.map((r) => (
+        <rect
+          key={`r${r.row}`}
+          className="ufrail"
+          x={r.x}
+          y={r.y - DIN_RAIL_WIDTH / 2}
+          width={r.length}
+          height={DIN_RAIL_WIDTH}
+        />
+      ))}
+      {layout.placed.map((p) => {
+        const spec = devices.get(p.specId);
+        if (!spec) return null;
+        const s = rotatedSize(spec.size, p.rot);
+        return (
+          <rect
+            key={p.uid}
+            className="ufdev"
+            x={p.x}
+            y={p.y}
+            width={s.w}
+            height={s.h}
+            // セルの塗り（.ufcell rect）に負けないよう、分類の色は style で当てる。
+            // fill 属性は presentation attribute なので CSS に上書きされてしまう
+            style={{ fill: colorOf(spec.category) }}
+          />
+        );
+      })}
+    </g>
+  );
+}
+
+/**
  * 面の選択画面。
  * 左は制御盤の展開図。面を押すとその面のレイアウト画面に移る。
  * BOM は面ごとではなく盤単位のものなので、右にまとめて出す。
@@ -175,6 +254,7 @@ export function FacePicker() {
   const pinned = useStore((s) => s.pinned);
   const machining = useStore((s) => s.machining);
   const devices = useStore((s) => s.devices);
+  const categories = useStore((s) => s.categories);
   const myDevices = useStore((s) => s.myDevices);
   const openFace = useStore((s) => s.openFace);
   const setBom = useStore((s) => s.setBom);
@@ -281,6 +361,15 @@ export function FacePicker() {
                   h={c.h}
                   depth={panel.outer.d}
                   underlay={underlays[c.id]}
+                />
+                {/* 配置した中身。面らしい形の上に重ねる */}
+                <FaceContents
+                  cell={c}
+                  size={size}
+                  layout={layouts[FACES.findIndex((f) => f.id === c.id)]!}
+                  devices={lookup}
+                  categories={categories}
+                  railMargin={profile.rail.endMargin}
                 />
                 {/* 見出しは絵に重なるので、帯は敷かず文字自身を縁取って読ませる（CSS） */}
                 <text x={cx} y={c.y + fs * 1.1} fontSize={fName} className="name">

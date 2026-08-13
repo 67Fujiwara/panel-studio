@@ -1,5 +1,5 @@
 import { DIN_RAIL_HEIGHT, DIN_RAIL_WIDTH } from '../data/enclosures';
-import { rotatedSize } from '../types';
+import { ductWidthOf, rotatedSize, vertWidthOf } from '../types';
 import { FACE_BY_ID, faceSize } from '../data/faces';
 import type {
   ClearanceSettings,
@@ -42,13 +42,18 @@ export function ductGap(
 }
 
 /**
- * そのダクト1本の幅。1本だけ別の型式にしているならそちらを使う。
+ * その横ダクト1本の幅。1本だけ別の型式にしているならそちらを使う。
  *
- * 縦ダクトは横ダクトの本数が決まらないと通し番号が定まらないので、
- * 共通の幅のまま。1本ずつの切り替えは横ダクトが単位になる。
+ * 縦ダクトは通し番号が横ダクトの本数で動いてしまうので、
+ * 別の帳簿（vertGaps・左から何本目か）で持つ。→ vertWidth
  */
 export function ductWidth(profile: Profile, ductIndex: number): number {
-  return profile.duct.ductGaps?.[ductIndex]?.width ?? profile.duct.width;
+  return ductWidthOf(profile, ductIndex);
+}
+
+/** その縦ダクト1本の幅。vertIndex は左から何本目か。 */
+export function vertWidth(profile: Profile, vertIndex: number): number {
+  return vertWidthOf(profile, vertIndex);
 }
 
 /**
@@ -96,9 +101,14 @@ export function effectiveClearance(
   };
 }
 
-/** 中板上面から扉内面までの有効奥行き。ここに収まらない機器は扉に当たる。 */
-export function effectiveDepth(panel: PanelSpec): number {
-  return panel.outer.d - panel.depth.backToPlate - panel.depth.doorProjection;
+/**
+ * 中板上面から扉内面までの有効奥行き。ここに収まらない機器は扉に当たる。
+ * 内訳が未入力なら null。数字を仮置きすると「収まっている」と読める図が出てしまう。
+ */
+export function effectiveDepth(panel: PanelSpec): number | null {
+  const { backToPlate, doorProjection } = panel.depth;
+  if (backToPlate === null || doorProjection === null) return null;
+  return panel.outer.d - backToPlate - doorProjection;
 }
 
 /** 取付方式込みの機器の突出量。 */
@@ -176,7 +186,14 @@ export function computeRows(
   // 縦ダクトは全段そろえるときも同じように立てる
   const bottom = profile.duct.layout === 'perimeter' ? 0 : margin.bottom;
   for (const b of bands) {
-    ducts.push({ id: id++, x: b.x0, y: bottom, w: b.x1 - b.x0, h: h - margin.top - bottom });
+    ducts.push({
+      id: id++,
+      vert: b.v,
+      x: b.x0,
+      y: bottom,
+      w: b.x1 - b.x0,
+      h: h - margin.top - bottom,
+    });
   }
 
   return { rows, ducts };
@@ -260,19 +277,23 @@ const POWER_CATEGORIES = new Set(['breaker', 'contactor']);
 
 export type Segment = { x0: number; x1: number };
 
+/** 縦ダクトの帯。左から何本目か（v）を持たせて、1本ずつ型式を切り替えられるようにする。 */
+export type VertBand = Segment & { v: number };
+
 /**
  * 縦ダクトの帯。面の幅に対する比から実際の位置に直す。
  * 端に立てる縦ダクトは面からはみ出さないよう内側に寄せる。
+ * 太さは1本ずつ違うことがあるので、帯ごとに引く。
  */
-function verticalBands(panel: PanelSpec, face: FaceId, profile: Profile): Segment[] {
+function verticalBands(panel: PanelSpec, face: FaceId, profile: Profile): VertBand[] {
   const rule = LAYOUT_RULES[profile.duct.layout];
   if (!FACE_BY_ID.get(face)?.ducts) return [];
   const { w } = faceSize(panel, face);
-  const dw = profile.duct.width;
   const m = profile.duct.margin;
-  return rule.verticals.map((t) => {
+  return rule.verticals.map((t, v) => {
+    const dw = vertWidth(profile, v);
     const center = t === 0 ? m.left + dw / 2 : t === 1 ? w - m.right - dw / 2 : w * t;
-    return { x0: center - dw / 2, x1: center + dw / 2 };
+    return { x0: center - dw / 2, x1: center + dw / 2, v };
   });
 }
 
@@ -557,6 +578,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   for (const band of bands) {
     ducts.push({
       id: id++,
+      vert: band.v,
       x: band.x0,
       y: bottom,
       w: band.x1 - band.x0,
@@ -768,10 +790,10 @@ function depthViolations(
     if (!spec) continue;
 
     if (face === 'plate') {
-      // 中板の機器は扉内面に当たらないか
+      // 中板の機器は扉内面に当たらないか。内訳が未入力なら判定しない（当たり判定の根拠が無い）
       const limit = effectiveDepth(panel);
       const projection = deviceProjection(spec, p.mount);
-      if (projection > limit) {
+      if (limit !== null && projection > limit) {
         out.push({
           uid: p.uid,
           kind: 'depth',
@@ -781,7 +803,7 @@ function depthViolations(
     } else if (face === 'door') {
       // 扉の機器は「扉裏の突出量」の設定に収まっているか
       const limit = panel.depth.doorProjection;
-      if (spec.size.d > limit) {
+      if (limit !== null && spec.size.d > limit) {
         out.push({
           uid: p.uid,
           kind: 'depth',

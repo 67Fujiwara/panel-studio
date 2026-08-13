@@ -11,7 +11,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { AiLayoutPanel } from './components/AiLayoutPanel';
 import { StartScreen } from './components/StartScreen';
 import { FACE_BY_ID, FACE_LABEL } from './data/faces';
-import { autoLayout } from './lib/layout';
+import { autoLayout, effectiveDepth } from './lib/layout';
 import { deviceLookup, useStore, type Screen } from './store';
 
 export default function App() {
@@ -47,11 +47,22 @@ export default function App() {
     newDesign();
   };
 
+  /**
+   * 奥行きの内訳が未入力なら面選択へ行かせない。
+   * 「この寸法で進む」だけ塞いでもタブから回り込めてしまい、
+   * 有効奥行きが分からないまま機器を並べることになる。
+   */
+  const depthBlock = effectiveDepth(panel) === null
+    ? '盤サイズ画面で奥行きの内訳を入れてください'
+    : undefined;
+
   // 画面の移動はタブ。新規作成だけは移動ではなく操作なのでボタンで分ける
-  const tab = (id: Screen, label: string) => (
+  const tab = (id: Screen, label: string, blocked?: string) => (
     <button
       className={`navtab${screen === id ? ' on' : ''}`}
       aria-current={screen === id ? 'page' : undefined}
+      disabled={Boolean(blocked)}
+      title={blocked}
       onClick={() => go(id)}
     >
       {label}
@@ -61,7 +72,7 @@ export default function App() {
   const nav = (
     <nav className="nav">
       {tab('start', '盤サイズ')}
-      {tab('faces', '面選択')}
+      {tab('faces', '面選択', depthBlock)}
       {tab('config', '設定')}
       {tab('myconfig', 'My部品')}
       {tab('projects', '完了案件')}

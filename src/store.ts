@@ -13,6 +13,7 @@ import type {
   DeviceSpec,
   DuctSettings,
   DuctSpec,
+  DuctTarget,
   FaceId,
   Machining,
   MachiningDraft,
@@ -222,10 +223,10 @@ type State = {
   selectDuctSpec: (id: string) => void;
   /**
    * ダクト1本の型式を決める（図の上でダブルクリックして選ぶ）。
-   * 縦ダクトは通し番号が本数で動くので、'all' で盤ぜんたいの型式を変える。
-   * id を空にすると、その1本の指定を外して盤ぜんたいの型式に戻す。
+   * 横ダクトは上からの通し番号、縦ダクトは `{ vert: 左から何本目 }`、
+   * 'all' で盤ぜんたい。id を空にすると指定を外して盤ぜんたいの型式に戻す。
    */
-  setDuctSpecAt: (ductIndex: number | 'all', id: string) => void;
+  setDuctSpecAt: (target: DuctTarget, id: string) => void;
 
   loadConfig: (f: ConfigFile) => void;
   loadMyConfig: (f: MyConfigFile) => void;
@@ -309,6 +310,7 @@ export const useStore = create<State>((set) => ({
           layout: DEFAULT_PROFILE.duct.layout,
           rowHeightMode: DEFAULT_PROFILE.duct.rowHeightMode,
           ductGaps: {},
+          vertGaps: {},
         },
       },
       panel: structuredClone(BLANK_PANEL),
@@ -434,6 +436,7 @@ export const useStore = create<State>((set) => ({
             layout: DEFAULT_PROFILE.duct.layout,
             rowHeightMode: DEFAULT_PROFILE.duct.rowHeightMode,
             ductGaps: {},
+            vertGaps: {},
           },
         },
         panel: structuredClone(BLANK_PANEL),
@@ -563,16 +566,24 @@ export const useStore = create<State>((set) => ({
       const ducts = s.ducts.map((d) => (d.id === id ? { ...d, ...patch } : d));
       // 使用中のダクトの幅を変えたら、控えの幅も追従させる（全体と1本ごとの両方）
       const cur = ducts.find((d) => d.id === s.profile.duct.ductId);
-      const gaps = { ...s.profile.duct.ductGaps };
-      for (const [k, g] of Object.entries(gaps)) {
-        const d = ducts.find((q) => q.id === g.ductId);
-        if (d) gaps[Number(k)] = { ...g, width: d.width };
-      }
+      const follow = (src: Record<number, DuctGap> | undefined) => {
+        const out = { ...src };
+        for (const [k, g] of Object.entries(out)) {
+          const d = ducts.find((q) => q.id === g.ductId);
+          if (d) out[Number(k)] = { ...g, width: d.width };
+        }
+        return out;
+      };
       return {
         ducts,
         profile: {
           ...s.profile,
-          duct: { ...s.profile.duct, width: cur?.width ?? s.profile.duct.width, ductGaps: gaps },
+          duct: {
+            ...s.profile.duct,
+            width: cur?.width ?? s.profile.duct.width,
+            ductGaps: follow(s.profile.duct.ductGaps),
+            vertGaps: follow(s.profile.duct.vertGaps),
+          },
         },
       };
     }),
@@ -589,31 +600,39 @@ export const useStore = create<State>((set) => ({
       };
     }),
 
-  setDuctSpecAt: (ductIndex, id) =>
+  setDuctSpecAt: (target, id) =>
     set((s) => {
       const duct = s.profile.duct;
       const next = s.ducts.find((d) => d.id === id);
 
-      if (ductIndex === 'all') {
+      if (target === 'all') {
         if (!next) return s;
         return {
           profile: { ...s.profile, duct: { ...duct, ductId: next.id, width: next.width } },
         };
       }
 
-      const gaps = { ...duct.ductGaps };
-      const cur = gaps[ductIndex];
+      // 横ダクトは上からの通し番号、縦ダクトは左から何本目かで、別の帳簿に書く
+      const vertical = typeof target !== 'number';
+      const key = vertical ? target.vert : target;
+      const gaps = { ...(vertical ? duct.vertGaps : duct.ductGaps) };
+      const cur = gaps[key];
       if (!next) {
         // 「盤ぜんたいと同じ」に戻す。位置の調整は残す
         if (cur) {
           const { ductId: _id, width: _w, ...rest } = cur;
-          gaps[ductIndex] = rest;
+          gaps[key] = rest;
         }
       } else {
         // 幅は配置計算で使うので控えを書き写しておく（計算側はマスタを持たない）
-        gaps[ductIndex] = { ...cur, ductId: next.id, width: next.width };
+        gaps[key] = { ...cur, ductId: next.id, width: next.width };
       }
-      return { profile: { ...s.profile, duct: { ...duct, ductGaps: gaps } } };
+      return {
+        profile: {
+          ...s.profile,
+          duct: vertical ? { ...duct, vertGaps: gaps } : { ...duct, ductGaps: gaps },
+        },
+      };
     }),
 
   loadConfig: (f) =>

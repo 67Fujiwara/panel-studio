@@ -21,7 +21,8 @@ export const BLANK_PANEL: PanelSpec = {
   model: '',
   outer: { w: 600, h: 800, d: 200 },
   plate: { w: 540, h: 740 },
-  depth: { backToPlate: 40, doorProjection: 60 },
+  // 奥行きの内訳は毎回入れ直す。既定値を置くと確認しないまま図面が出る
+  depth: { backToPlate: null, doorProjection: null },
 };
 
 export const SAMPLE_ENCLOSURES: PanelSpec[] = [
@@ -83,6 +84,7 @@ export const DEFAULT_PROFILE: Profile = {
     // 勝手に空きを取ると図面が実物と食い違う
     margin: { top: 0, bottom: 0, left: 0, right: 0 },
     ductGaps: {},
+    vertGaps: {},
     fixing: { points: 3, tap: 'M4', pitch: 0, endOffset: 30 },
   },
   rail: {

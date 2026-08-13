@@ -143,14 +143,21 @@ export type PanelSpec = {
   outer: { w: number; h: number; d: number };
   /** 中板(取付板)の有効寸法 */
   plate: { w: number; h: number };
+  /**
+   * 奥行きの内訳。**null は「まだ入れていない」**。
+   *
+   * メーカー図面の値が実物と合わないので、ここだけは前の案件の値を引き継がず
+   * 毎回入れ直す。既定値を置くと「入っているから正しい」と読めてしまい、
+   * 確認しないまま図面が出る。新規作成では null にして、入るまで先へ進ませない。
+   */
   depth: {
     /**
      * 背面内側 → 中板上面 の距離。
      * メーカー図面の値が実物と合わないため手入力する。
      */
-    backToPlate: number;
+    backToPlate: number | null;
     /** 扉裏の突出量（ハンドル・扉面機器） */
-    doorProjection: number;
+    doorProjection: number | null;
   };
 };
 
@@ -226,6 +233,14 @@ export type DuctSettings = {
    * 指定がないダクトは上下が clearance.deviceToDuct、左右が margin。
    */
   ductGaps: Record<number, DuctGap>;
+  /**
+   * 縦ダクトごとの調整。**レイアウトの中での左からの順番**をキーにする。
+   *
+   * 横ダクトと通し番号を分けるのは、縦ダクトの番号が横ダクトの本数で動いてしまい、
+   * 段を増やしただけで別のダクトの指定になってしまうため。左から何本目かは
+   * レイアウトを変えない限り動かない。
+   */
+  vertGaps: Record<number, DuctGap>;
   /** ダクトを中板に留める穴 */
   fixing: FixingSettings;
 };
@@ -310,23 +325,59 @@ export type Profile = {
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
-/**
- * 使うダクトの仕様を引く。登録が消えていても図が出せるよう控えを返す。
- * ductIndex を渡すと、その1本だけの型式指定を優先する。
- */
-export function ductSpecOf(profile: Profile, ducts: DuctSpec[], ductIndex?: number): DuctSpec {
-  const per = ductIndex === undefined ? undefined : profile.duct.ductGaps?.[ductIndex]?.ductId;
-  const found = ducts.find((d) => d.id === (per ?? profile.duct.ductId));
+/** 型式ID からダクト仕様を引く。登録が消えていても図が出せるよう控えを返す。 */
+function ductSpecById(
+  profile: Profile,
+  ducts: DuctSpec[],
+  perId: string | undefined,
+  fallbackWidth: number,
+): DuctSpec {
+  const found = ducts.find((d) => d.id === (perId ?? profile.duct.ductId));
   return (
     found ?? {
       id: '',
       maker: '—',
-      model: `配線ダクト 幅${profile.duct.width}`,
-      width: profile.duct.width,
-      height: profile.duct.width,
+      model: `配線ダクト 幅${fallbackWidth}`,
+      width: fallbackWidth,
+      height: fallbackWidth,
       stock: 2000,
     }
   );
+}
+
+/**
+ * 横ダクトの仕様。ductIndex を渡すと、その1本だけの型式指定を優先する。
+ */
+export function ductSpecOf(profile: Profile, ducts: DuctSpec[], ductIndex?: number): DuctSpec {
+  const per = ductIndex === undefined ? undefined : profile.duct.ductGaps?.[ductIndex]?.ductId;
+  return ductSpecById(profile, ducts, per, ductWidthOf(profile, ductIndex));
+}
+
+/** 縦ダクトの仕様。vertIndex は左から何本目か。 */
+export function ductSpecOfVert(profile: Profile, ducts: DuctSpec[], vertIndex: number): DuctSpec {
+  const per = profile.duct.vertGaps?.[vertIndex]?.ductId;
+  return ductSpecById(profile, ducts, per, vertWidthOf(profile, vertIndex));
+}
+
+/** その横ダクト1本の幅。1本だけ別の型式にしているならそちらを使う。 */
+export function ductWidthOf(profile: Profile, ductIndex?: number): number {
+  if (ductIndex === undefined) return profile.duct.width;
+  return profile.duct.ductGaps?.[ductIndex]?.width ?? profile.duct.width;
+}
+
+/** その縦ダクト1本の幅（＝図の上では帯の太さ）。 */
+export function vertWidthOf(profile: Profile, vertIndex: number): number {
+  return profile.duct.vertGaps?.[vertIndex]?.width ?? profile.duct.width;
+}
+
+/** 図の上でダクトを1本名指しするときの指定。'all' は盤ぜんたい。 */
+export type DuctTarget = number | 'all' | { vert: number };
+
+/** そのダクトに効いている仕様を引く。横・縦・盤ぜんたいをまとめて扱う。 */
+export function ductSpecAt(profile: Profile, ducts: DuctSpec[], target: DuctTarget): DuctSpec {
+  if (target === 'all') return ductSpecOf(profile, ducts);
+  if (typeof target === 'number') return ductSpecOf(profile, ducts, target);
+  return ductSpecOfVert(profile, ducts, target.vert);
 }
 
 /** 機器を並べる1行。 */
@@ -350,7 +401,16 @@ export type Violation = {
  * 消したダクトも位置を保ったまま removed で残す。図の上に薄く出して、
  * 押せば元に戻せるようにするため（消したら二度と戻せない、を避ける）。
  */
-export type Duct = Rect & { id: number; removed?: boolean };
+export type Duct = Rect & {
+  id: number;
+  removed?: boolean;
+  /**
+   * 縦ダクトなら、レイアウトの中で左から何本目か。横ダクトでは付かない。
+   * 太さや向きから縦横を当てにいくと、幅の広い縦ダクトで判定が裏返るため、
+   * 作った側で明示する。
+   */
+  vert?: number;
+};
 
 export type LayoutResult = {
   rows: DeviceRow[];

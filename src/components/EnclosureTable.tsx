@@ -22,6 +22,31 @@ function Cell({
 }
 
 /**
+ * 未入力を空欄のまま持てるセル。奥行きの内訳に使う。
+ * マスタ側は空のまま登録できてよい（案件ごとに納入仕様書で確かめて入れるため）。
+ */
+function NullCell({
+  value,
+  onChange,
+  width = 68,
+}: {
+  value: number | null;
+  onChange: (v: number | null) => void;
+  width?: number;
+}) {
+  return (
+    <input
+      type="number"
+      className="encl-num"
+      style={{ width }}
+      value={value ?? ''}
+      placeholder="—"
+      onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+    />
+  );
+}
+
+/**
  * 盤マスタ。型式ごとの寸法をここに貯めていく。
  *
  * 盤サイズ画面の「型式（登録済みから選ぶ）」はこの表を引いている。
@@ -98,13 +123,13 @@ export function EnclosureTable() {
                   <Cell value={e.plate.h} onChange={(h) => patchPlate(i, e, { h })} />
                 </td>
                 <td>
-                  <Cell
+                  <NullCell
                     value={e.depth.backToPlate}
                     onChange={(backToPlate) => patchDepth(i, e, { backToPlate })}
                   />
                 </td>
                 <td>
-                  <Cell
+                  <NullCell
                     value={e.depth.doorProjection}
                     onChange={(doorProjection) => patchDepth(i, e, { doorProjection })}
                   />

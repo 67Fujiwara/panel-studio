@@ -6,8 +6,16 @@ import { ShapeGeometry } from './ShapeGeometry';
 import { autoMachining } from '../lib/machining';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
-import { ductSpecOf, rotatedSize } from '../types';
-import type { CategoryDef, FaceId, LayoutResult, Machining, PanelSpec } from '../types';
+import { ductSpecAt, rotatedSize } from '../types';
+import type {
+  CategoryDef,
+  Duct,
+  DuctTarget,
+  FaceId,
+  LayoutResult,
+  Machining,
+  PanelSpec,
+} from '../types';
 
 /** 手動配置時のスナップ間隔(mm) */
 const SNAP = 5;
@@ -89,14 +97,14 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const ductMaster = useStore((s) => s.ducts);
   /** ダクトをダブルクリックしたときに出す型式の一覧。位置は canvas-wrap の中の座標 */
   const [ductPick, setDuctPick] = useState<{
-    target: number | 'all';
-    vertical: boolean;
+    target: DuctTarget;
     x: number;
     y: number;
   } | null>(null);
+  /** そのダクト1本を名指しする指定。横は上からの通し番号、縦は左から何本目か */
+  const targetOf = (d: Duct): DuctTarget => (d.vert === undefined ? d.id : { vert: d.vert });
   /** そのダクトに効いている型式名。ツールチップに出す */
-  const ductNameOf = (d: { id: number; w: number; h: number }) =>
-    ductSpecOf(profile, ductMaster, d.h > d.w ? undefined : d.id).model;
+  const ductNameOf = (d: Duct) => ductSpecAt(profile, ductMaster, targetOf(d)).model;
   const restoreDucts = useStore((s) => s.restoreDucts);
   const removedHere = useStore((s) => s.removedDucts[face]?.length ?? 0);
 
@@ -435,20 +443,21 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                 selectDuct(selectedDuct === d.id ? null : d.id);
               }}
               onDoubleClick={(e) => {
-                // ダブルクリックで型式の一覧を出して選ばせる。
-                // 縦ダクトは通し番号が本数で動くので、盤ぜんたいの型式を変える
+                // ダブルクリックで型式の一覧を出して選ばせる。縦横どちらも1本単位
                 e.stopPropagation();
                 const box = wrapRef.current?.getBoundingClientRect();
                 setDuctPick({
-                  target: d.h > d.w ? 'all' : d.id,
-                  vertical: d.h > d.w,
+                  target: targetOf(d),
                   x: e.clientX - (box?.left ?? 0),
                   y: e.clientY - (box?.top ?? 0),
                 });
               }}
             >
               <title>
-                {ductNameOf(d)}／ダクト {d.id + 1} 本目（{Math.round(d.w)}mm）
+                {ductNameOf(d)}／
+                {d.vert === undefined
+                  ? `横ダクト ${d.id + 1} 本目（幅 ${Math.round(d.h)}mm）`
+                  : `縦ダクト 左から ${d.vert + 1} 本目（幅 ${Math.round(d.w)}mm）`}
                 {'\n'}ダブルクリックで型式を選ぶ・Delete キーで削除
               </title>
             </rect>
@@ -599,17 +608,15 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
             }}
           >
             <div className="ductpick-head">
-              {ductPick.vertical
-                ? '縦ダクトの型式（盤ぜんたい）'
-                : `ダクト ${(ductPick.target as number) + 1} 本目の型式`}
+              {ductPick.target === 'all'
+                ? 'ダクトの型式（盤ぜんたい）'
+                : typeof ductPick.target === 'number'
+                  ? `横ダクト ${ductPick.target + 1} 本目の型式`
+                  : `縦ダクト 左から ${ductPick.target.vert + 1} 本目の型式`}
             </div>
             <ul>
               {ductMaster.map((d) => {
-                const cur =
-                  ductPick.target === 'all'
-                    ? profile.duct.ductId === d.id
-                    : (profile.duct.ductGaps?.[ductPick.target as number]?.ductId ??
-                        profile.duct.ductId) === d.id;
+                const cur = ductSpecAt(profile, ductMaster, ductPick.target).id === d.id;
                 return (
                   <li key={d.id}>
                     <button
@@ -629,7 +636,9 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
               })}
               {/* 1本だけ変えたものを元に戻せるようにしておく */}
               {ductPick.target !== 'all' &&
-                profile.duct.ductGaps?.[ductPick.target as number]?.ductId && (
+                (typeof ductPick.target === 'number'
+                  ? profile.duct.ductGaps?.[ductPick.target]?.ductId
+                  : profile.duct.vertGaps?.[ductPick.target.vert]?.ductId) && (
                   <li>
                     <button
                       onClick={() => {

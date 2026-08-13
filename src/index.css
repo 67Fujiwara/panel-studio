@@ -152,6 +152,37 @@ svg.unfold {
 .ufcell:hover .ufart line {
   stroke: var(--accent);
 }
+
+/*
+  展開図に描く「配置した中身」。
+  面らしい形（ufart）の上に重ねるので、そちらより濃く出して主従を付ける。
+  この縮尺では線幅を実寸で引くと潰れるので、拡大率によらない太さにする。
+*/
+.ufcell .ufbody {
+  pointer-events: none;
+}
+/* 中板の枠は破線だが、中身まで破線にすると何の形か読めない */
+.ufcell .ufbody rect {
+  stroke-dasharray: none;
+  vector-effect: non-scaling-stroke;
+}
+.ufcell .ufbody .ufduct {
+  fill: var(--muted);
+  fill-opacity: 0.22;
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-opacity: 0.8;
+}
+.ufcell .ufbody .ufrail {
+  fill: var(--muted);
+  fill-opacity: 0.5;
+  stroke: none;
+}
+.ufcell .ufbody .ufdev {
+  fill-opacity: 0.9;
+  stroke: var(--surface);
+  stroke-width: 0.75;
+}
 .rowgap {
   margin-bottom: 4px;
   padding-bottom: 4px;
@@ -957,6 +988,11 @@ h3 {
   margin-left: 4px;
   color: var(--accent);
   font-style: normal;
+}
+/* 未入力の欄。空欄が「入れ忘れ」だと分かるように枠で示す */
+.num.empty input {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
 }
 input[type='number'],
 input[type='text'],
