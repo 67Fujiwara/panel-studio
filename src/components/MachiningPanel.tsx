@@ -54,6 +54,14 @@ export function MachiningPanel({
 
   const addAndOpen = (draft: Parameters<typeof addMachining>[0]) => addMachining(draft);
 
+  /**
+   * タップは中板だけ。
+   * タップはダクトや機器をネジ止めするための下穴で、板の裏からナットを当てられない
+   * 中板だから成り立つ。扉や側面は表に出る面で、開口はふつう通し穴になる。
+   */
+  const tapOk = face === 'plate';
+  const tapNg = 'タップは中板だけです（扉・側面は通し穴で加工します）';
+
   return (
     <div className="panel">
       <h2>加工</h2>
@@ -85,7 +93,11 @@ export function MachiningPanel({
 
       <div className="row-buttons">
         <button onClick={() => addAndOpen({ kind: 'hole', ...center, dia: 22 })}>＋ 丸穴</button>
-        <button onClick={() => addAndOpen({ kind: 'hole', ...center, dia: TAP_DRILL.M4, tap: 'M4' })}>
+        <button
+          disabled={!tapOk}
+          title={tapOk ? undefined : tapNg}
+          onClick={() => addAndOpen({ kind: 'hole', ...center, dia: TAP_DRILL.M4, tap: 'M4' })}
+        >
           ＋ タップ
         </button>
         <button onClick={() => addAndOpen({ kind: 'notch', ...center, w: 100, h: 100 })}>
@@ -141,6 +153,7 @@ export function MachiningPanel({
                         <span>穴の種類</span>
                         <select
                           value={m.tap ?? 'through'}
+                          title={tapOk ? undefined : tapNg}
                           onChange={(e) => {
                             const v = e.target.value;
                             if (v === 'through') updateMachining(m.id, { tap: undefined, dia: 22 });
@@ -152,8 +165,9 @@ export function MachiningPanel({
                           }}
                         >
                           <option value="through">丸穴（径を指定）</option>
+                          {/* 中板以外はタップに変えられない。既にタップの加工は選び直せる */}
                           {TAP_SIZES.map((t) => (
-                            <option key={t} value={t}>
+                            <option key={t} value={t} disabled={!tapOk && m.tap !== t}>
                               {t} タップ（下穴 φ{TAP_DRILL[t]}）
                             </option>
                           ))}

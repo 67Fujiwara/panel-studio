@@ -1108,10 +1108,17 @@ button.reset {
 }
 
 /* --- 盤面 --- */
+/*
+  図とヒントは重ねずに縦に並べる。
+  重ねると、側面のような縦長の面で図が高さいっぱいに広がったとき、
+  X の目盛り値がヒントの下に隠れてしまう。
+*/
 .canvas-wrap {
   position: relative;
   min-width: 0;
   background: #e9edf1;
+  display: flex;
+  flex-direction: column;
 }
 /* 機器をつかんで動かすと文字が選択されてしまうので、図の上では選択させない */
 .canvas-wrap {
@@ -1126,17 +1133,16 @@ body.dragging * {
 }
 .canvas-wrap svg {
   width: 100%;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   display: block;
   touch-action: none;
   cursor: grab;
 }
 .canvas-hint {
-  position: absolute;
-  left: 10px;
-  bottom: 10px;
-  padding: 4px 8px;
-  border-radius: 4px;
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-top: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.85);
   font-size: 11px;
   color: var(--muted);

@@ -659,7 +659,9 @@ export const useStore = create<State>((set) => ({
         face: s.face,
         mount,
       }));
-      return { items: [...s.items, ...added] };
+      // いま足した1台を選んだ状態にする。座標表の青い行がそこへ移り、
+      // 続けて座標を打ち込める（足した機器を目で探して選び直す手間をなくす）
+      return { items: [...s.items, ...added], selectedUid: added.at(-1)?.uid ?? s.selectedUid };
     }),
 
   removeDevice: (specId) =>

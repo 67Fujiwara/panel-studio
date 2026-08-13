@@ -77,8 +77,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ViewBox>({ x: -PAD, y: -PAD, w: faceW + PAD * 2, h: faceH + PAD * 2 });
-  // 目盛りの間引きと文字の大きさを画面の実寸で決めるため、描画領域の幅を測っておく
-  const [pxWidth, setPxWidth] = useState(900);
+  // 目盛りの間引きと文字の大きさを画面の実寸で決めるため、描画領域の大きさを測っておく
+  const [pxSize, setPxSize] = useState({ w: 900, h: 700 });
   const profile = useStore((s) => s.profile);
   const selectedUid = useStore((s) => s.selectedUid);
   const select = useStore((s) => s.select);
@@ -135,7 +135,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     if (!el) return;
     const ro = new ResizeObserver(([e]) => {
       const w = e?.contentRect.width ?? 0;
-      if (w > 0) setPxWidth(w);
+      const h = e?.contentRect.height ?? 0;
+      if (w > 0 && h > 0) setPxSize({ w, h });
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -187,9 +188,10 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   /** 画面上の px を mm に変換する係数 */
   const mmPerPx = useCallback(() => {
     const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return 1;
-    return view.w / rect.width;
-  }, [view.w]);
+    if (!rect || rect.width === 0 || rect.height === 0) return 1;
+    // 上と同じ理由で、縦横のうち縮尺を決めるほうを採る
+    return Math.max(view.w / rect.width, view.h / rect.height);
+  }, [view.w, view.h]);
 
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -297,8 +299,14 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const ticks = (length: number, step: number) =>
     Array.from({ length: Math.floor(length / step) + 1 }, (_, i) => i * step);
 
-  // mm ↔ px の換算。目盛りの間引きと、拡大しても一定の大きさで見せる文字に使う
-  const scale = view.w / Math.max(1, pxWidth);
+  /*
+    mm ↔ px の換算。目盛りの間引きと、拡大しても一定の大きさで見せる文字に使う。
+
+    viewBox は既定の `xMidYMid meet` なので、**縦横で余るほうではなく足りないほう**が
+    実際の縮尺を決める。幅だけで割ると、側面のような縦長の面で縮尺を小さく見積もり、
+    目盛りの数字が読めない大きさになる。
+  */
+  const scale = Math.max(view.w / Math.max(1, pxSize.w), view.h / Math.max(1, pxSize.h));
   const tickStep = STEPS.find((st) => st / scale >= TICK_MIN_PX) ?? 1000;
   const labelStep = STEPS.find((st) => st / scale >= LABEL_MIN_PX) ?? 1000;
   const labelSize = 13 * scale;

@@ -207,10 +207,6 @@ export function SettingsPanel({ ductCount }: { ductCount: number }) {
       </div>
 
       <h2>クリアランス</h2>
-      <p className="note">
-        実効値は <b>max(ここの設定, 機器ごとのメーカー指定値)</b>。メーカー指定を下回りません。
-        機器は段の中で<b>上下中央</b>に置きます（DIN取付・直接取付とも）。
-      </p>
       <h3>機器 ⇔ ダクト</h3>
       <div className="grid2">
         <Num
