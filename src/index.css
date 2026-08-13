@@ -162,7 +162,8 @@ svg.unfold {
   pointer-events: none;
 }
 /* 中板の枠は破線だが、中身まで破線にすると何の形か読めない */
-.ufcell .ufbody rect {
+.ufcell .ufbody rect,
+.ufcell .ufbody circle {
   stroke-dasharray: none;
   vector-effect: non-scaling-stroke;
 }
@@ -182,6 +183,25 @@ svg.unfold {
   fill-opacity: 0.9;
   stroke: var(--surface);
   stroke-width: 0.75;
+}
+/*
+  加工。レイアウト画面の加工線（.cutouts）と同じ赤にして、同じものだと分かるようにする。
+  この縮尺ではタップの二重丸が潰れるので、塗り方で見分けさせる。
+  φ4 の穴は 1〜2px にしかならないため、線は拡大率によらない太さで引いて点として残す。
+*/
+.ufcell .ufbody .ufcut {
+  stroke: var(--bad);
+  stroke-width: 1.2;
+  stroke-opacity: 0.9;
+}
+.ufcell .ufbody .ufcut.hole,
+.ufcell .ufbody .ufcut.notch {
+  fill: none;
+}
+/* タップは塗りつぶして丸穴と見分ける（図面の二重丸の代わり） */
+.ufcell .ufbody .ufcut.tap {
+  fill: var(--bad);
+  fill-opacity: 0.55;
 }
 .rowgap {
   margin-bottom: 4px;

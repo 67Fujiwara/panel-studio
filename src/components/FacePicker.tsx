@@ -16,6 +16,7 @@ import type {
   DeviceShape,
   FaceId,
   LayoutResult,
+  Machining,
   PanelSpec,
 } from '../types';
 
@@ -174,7 +175,22 @@ function FaceArt({
 }
 
 /**
- * 面に配置した中身（ダクト・DINレール・機器）を、展開図のセルの中に実寸で描く。
+ * 加工1件の図形。展開図のセルの中は Y 上向きのままなので、そのまま置ける。
+ *
+ * この縮尺ではタップの二重丸は潰れて読めないので、丸穴は枠だけ・タップは塗りつぶし、
+ * 切り欠きは四角、と塗り方で見分けさせる。位置と数が分かればよい。
+ */
+function CutShape({ m }: { m: Machining }) {
+  if (m.kind === 'notch') {
+    return (
+      <rect className="ufcut notch" x={m.x - m.w / 2} y={m.y - m.h / 2} width={m.w} height={m.h} />
+    );
+  }
+  return <circle className={`ufcut${m.tap ? ' tap' : ' hole'}`} cx={m.x} cy={m.y} r={m.dia / 2} />;
+}
+
+/**
+ * 面に配置した中身（ダクト・DINレール・機器・加工）を、展開図のセルの中に実寸で描く。
  *
  * 「機器 12」のような数だけでは、どの面がもう埋まっていて、どこが空いているかが
  * 分からない。盤ぜんたいの絵として見えていないと、面を1つずつ開いて確かめる羽目になる。
@@ -184,6 +200,7 @@ function FaceContents({
   cell,
   size,
   layout,
+  cuts,
   devices,
   categories,
   railMargin,
@@ -191,13 +208,14 @@ function FaceContents({
   cell: Cell;
   size: { w: number; h: number };
   layout: LayoutResult;
+  cuts: Machining[];
   devices: DeviceLookup;
   categories: CategoryDef[];
   railMargin: number;
 }) {
   if (size.w <= 0 || size.h <= 0) return null;
   const rails = computeRails(layout, devices, railMargin);
-  if (layout.placed.length === 0 && layout.ducts.length === 0) return null;
+  if (layout.placed.length === 0 && layout.ducts.length === 0 && cuts.length === 0) return null;
 
   const colorOf = (cat: string) => categories.find((c) => c.id === cat)?.color ?? '#7d8894';
   // 面の座標（左下原点・Y上向き）をセルの中へ。Y を反転して重ねる
@@ -238,6 +256,10 @@ function FaceContents({
           />
         );
       })}
+      {/* 加工はいちばん上に描く。機器の下に隠れると位置が確かめられない */}
+      {cuts.map((m) => (
+        <CutShape key={m.id} m={m} />
+      ))}
     </g>
   );
 }
@@ -294,10 +316,16 @@ export function FacePicker() {
 
   const bom = buildBom(layouts, profile, lookup, ducts);
   const heat = totalHeatW(layouts, lookup);
-  const cutouts = [
-    ...layouts.flatMap((l, i) => autoMachining(FACES[i]!.id, l, lookup, profile)),
-    ...machining,
-  ];
+  // 面ごとの加工（自動で出るぶん＋手で足したぶん）。展開図にも CSV にも同じものを使う
+  const cutsByFace = useMemo(
+    () =>
+      FACES.map((f, i) => [
+        ...autoMachining(f.id, layouts[i]!, lookup, profile),
+        ...machining.filter((m) => m.face === f.id),
+      ]),
+    [layouts, lookup, profile, machining],
+  );
+  const cutouts = cutsByFace.flat();
   const base = asciiFileName(panel.model, 'panel');
 
   const { cells, w: diagW, h: diagH } = unfold(panel);
@@ -308,6 +336,8 @@ export function FacePicker() {
     const i = FACES.findIndex((f) => f.id === id);
     return {
       devs: items.filter((it) => it.face === id).length,
+      // 機器由来の加工と手で足したぶん。ダクト・レールの固定穴は数に入れない
+      // （図には出すが、人が意識して増減させるものではないため）
       cuts:
         (i >= 0 ? derivedMachining(layouts[i]!.placed, lookup).length : 0) +
         machining.filter((m) => m.face === id).length,
@@ -367,6 +397,7 @@ export function FacePicker() {
                   cell={c}
                   size={size}
                   layout={layouts[FACES.findIndex((f) => f.id === c.id)]!}
+                  cuts={cutsByFace[FACES.findIndex((f) => f.id === c.id)]!}
                   devices={lookup}
                   categories={categories}
                   railMargin={profile.rail.endMargin}
