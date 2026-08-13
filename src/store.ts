@@ -186,10 +186,11 @@ type State = {
   /** 使うダクトを選ぶ。幅も控えとして書き写す */
   selectDuctSpec: (id: string) => void;
   /**
-   * ダクト1本の型式を次の登録へ送る（図の上でダブルクリック）。
-   * 縦ダクトは通し番号が本数で動くので、盤ぜんたいの型式を送る。
+   * ダクト1本の型式を決める（図の上でダブルクリックして選ぶ）。
+   * 縦ダクトは通し番号が本数で動くので、'all' で盤ぜんたいの型式を変える。
+   * id を空にすると、その1本の指定を外して盤ぜんたいの型式に戻す。
    */
-  cycleDuctSpec: (ductIndex: number | 'all') => void;
+  setDuctSpecAt: (ductIndex: number | 'all', id: string) => void;
 
   loadConfig: (f: ConfigFile) => void;
   loadMyConfig: (f: MyConfigFile) => void;
@@ -512,22 +513,30 @@ export const useStore = create<State>((set) => ({
       };
     }),
 
-  cycleDuctSpec: (ductIndex) =>
+  setDuctSpecAt: (ductIndex, id) =>
     set((s) => {
-      if (s.ducts.length === 0) return s;
       const duct = s.profile.duct;
-      const cur = ductIndex === 'all' ? duct.ductId : duct.ductGaps?.[ductIndex]?.ductId ?? duct.ductId;
-      const at = s.ducts.findIndex((d) => d.id === cur);
-      const next = s.ducts[(at + 1) % s.ducts.length]!;
+      const next = s.ducts.find((d) => d.id === id);
 
       if (ductIndex === 'all') {
+        if (!next) return s;
         return {
           profile: { ...s.profile, duct: { ...duct, ductId: next.id, width: next.width } },
         };
       }
-      // 幅は配置計算で使うので控えを書き写しておく（計算側はマスタを持たない）
+
       const gaps = { ...duct.ductGaps };
-      gaps[ductIndex] = { ...gaps[ductIndex], ductId: next.id, width: next.width };
+      const cur = gaps[ductIndex];
+      if (!next) {
+        // 「盤ぜんたいと同じ」に戻す。位置の調整は残す
+        if (cur) {
+          const { ductId: _id, width: _w, ...rest } = cur;
+          gaps[ductIndex] = rest;
+        }
+      } else {
+        // 幅は配置計算で使うので控えを書き写しておく（計算側はマスタを持たない）
+        gaps[ductIndex] = { ...cur, ductId: next.id, width: next.width };
+      }
       return { profile: { ...s.profile, duct: { ...duct, ductGaps: gaps } } };
     }),
 

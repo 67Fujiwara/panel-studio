@@ -1085,6 +1085,71 @@ body.dragging * {
   stroke-width: 3;
   vector-effect: non-scaling-stroke;
 }
+/* ダクトの型式を選ぶ一覧。ダブルクリックした場所に出す */
+.pick-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+}
+.ductpick {
+  position: absolute;
+  z-index: 6;
+  min-width: 220px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+.ductpick-head {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.ductpick ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+}
+.ductpick li.note {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.ductpick button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+}
+.ductpick button:hover {
+  background: var(--accent-soft);
+}
+.ductpick button.on {
+  background: var(--accent);
+  color: #fff;
+}
+.ductpick button strong {
+  font-size: 12px;
+}
+.ductpick button span {
+  font-size: 10px;
+  color: var(--muted);
+}
+.ductpick button.on span {
+  color: rgba(255, 255, 255, 0.85);
+}
+
 /* DINレール。機器の下に敷く帯 */
 .rail {
   fill: #d8dde4;

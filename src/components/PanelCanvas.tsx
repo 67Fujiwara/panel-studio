@@ -67,6 +67,7 @@ const TAP_OUTER = { M3: 3, M4: 4, M5: 5, M6: 6 } as const;
 export function PanelCanvas({ panel, face, layout, devices, categories }: Props) {
   const { w: faceW, h: faceH } = faceSize(panel, face);
   const svgRef = useRef<SVGSVGElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ViewBox>({ x: -PAD, y: -PAD, w: faceW + PAD * 2, h: faceH + PAD * 2 });
   // 目盛りの間引きと文字の大きさを画面の実寸で決めるため、描画領域の幅を測っておく
   const [pxWidth, setPxWidth] = useState(900);
@@ -84,17 +85,25 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const selectedDuct = useStore((s) => s.selectedDuct);
   const removeSelected = useStore((s) => s.removeSelected);
   const rotateItem = useStore((s) => s.rotateItem);
-  const cycleDuctSpec = useStore((s) => s.cycleDuctSpec);
+  const setDuctSpecAt = useStore((s) => s.setDuctSpecAt);
   const ductMaster = useStore((s) => s.ducts);
+  /** ダクトをダブルクリックしたときに出す型式の一覧。位置は canvas-wrap の中の座標 */
+  const [ductPick, setDuctPick] = useState<{
+    target: number | 'all';
+    vertical: boolean;
+    x: number;
+    y: number;
+  } | null>(null);
   /** そのダクトに効いている型式名。ツールチップに出す */
   const ductNameOf = (d: { id: number; w: number; h: number }) =>
     ductSpecOf(profile, ductMaster, d.h > d.w ? undefined : d.id).model;
   const restoreDucts = useStore((s) => s.restoreDucts);
   const removedHere = useStore((s) => s.removedDucts[face]?.length ?? 0);
 
-  // 選択中の機器・ダクトを Delete / Backspace で消す
+  // 選択中の機器・ダクトを Delete / Backspace で消す。Esc は型式の一覧を閉じる
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return setDuctPick(null);
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const el = document.activeElement;
       // 入力欄で編集しているときは消さない
@@ -295,7 +304,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     v % labelStep === 0 ? tickLong : hasHalf && v % half === 0 ? tickMid : tickShort;
 
   return (
-    <div className="canvas-wrap">
+    <div className="canvas-wrap" ref={wrapRef}>
       <svg
         ref={svgRef}
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
@@ -426,15 +435,21 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                 selectDuct(selectedDuct === d.id ? null : d.id);
               }}
               onDoubleClick={(e) => {
-                // ダブルクリックで登録したダクトの型式を送る。
-                // 縦ダクトは通し番号が本数で動くので、盤ぜんたいの型式を切り替える
+                // ダブルクリックで型式の一覧を出して選ばせる。
+                // 縦ダクトは通し番号が本数で動くので、盤ぜんたいの型式を変える
                 e.stopPropagation();
-                cycleDuctSpec(d.h > d.w ? 'all' : d.id);
+                const box = wrapRef.current?.getBoundingClientRect();
+                setDuctPick({
+                  target: d.h > d.w ? 'all' : d.id,
+                  vertical: d.h > d.w,
+                  x: e.clientX - (box?.left ?? 0),
+                  y: e.clientY - (box?.top ?? 0),
+                });
               }}
             >
               <title>
                 {ductNameOf(d)}／ダクト {d.id + 1} 本目（{Math.round(d.w)}mm）
-                {'\n'}ダブルクリックで型式を切り替え・Delete キーで削除
+                {'\n'}ダブルクリックで型式を選ぶ・Delete キーで削除
               </title>
             </rect>
           );
@@ -572,6 +587,68 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         </g>
       </svg>
 
+      {/* ダクトの型式を選ぶ一覧。ダブルクリックした場所に出す */}
+      {ductPick && (
+        <>
+          <div className="pick-veil" onPointerDown={() => setDuctPick(null)} />
+          <div
+            className="ductpick"
+            style={{
+              left: Math.min(ductPick.x, Math.max(0, (wrapRef.current?.clientWidth ?? 0) - 240)),
+              top: Math.min(ductPick.y, Math.max(0, (wrapRef.current?.clientHeight ?? 0) - 220)),
+            }}
+          >
+            <div className="ductpick-head">
+              {ductPick.vertical
+                ? '縦ダクトの型式（盤ぜんたい）'
+                : `ダクト ${(ductPick.target as number) + 1} 本目の型式`}
+            </div>
+            <ul>
+              {ductMaster.map((d) => {
+                const cur =
+                  ductPick.target === 'all'
+                    ? profile.duct.ductId === d.id
+                    : (profile.duct.ductGaps?.[ductPick.target as number]?.ductId ??
+                        profile.duct.ductId) === d.id;
+                return (
+                  <li key={d.id}>
+                    <button
+                      className={cur ? 'on' : undefined}
+                      onClick={() => {
+                        setDuctSpecAt(ductPick.target, d.id);
+                        setDuctPick(null);
+                      }}
+                    >
+                      <strong>{d.model}</strong>
+                      <span>
+                        幅 {d.width} / 高さ {d.height}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+              {/* 1本だけ変えたものを元に戻せるようにしておく */}
+              {ductPick.target !== 'all' &&
+                profile.duct.ductGaps?.[ductPick.target as number]?.ductId && (
+                  <li>
+                    <button
+                      onClick={() => {
+                        setDuctSpecAt(ductPick.target, '');
+                        setDuctPick(null);
+                      }}
+                    >
+                      <strong>盤ぜんたいと同じに戻す</strong>
+                    </button>
+                  </li>
+                )}
+              {ductMaster.length === 0 && (
+                <li className="note">設定画面のダクトマスタに型式を登録してください。</li>
+              )}
+            </ul>
+          </div>
+        </>
+      )}
+
       <div className="canvas-overlay">
         {underlay && (
           <button onClick={() => setUnderlay(face, undefined)}>
@@ -588,7 +665,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         <b>機器をドラッグすると上下左右どこへでも入れ込めます</b>
         （Shift＋ドラッグで自由に置く・{SNAP}mm スナップ）／
         機器・ダクトを選んで <b>Delete</b> で削除 ／
-        <b>ダブルクリック</b>で機器は90°回転・ダクトは型式切り替え
+        <b>ダブルクリック</b>で機器は90°回転・ダクトは型式を選ぶ
       </div>
     </div>
   );
