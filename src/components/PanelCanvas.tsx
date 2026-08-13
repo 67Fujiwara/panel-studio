@@ -6,7 +6,7 @@ import { ShapeGeometry } from './ShapeGeometry';
 import { autoMachining } from '../lib/machining';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
-import { rotatedSize } from '../types';
+import { ductSpecOf, rotatedSize } from '../types';
 import type { CategoryDef, FaceId, LayoutResult, Machining, PanelSpec } from '../types';
 
 /** 手動配置時のスナップ間隔(mm) */
@@ -84,6 +84,11 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const selectedDuct = useStore((s) => s.selectedDuct);
   const removeSelected = useStore((s) => s.removeSelected);
   const rotateItem = useStore((s) => s.rotateItem);
+  const cycleDuctSpec = useStore((s) => s.cycleDuctSpec);
+  const ductMaster = useStore((s) => s.ducts);
+  /** そのダクトに効いている型式名。ツールチップに出す */
+  const ductNameOf = (d: { id: number; w: number; h: number }) =>
+    ductSpecOf(profile, ductMaster, d.h > d.w ? undefined : d.id).model;
   const restoreDucts = useStore((s) => s.restoreDucts);
   const removedHere = useStore((s) => s.removedDucts[face]?.length ?? 0);
 
@@ -420,9 +425,16 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                 e.stopPropagation();
                 selectDuct(selectedDuct === d.id ? null : d.id);
               }}
+              onDoubleClick={(e) => {
+                // ダブルクリックで登録したダクトの型式を送る。
+                // 縦ダクトは通し番号が本数で動くので、盤ぜんたいの型式を切り替える
+                e.stopPropagation();
+                cycleDuctSpec(d.h > d.w ? 'all' : d.id);
+              }}
             >
               <title>
-                ダクト {d.id + 1} 本目（{Math.round(d.w)}mm）／ Delete キーで消せます
+                {ductNameOf(d)}／ダクト {d.id + 1} 本目（{Math.round(d.w)}mm）
+                {'\n'}ダブルクリックで型式を切り替え・Delete キーで削除
               </title>
             </rect>
           );
@@ -575,7 +587,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         {FACE_LABEL(face)}（{faceW} × {faceH}）／ 原点は左下 0,0 ／ ホイールで拡大縮小・背景ドラッグで移動 ／
         <b>機器をドラッグすると上下左右どこへでも入れ込めます</b>
         （Shift＋ドラッグで自由に置く・{SNAP}mm スナップ）／
-        機器・ダクトを選んで <b>Delete</b> で削除
+        機器・ダクトを選んで <b>Delete</b> で削除 ／
+        <b>ダブルクリック</b>で機器は90°回転・ダクトは型式切り替え
       </div>
     </div>
   );

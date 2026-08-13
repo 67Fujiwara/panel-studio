@@ -453,7 +453,7 @@ export function FacePicker() {
                 const base = asciiFileName(jobNo || panel.model, 'panel');
                 downloadDxfSet(
                   buildDxfSet(
-                    { panel, profile, items, pinned, machining, removedDucts, devices: lookup },
+                    { panel, profile, items, pinned, machining, removedDucts, underlays, devices: lookup },
                     base,
                   ),
                   base,

@@ -163,6 +163,7 @@ export function ProjectsScreen() {
                                     pinned: p.pinned,
                                     machining: p.machining,
                                     removedDucts: p.removedDucts,
+                                    underlays: p.underlays,
                                     devices: lookup,
                                   },
                                   base,

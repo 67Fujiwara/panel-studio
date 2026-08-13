@@ -209,8 +209,36 @@ export type ExportInput = {
   pinned: PlacedDevice[];
   machining: Machining[];
   removedDucts: Partial<Record<FaceId, number[]>>;
+  /** 盤サイズ画面で取り込んだ盤の図。これを下地にして機器と加工を足す */
+  underlays: Partial<Record<FaceId, DeviceShape>>;
   devices: DeviceLookup;
 };
+
+/**
+ * 取り込んだ盤の図をそのまま書き出す。
+ *
+ * こちらで四角を描き直すのではなく、**メーカーの図をそのまま下地にする**。
+ * 板金屋はその図で作っているので、線が1本でも違うと突き合わせができない。
+ * 取り込みが無い面だけ、外形の四角を代わりに引く。
+ */
+function drawBase(w: DxfWriter, shape: DeviceShape | undefined, ox: number, oy: number, size: { w: number; h: number }) {
+  if (!shape || shape.entities.length === 0) {
+    w.rect(LAYER.outline, ox, oy, size.w, size.h);
+    return;
+  }
+  // 取り込んだ図は面の左下を原点にした実寸なので、置き場所へずらすだけでよい
+  for (const e of shape.entities) {
+    if (e.t === 'c') {
+      w.circle(LAYER.outline, ox + e.x, oy + e.y, e.r);
+    } else if (e.t === 'a') {
+      w.arc(LAYER.outline, ox + e.x, oy + e.y, e.r, e.a0, e.a1);
+    } else {
+      for (let i = 0; i + 3 < e.pts.length; i += 2) {
+        w.line(LAYER.outline, ox + e.pts[i]!, oy + e.pts[i + 1]!, ox + e.pts[i + 2]!, oy + e.pts[i + 3]!);
+      }
+    }
+  }
+}
 
 /** 書き出す中身。加工屋には穴だけ渡したいので切り替えられるようにする。 */
 export type ExportKind = 'full' | 'holes';
@@ -224,12 +252,12 @@ function drawFace(
   oy: number,
   kind: ExportKind,
 ) {
-  const { panel, profile, items, pinned, machining, removedDucts, devices } = input;
+  const { panel, profile, items, pinned, machining, removedDucts, underlays, devices } = input;
   const size = faceSize(panel, face);
   const layout = autoLayout(panel, profile, face, items, pinned, devices, removedDucts[face] ?? []);
 
-  // 面の外形
-  w.rect(LAYER.outline, ox, oy, size.w, size.h);
+  // 下地は取り込んだ盤の図。無ければ外形の四角
+  drawBase(w, underlays[face], ox, oy, size);
 
   if (kind === 'full') {
     for (const d of layout.ducts) {

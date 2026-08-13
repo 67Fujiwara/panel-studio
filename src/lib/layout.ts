@@ -1,4 +1,4 @@
-import { DIN_RAIL_HEIGHT } from '../data/enclosures';
+import { DIN_RAIL_HEIGHT, DIN_RAIL_WIDTH } from '../data/enclosures';
 import { rotatedSize } from '../types';
 import { FACE_BY_ID, faceSize } from '../data/faces';
 import type {
@@ -12,7 +12,6 @@ import type {
   MountType,
   PanelSpec,
   PlacedDevice,
-  DuctGap,
   Profile,
   Rotation,
   Sides,
@@ -29,7 +28,10 @@ const HEAT_THRESHOLD_W = 10;
  * ダクト1本ぶんの調整値。指定がなければ共通の設定。
  * 位置は「上から数えたダクトの通し番号」で引く。
  */
-export function ductGap(profile: Profile, ductIndex: number): Required<DuctGap> {
+export function ductGap(
+  profile: Profile,
+  ductIndex: number,
+): { above: number; below: number; left: number; right: number } {
   const o = profile.duct.ductGaps?.[ductIndex];
   return {
     above: o?.above ?? profile.clearance.deviceToDuct.bottom,
@@ -37,6 +39,16 @@ export function ductGap(profile: Profile, ductIndex: number): Required<DuctGap> 
     left: o?.left ?? profile.duct.margin.left,
     right: o?.right ?? profile.duct.margin.right,
   };
+}
+
+/**
+ * そのダクト1本の幅。1本だけ別の型式にしているならそちらを使う。
+ *
+ * 縦ダクトは横ダクトの本数が決まらないと通し番号が定まらないので、
+ * 共通の幅のまま。1本ずつの切り替えは横ダクトが単位になる。
+ */
+export function ductWidth(profile: Profile, ductIndex: number): number {
+  return profile.duct.ductGaps?.[ductIndex]?.width ?? profile.duct.width;
 }
 
 /**
@@ -110,10 +122,14 @@ export function computeRows(
   const dw = hasDucts ? profile.duct.width : 0;
 
   const usableH = h - margin.top - margin.bottom;
-  // 段間に横ダクトを入れないレイアウトでは、代わりに段間クリアランスを取る
-  const rowSpacing = rule.horizontals ? dw : hasDucts ? profile.clearance.deviceToDevice.betweenRows : 0;
-  const bandCount = rule.horizontals ? n + 1 : Math.max(0, n - 1);
-  const rowH = (usableH - bandCount * rowSpacing) / n;
+  // 横ダクトは1本ずつ幅が違うことがあるので、合計を先に出す
+  const bandW = (i: number) => (hasDucts ? ductWidth(profile, i) : 0);
+  const totalBands = rule.horizontals
+    ? Array.from({ length: n + 1 }, (_, i) => bandW(i)).reduce((a, b) => a + b, 0)
+    : // 段間に横ダクトを入れないレイアウトでは、代わりに段間クリアランスを取る
+      Math.max(0, n - 1) * (hasDucts ? profile.clearance.deviceToDevice.betweenRows : 0);
+  const rowSpacing = rule.horizontals ? 0 : hasDucts ? profile.clearance.deviceToDevice.betweenRows : 0;
+  const rowH = (usableH - totalBands) / n;
 
   if (n < 1 || rowH <= 0 || w - margin.left - margin.right <= 0) {
     return {
@@ -136,15 +152,21 @@ export function computeRows(
   const pushHorizontal = (y: number) => {
     const s = span(id);
     for (const p of splitByBands(bands, s.x, s.w)) {
-      ducts.push({ id, x: p.x0, y, w: p.x1 - p.x0, h: dw });
+      ducts.push({ id, x: p.x0, y, w: p.x1 - p.x0, h: bandW(id) });
     }
     id++;
   };
 
+  let cursor = h - margin.top;
   for (let i = 0; i < n; i++) {
-    const y = h - margin.top - rowH * (i + 1) - rowSpacing * (rule.horizontals ? i + 1 : i);
-    rows.push({ index: i, y, h: rowH });
-    if (rule.horizontals && dw > 0) pushHorizontal(y + rowH);
+    if (rule.horizontals && dw > 0) {
+      cursor -= bandW(i);
+      pushHorizontal(cursor);
+    } else if (i > 0) {
+      cursor -= rowSpacing;
+    }
+    cursor -= rowH;
+    rows.push({ index: i, y: cursor, h: rowH });
   }
   if (rule.horizontals && dw > 0) {
     // 全周囲いは外周を閉じるので、最下段のダクトは面の下端（座標 0）に置く
@@ -470,9 +492,12 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   const placed: PlacedDevice[] = [];
 
   const availableH = size.h - profile.duct.margin.top - profile.duct.margin.bottom;
+  const bandW = (i: number) => (dw > 0 ? ductWidth(profile, i) : 0);
   const requiredH =
     used.reduce((s, b) => s + b.h, 0) +
-    (rule.horizontals && dw > 0 ? (used.length + 1) * dw : rowSpacing * Math.max(0, used.length - 1));
+    (rule.horizontals && dw > 0
+      ? Array.from({ length: used.length + 1 }, (_, i) => bandW(i)).reduce((a, b) => a + b, 0)
+      : rowSpacing * Math.max(0, used.length - 1));
 
   // ダクトはその段に指定した左右の余白に合わせる。段ごとに余白を変えたとき、
   // ダクトだけ元の位置に残ると図が食い違うため。
@@ -485,7 +510,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   const pushHorizontal = (yAt: number) => {
     const span = ductSpan(id);
     for (const s of splitByBands(bands, span.x, span.w)) {
-      ducts.push({ id, x: s.x0, y: yAt, w: s.x1 - s.x0, h: dw });
+      ducts.push({ id, x: s.x0, y: yAt, w: s.x1 - s.x0, h: bandW(id) });
     }
     id++;
   };
@@ -495,7 +520,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   let id = 0;
   used.forEach((b, index) => {
     if (rule.horizontals && dw > 0) {
-      y -= dw;
+      y -= bandW(index);
       pushHorizontal(y);
     } else if (index > 0) {
       y -= rowSpacing;
@@ -523,7 +548,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   const bottom = closed ? 0 : profile.duct.margin.bottom;
   if (rule.horizontals && dw > 0 && used.length > 0) {
     // 最下段のダクトは、その上の段の余白に合わせる
-    y = closed ? bottom : y - dw;
+    y = closed ? bottom : y - bandW(used.length);
     pushHorizontal(y);
   }
 
@@ -672,11 +697,33 @@ export function computeRails(
       .filter((e): e is { p: PlacedDevice; spec: DeviceSpec } => Boolean(e.spec));
     if (inRow.length === 0) continue;
 
-    const left = Math.max(0, Math.min(...inRow.map((e) => e.p.x)) - endMargin);
-    const right = Math.max(...inRow.map((e) => e.p.x + rotatedSize(e.spec.size, e.p.rot).w)) + endMargin;
+    const devLeft = Math.min(...inRow.map((e) => e.p.x));
+    const devRight = Math.max(...inRow.map((e) => e.p.x + rotatedSize(e.spec.size, e.p.rot).w));
     // レールの中心は段の中心。機器はここから dinOffset ぶんだけずれて掛かる
     const y = row.y + row.h / 2;
-    out.push({ row: row.index, x: left, y, length: right - left });
+
+    /*
+      余長を伸ばすとき、ダクトに食い込ませない。
+      実物はダクトが先に付いていてレールはその間に入るので、
+      図の上で重なっていると切断長を間違える。
+      レールが通る高さ（帯 35mm）にかかるダクトだけを見て、そこで止める。
+    */
+    const band = { y0: y - DIN_RAIL_WIDTH / 2, y1: y + DIN_RAIL_WIDTH / 2 };
+    const blockers = layout.ducts.filter(
+      (d) => !d.removed && d.y < band.y1 && band.y0 < d.y + d.h,
+    );
+    const limitLeft = Math.max(
+      0,
+      ...blockers.filter((d) => d.x + d.w <= devLeft + 0.01).map((d) => d.x + d.w),
+    );
+    const limitRight = Math.min(
+      Infinity,
+      ...blockers.filter((d) => d.x >= devRight - 0.01).map((d) => d.x),
+    );
+
+    const left = Math.max(limitLeft, devLeft - endMargin);
+    const right = Math.min(limitRight, devRight + endMargin);
+    out.push({ row: row.index, x: left, y, length: Math.max(0, right - left) });
   }
   return out;
 }

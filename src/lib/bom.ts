@@ -20,7 +20,7 @@ export function buildBom(
   ducts: DuctSpec[] = [],
 ): BomLine[] {
   const lines: BomLine[] = [];
-  const ductSpec = ductSpecOf(profile, ducts);
+
   const placed = layouts.flatMap((l) => l.placed);
 
   // --- 機器本体（型式で集約） ---
@@ -63,18 +63,25 @@ export function buildBom(
   }
 
   // --- 配線ダクト（レイアウト上のダクト矩形の総延長から。消したぶんは数えない） ---
+  // 1本ずつ型式を変えられるので、型式ごとにまとめて必要本数を出す。
   // 縦ダクトは長辺が高さなので、長いほうを延長として採る
-  const ductTotal = layouts
-    .flatMap((l) => l.ducts)
-    .filter((d) => !d.removed)
-    .reduce((sum, d) => sum + Math.max(d.w, d.h), 0);
-  if (ductTotal > 0) {
-    const stock = ductSpec.stock > 0 ? ductSpec.stock : DUCT_STOCK_LENGTH;
-    const stockQty = Math.ceil(ductTotal / stock);
-    const offcut = stockQty * stock - ductTotal;
+  const byModel = new Map<string, { spec: DuctSpec; length: number }>();
+  for (const d of layouts.flatMap((l) => l.ducts)) {
+    if (d.removed) continue;
+    // 縦ダクトは通し番号が本数で動くので、盤ぜんたいの型式で数える
+    const spec = ductSpecOf(profile, ducts, d.h > d.w ? undefined : d.id);
+    const cur = byModel.get(spec.model) ?? { spec, length: 0 };
+    cur.length += Math.max(d.w, d.h);
+    byModel.set(spec.model, cur);
+  }
+  for (const { spec, length } of byModel.values()) {
+    if (length <= 0) continue;
+    const stock = spec.stock > 0 ? spec.stock : DUCT_STOCK_LENGTH;
+    const stockQty = Math.ceil(length / stock);
+    const offcut = stockQty * stock - length;
     lines.push({
-      model: `${ductSpec.model}（必要長 ${Math.ceil(ductTotal)}mm / 端材 ${Math.ceil(offcut)}mm）`,
-      maker: ductSpec.maker || '—',
+      model: `${spec.model}（必要長 ${Math.ceil(length)}mm / 端材 ${Math.ceil(offcut)}mm）`,
+      maker: spec.maker || '—',
       name: '配線ダクト',
       qty: stockQty,
       unit: `本(${stock}mm定尺)`,

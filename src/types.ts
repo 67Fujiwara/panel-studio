@@ -187,6 +187,10 @@ export type DuctGap = {
   left?: number;
   /** 面の右端からの位置 */
   right?: number;
+  /** この1本だけ別の型式を使うときの指定。図の上でダブルクリックすると切り替わる */
+  ductId?: string;
+  /** ductId のダクト幅の控え。配置計算はマスタを持たないのでここに書き写す */
+  width?: number;
 };
 
 /**
@@ -288,9 +292,13 @@ export type Profile = {
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
-/** 使うダクトの仕様を引く。登録が消えていても図が出せるよう控えを返す。 */
-export function ductSpecOf(profile: Profile, ducts: DuctSpec[]): DuctSpec {
-  const found = ducts.find((d) => d.id === profile.duct.ductId);
+/**
+ * 使うダクトの仕様を引く。登録が消えていても図が出せるよう控えを返す。
+ * ductIndex を渡すと、その1本だけの型式指定を優先する。
+ */
+export function ductSpecOf(profile: Profile, ducts: DuctSpec[], ductIndex?: number): DuctSpec {
+  const per = ductIndex === undefined ? undefined : profile.duct.ductGaps?.[ductIndex]?.ductId;
+  const found = ducts.find((d) => d.id === (per ?? profile.duct.ductId));
   return (
     found ?? {
       id: '',

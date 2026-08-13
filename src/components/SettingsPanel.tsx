@@ -120,11 +120,6 @@ export function SettingsPanel({ ductCount }: { ductCount: number }) {
       {ductCount > 0 && (
         <>
           <h3>ダクトごとの調整（{ductCount} 本）</h3>
-          <p className="note">
-            図に出ている<b>横ダクト1本ずつ</b>を上から順に並べています。
-            <b>上下</b>はそのダクトに接する機器との余白、<b>左右</b>はそのダクトの位置です。
-            指定しないダクトは下の「機器 ⇔ ダクト」と「中板の端からの余白」を使います。
-          </p>
           {Array.from({ length: ductCount }, (_, i) => {
             const g = ductGaps[i];
             const first = i === 0;

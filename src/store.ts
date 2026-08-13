@@ -185,6 +185,11 @@ type State = {
   removeDuct: (id: string) => void;
   /** 使うダクトを選ぶ。幅も控えとして書き写す */
   selectDuctSpec: (id: string) => void;
+  /**
+   * ダクト1本の型式を次の登録へ送る（図の上でダブルクリック）。
+   * 縦ダクトは通し番号が本数で動くので、盤ぜんたいの型式を送る。
+   */
+  cycleDuctSpec: (ductIndex: number | 'all') => void;
 
   loadConfig: (f: ConfigFile) => void;
   loadMyConfig: (f: MyConfigFile) => void;
@@ -381,7 +386,31 @@ export const useStore = create<State>((set) => ({
       };
       const projects = [project, ...s.projects];
       saveProjects(projects);
-      return { projects, screen: 'projects' as Screen };
+      // 完了したら机の上を片付ける。前の案件の盤や機器が残っていると
+      // 次の設計に混ざり込むため、盤サイズと面選択を白紙に戻す
+      return {
+        projects,
+        profile: {
+          ...s.profile,
+          duct: {
+            ...s.profile.duct,
+            layout: DEFAULT_PROFILE.duct.layout,
+            rowHeightMode: DEFAULT_PROFILE.duct.rowHeightMode,
+            ductGaps: {},
+          },
+        },
+        panel: structuredClone(BLANK_PANEL),
+        items: [],
+        pinned: [],
+        machining: [],
+        underlays: {},
+        removedDucts: {},
+        selectedUid: null,
+        selectedCut: null,
+        selectedDuct: null,
+        face: 'plate' as FaceId,
+        screen: 'projects' as Screen,
+      };
     }),
 
   repeatProject: (id) =>
@@ -455,13 +484,19 @@ export const useStore = create<State>((set) => ({
   updateDuct: (id, patch) =>
     set((s) => {
       const ducts = s.ducts.map((d) => (d.id === id ? { ...d, ...patch } : d));
-      // 使用中のダクトの幅を変えたら、控えの幅も追従させる
+      // 使用中のダクトの幅を変えたら、控えの幅も追従させる（全体と1本ごとの両方）
       const cur = ducts.find((d) => d.id === s.profile.duct.ductId);
+      const gaps = { ...s.profile.duct.ductGaps };
+      for (const [k, g] of Object.entries(gaps)) {
+        const d = ducts.find((q) => q.id === g.ductId);
+        if (d) gaps[Number(k)] = { ...g, width: d.width };
+      }
       return {
         ducts,
-        profile: cur
-          ? { ...s.profile, duct: { ...s.profile.duct, width: cur.width } }
-          : s.profile,
+        profile: {
+          ...s.profile,
+          duct: { ...s.profile.duct, width: cur?.width ?? s.profile.duct.width, ductGaps: gaps },
+        },
       };
     }),
   removeDuct: (id) => set((s) => ({ ducts: s.ducts.filter((d) => d.id !== id) })),
@@ -475,6 +510,25 @@ export const useStore = create<State>((set) => ({
           duct: { ...s.profile.duct, ductId: id, width: d?.width ?? s.profile.duct.width },
         },
       };
+    }),
+
+  cycleDuctSpec: (ductIndex) =>
+    set((s) => {
+      if (s.ducts.length === 0) return s;
+      const duct = s.profile.duct;
+      const cur = ductIndex === 'all' ? duct.ductId : duct.ductGaps?.[ductIndex]?.ductId ?? duct.ductId;
+      const at = s.ducts.findIndex((d) => d.id === cur);
+      const next = s.ducts[(at + 1) % s.ducts.length]!;
+
+      if (ductIndex === 'all') {
+        return {
+          profile: { ...s.profile, duct: { ...duct, ductId: next.id, width: next.width } },
+        };
+      }
+      // 幅は配置計算で使うので控えを書き写しておく（計算側はマスタを持たない）
+      const gaps = { ...duct.ductGaps };
+      gaps[ductIndex] = { ...gaps[ductIndex], ductId: next.id, width: next.width };
+      return { profile: { ...s.profile, duct: { ...duct, ductGaps: gaps } } };
     }),
 
   loadConfig: (f) =>
