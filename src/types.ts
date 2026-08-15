@@ -136,6 +136,41 @@ export type MachiningDraft =
 /** 面に施す加工。 */
 export type Machining = MachiningDraft & { id: string; face: FaceId };
 
+/**
+ * 加工有効範囲から除く矩形。ボルトホルダーや中板の四隅の角欠きなど。
+ *
+ * 位置は**面の角からの距離**で持つ。盤の大きさが変わっても付いてくるようにするため。
+ * メーカーの加工有効範囲図も「右上から 35・7」のように角基準で書かれている。
+ */
+export type AreaExclude = {
+  /** 基準にする角 */
+  anchor: 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
+  /** 基準の角から矩形の近い側の辺までの距離(mm) */
+  dx: number;
+  dy: number;
+  w: number;
+  h: number;
+  /** 何を避けているか（ボルトホルダー・接地端子など） */
+  note?: string;
+};
+
+/**
+ * 面1つぶんの加工有効範囲。
+ *
+ * メーカーの「加工有効範囲図」は**模式図で、寸法値どおりに図形が描かれていない**ため、
+ * 図そのものを取り込む道はない。代わりに数値だけを型式ごとに1回登録して使い回す。
+ * 端からの入り込みは W・H・D が変わっても同じ値なので、シリーズ単位で効く。
+ */
+export type FaceWorkArea = {
+  /** 面の端からの入り込み(mm)。ここより内側だけが加工できる */
+  inset: Sides;
+  /** さらに除く矩形 */
+  excludes: AreaExclude[];
+};
+
+/** 面ごとの加工有効範囲。登録が無い面は「面いっぱい使える」とみなす。 */
+export type WorkArea = Partial<Record<FaceId, FaceWorkArea>>;
+
 /** 盤（キャビネット）1台。外形と中板から6面の作図寸法を導く。 */
 export type PanelSpec = {
   model: string;
@@ -159,6 +194,11 @@ export type PanelSpec = {
     /** 扉裏の突出量（ハンドル・扉面機器） */
     doorProjection: number | null;
   };
+  /**
+   * 面ごとの加工有効範囲。型式（シリーズ）ごとに1回登録して使い回す。
+   * 未登録の面は面いっぱい使える扱い（判定しない）。
+   */
+  workArea?: WorkArea;
 };
 
 export type DuctLayoutId =
@@ -390,7 +430,7 @@ export type DeviceRow = {
 
 export type Violation = {
   uid: string;
-  kind: 'overflow' | 'depth' | 'clearance' | 'overlap' | 'cut-overlap';
+  kind: 'overflow' | 'depth' | 'clearance' | 'overlap' | 'cut-overlap' | 'out-of-area';
   message: string;
 };
 

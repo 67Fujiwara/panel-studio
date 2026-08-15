@@ -3,6 +3,7 @@ import { PartEditor } from './PartEditor';
 import { EnclosureTable } from './EnclosureTable';
 import { DuctRailSettings } from './DuctRailSettings';
 import { DuctTable } from './DuctTable';
+import { WorkAreaEditor } from './WorkAreaEditor';
 import { AiSettingsPanel } from './AiSettingsPanel';
 import {
   useStore,
@@ -124,6 +125,8 @@ export function ConfigScreen() {
       </p>
 
       <EnclosureTable />
+
+      <WorkAreaEditor />
 
       <DuctTable />
 

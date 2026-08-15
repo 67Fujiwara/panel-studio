@@ -4,6 +4,7 @@ import { FACE_LABEL, faceSize } from '../data/faces';
 import { computeRails } from '../lib/layout';
 import { ShapeGeometry } from './ShapeGeometry';
 import { autoMachining } from '../lib/machining';
+import { resolveArea } from '../lib/workArea';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
 import { ductSpecAt, rotatedSize } from '../types';
@@ -147,6 +148,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const autoCuts = autoMachining(face, layout, devices, profile);
   const manualCuts = manual.filter((m) => m.face === face);
   const rails = computeRails(layout, devices, profile.rail.endMargin);
+  // 加工有効範囲。登録が無い面は null（面いっぱい使える扱い）
+  const area = resolveArea(panel, face);
 
   /** 画面上の座標を面の座標(mm, 左下原点)に直す。viewBox の余白も含めて正確に変換する。 */
   const toFace = (clientX: number, clientY: number) => {
@@ -340,6 +343,51 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         {underlay && (
           <g className="underlay" transform={`translate(0 ${faceH}) scale(1 -1)`}>
             <ShapeGeometry shape={underlay} color="currentColor" />
+          </g>
+        )}
+
+        {/*
+          加工有効範囲。**使えるところ**ではなく**使えないところ**を潰して描く。
+          機器や加工を置いてよい側は白く空けておかないと、何の上に置いているのか読めない。
+          maskで外側と除外矩形をまとめて抜き、その反転を薄く塗る。
+        */}
+        {area && (
+          <g className="workarea">
+            <mask id="ps-area-mask">
+              <rect x={0} y={0} width={faceW} height={faceH} fill="#fff" />
+              <rect
+                x={area.rect.x}
+                y={toSvgY(faceH, area.rect.y, area.rect.h)}
+                width={area.rect.w}
+                height={area.rect.h}
+                fill="#000"
+              />
+              {area.excludes.map((e, i) => (
+                <rect
+                  key={i}
+                  x={e.x}
+                  y={toSvgY(faceH, e.y, e.h)}
+                  width={e.w}
+                  height={e.h}
+                  fill="#fff"
+                />
+              ))}
+            </mask>
+            <rect
+              x={0}
+              y={0}
+              width={faceW}
+              height={faceH}
+              className="area-out"
+              mask="url(#ps-area-mask)"
+            />
+            <rect
+              x={area.rect.x}
+              y={toSvgY(faceH, area.rect.y, area.rect.h)}
+              width={area.rect.w}
+              height={area.rect.h}
+              className="area-edge"
+            />
           </g>
         )}
 

@@ -11,6 +11,8 @@ import {
   summarizeMachining,
 } from '../lib/machining';
 import type { DeviceLookup } from '../lib/layout';
+import { areaViolations, resolveArea } from '../lib/workArea';
+import { rotatedSize } from '../types';
 import { useStore } from '../store';
 import type { LayoutResult, Machining, TapSize } from '../types';
 
@@ -49,7 +51,18 @@ export function MachiningPanel({
   const center = { x: Math.round(size.w / 2), y: Math.round(size.h / 2) };
   // 加工同士のかぶりは配置の違反と一緒に「チェック」へ出す
   const allCuts = [...auto, ...mine];
-  const checks = [...layout.violations, ...machiningOverlaps(allCuts)];
+  // 加工有効範囲の外に出ているものも一緒に出す。板金屋に断られるのが一番高くつく
+  const placedRects = layout.placed.map((p) => {
+    const spec = devices.get(p.specId);
+    const s2 = spec ? rotatedSize(spec.size, p.rot) : { w: 0, h: 0 };
+    return { uid: p.uid, model: spec?.model ?? p.specId, rect: { x: p.x, y: p.y, ...s2 } };
+  });
+  const checks = [
+    ...layout.violations,
+    ...machiningOverlaps(allCuts),
+    ...areaViolations(panel, face, allCuts, placedRects),
+  ];
+  const hasArea = resolveArea(panel, face) !== null;
   const hitIds = overlappingCutIds(allCuts);
 
   const addAndOpen = (draft: Parameters<typeof addMachining>[0]) => addMachining(draft);
@@ -69,6 +82,12 @@ export function MachiningPanel({
         押ボタン・表示器の開口と、直付け機器の取付穴が<b>座標付きで自動で出ます</b>。
         原点は面の左下 (0,0)。自動で出ない加工は下のボタンで足してください。
       </p>
+      {hasArea && (
+        <p className="note area">
+          この面には<b>加工有効範囲</b>が登録されています。図のグレーの部分は加工できません。
+          はみ出したものは下の「チェック」に出ます。
+        </p>
+      )}
 
       {groups.map((g) => (
         <div
@@ -215,7 +234,12 @@ export function MachiningPanel({
       ) : (
         <ul className="violations">
           {checks.map((v, i) => (
-            <li key={i} className={v.kind === 'cut-overlap' ? 'cut' : undefined}>
+            <li
+              key={i}
+              className={
+                v.kind === 'cut-overlap' ? 'cut' : v.kind === 'out-of-area' ? 'area' : undefined
+              }
+            >
               {v.message}
             </li>
           ))}
