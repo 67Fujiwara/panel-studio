@@ -1,15 +1,20 @@
 import { useMemo, useState } from 'react';
 import { aiReady, buildRequest, requestPlan, validatePlan, violationHint } from '../lib/ai';
+import { FACE_BY_ID } from '../data/faces';
 import type { DeviceLookup } from '../lib/layout';
 import { deviceLookup, useStore } from '../store';
 import type { LayoutResult } from '../types';
 
 /**
- * AI に段割りを頼むところ。
+ * AI に配置を頼むところ。
  *
- * AI が決めるのは「どの機器をどの段に、どの順で」だけ。座標は今までどおり
- * 詰め込みが計算し、クリアランスと重なりの検査も機械が持つ。
- * だから AI の答えが多少雑でも、図が壊れた状態で出ることはない。
+ * 面によって決めさせるものが違う。
+ * - **中板**：段割りとダクトの引き方だけ。座標は今までどおり詰め込みが計算する
+ * - **それ以外**：段が無いので中心座標そのもの。ただし置いたあと機械が検査する
+ *
+ * どちらの場合も、クリアランス・重なり・加工有効範囲の検査は機械が持つ。
+ * だから AI の答えが雑でも、不備が見えない図が出ることはない。
+ * 違反が残ったら「違反を伝えてやり直す」で、その内容を添えてもう一度頼める。
  */
 export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: DeviceLookup }) {
   const panel = useStore((s) => s.panel);
@@ -29,6 +34,7 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
 
   const missing = aiReady(ai);
   const count = items.filter((i) => i.face === face).length;
+  const plate = FACE_BY_ID.get(face)?.ducts ?? false;
 
   const run = async (withHint: boolean) => {
     setBusy(true);
@@ -46,15 +52,32 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
 
     applyAiPlan(check.plan);
     setNotes(check.plan.notes ?? []);
-    setMsg(`${plan.rows.length} 段に割り付けました。`);
+    const cuts = check.plan.cuts?.length ?? 0;
+    const cutMsg = cuts > 0 ? `／加工 ${cuts} 件を追加` : '';
+    setMsg(
+      plate
+        ? `${check.plan.rows?.length ?? 0} 段に割り付けました${cutMsg}。`
+        : `${check.plan.places?.length ?? 0} 台を配置しました${cutMsg}。`,
+    );
   };
 
   return (
     <div className="ai-box">
       <h3>AI 自動配置</h3>
       <p className="note">
-        使用部品を<b>どの段にどの順で並べるか</b>を AI に決めさせます。
-        座標とクリアランスの検査はこれまでどおり機械が持つので、
+        {plate ? (
+          <>
+            使用部品を<b>どの段にどの順で並べるか</b>と<b>ダクトの引き方</b>を AI に決めさせます。
+            座標は今までどおり詰め込みが計算します。
+          </>
+        ) : (
+          <>
+            使用部品を<b>面のどこに置くか</b>を AI に決めさせます。
+            押ボタンの高さや並びのそろえ方など、規則で書きにくいところが対象です。
+          </>
+        )}
+        {' '}
+        クリアランス・重なり・<b>加工有効範囲</b>の検査は機械が持つので、
         AI の答えがそのまま図の不備になることはありません。
       </p>
 
@@ -67,7 +90,7 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
         <>
           <div className="row-buttons">
             <button className="primary" disabled={busy || count === 0} onClick={() => void run(false)}>
-              {busy ? '考えています…' : `AI に並べてもらう（${count} 台）`}
+              {busy ? '考えています…' : `AI に${plate ? '並べて' : '置いて'}もらう（${count} 台）`}
             </button>
             {layout.violations.length > 0 && (
               <button disabled={busy} onClick={() => void run(true)}>
@@ -79,7 +102,11 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
         </>
       )}
 
-      {msg && <p className={`calc${msg.includes('割り付け') ? '' : ' bad'}`}>{msg}</p>}
+      {msg && (
+        <p className={`calc${msg.includes('割り付け') || msg.includes('配置し') ? '' : ' bad'}`}>
+          {msg}
+        </p>
+      )}
       {notes.length > 0 && (
         <ul className="ai-notes">
           {notes.map((n, i) => (
