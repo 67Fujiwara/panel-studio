@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { FACES, faceSize } from '../data/faces';
 import { buildBom, totalHeatW } from '../lib/bom';
-import { asciiFileName, bomToCsv, downloadCsv, machiningToCsv } from '../lib/csv';
+import { asciiFileName, bomToCsv, downloadCsv } from '../lib/csv';
 import { autoLayout, computeRails } from '../lib/layout';
 import type { DeviceLookup } from '../lib/layout';
 import { DIN_RAIL_WIDTH } from '../data/enclosures';
@@ -331,8 +331,8 @@ export function FacePicker() {
       ]),
     [layouts, lookup, profile, machining],
   );
-  const cutouts = cutsByFace.flat();
-  const base = asciiFileName(panel.model, 'panel');
+  // 書き出したファイルは案件番号で探すので、入っていればそれを頭に付ける
+  const base = asciiFileName(jobNo || panel.model, 'panel');
 
   const { cells, w: diagW, h: diagH } = unfold(panel);
   // 図の大きさが変わっても文字が読める大きさになるよう、図の寸法に対する比で決める
@@ -584,7 +584,6 @@ export function FacePicker() {
             title={jobOwner.trim() ? undefined : '担当者を入れてください'}
             onClick={() => {
               if (withDxf) {
-                const base = asciiFileName(jobNo || panel.model, 'panel');
                 downloadDxfSet(
                   buildDxfSet(
                     { panel, profile, items, pinned, machining, removedDucts, underlays, devices: lookup },
@@ -612,8 +611,9 @@ export function FacePicker() {
         <p className="note">
           <b>部品表（金額つき）</b>は設定画面の単価表を引いて、単価・金額・合計を入れます。
           単価が無いものは「{NO_PRICE}」と出ます。
-          単価表は<b>見積依頼 CSV</b>をミスミの一括見積にかけ、返ってきた CSV を
-          設定画面で読み込むと埋まります。
+          <b>見積依頼 CSV</b> はミスミの<b>「型番一括入力」にそのまま入る書式</b>
+          （注文番号・型番・メーカー名・数量・希望出荷日／Shift-JIS）で出します。
+          返ってきた見積 CSV を設定画面で読み込むと単価が埋まります。
         </p>
         <div className="row-buttons">
           <button
@@ -640,22 +640,15 @@ export function FacePicker() {
           <button
             disabled={bom.length === 0}
             onClick={() =>
-              downloadCsv(quoteRequestCsv(bom), `${base}_mitsumori.csv`, profile.bom.encoding)
-            }
-          >
-            見積依頼 CSV（型番＋数量）
-          </button>
-          <button
-            disabled={cutouts.length === 0}
-            onClick={() =>
               downloadCsv(
-                machiningToCsv(cutouts, profile.bom),
-                `${base}_machining.csv`,
-                profile.bom.encoding,
+                // ミスミの「型番一括入力」は Shift-JIS が通る。案件番号を注文番号欄に入れておく
+                quoteRequestCsv(bom, { orderNo: jobNo }),
+                `${base}_mitsumori.csv`,
+                'cp932',
               )
             }
           >
-            加工リスト CSV（全面）
+            見積依頼 CSV（型番＋数量）
           </button>
         </div>
       </div>

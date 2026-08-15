@@ -17,13 +17,38 @@ import type { BomLine, BomSettings, PriceBook, PriceEntry } from '../types';
  * 変わったときに直せなくなるため。
  */
 
-/** 見積依頼用の CSV。型番と数量だけの素直な表にする。 */
-export function quoteRequestCsv(lines: BomLine[], delimiter = ','): string {
-  const rows = [['型番', '数量'].join(delimiter)];
+/**
+ * 見積依頼用の CSV。**ミスミの「型番一括入力」にそのまま入る書式**にする。
+ *
+ *   お客さま注文番号, 型番（必須）, メーカー名, 数量（必須）, 希望出荷日
+ *
+ * 画面側の既定（先頭行=タイトル行 / 区切り=カンマ / 括り文字=ダブルクォート）に
+ * 合わせて、**全項目をダブルクォートで括り、CRLF で改行**する。
+ * こちらで独自の列を作ると、上げるたびに人が並べ替える羽目になる。
+ */
+export function quoteRequestCsv(
+  lines: BomLine[],
+  opts: { orderNo?: string; shipDate?: string } = {},
+): string {
+  const q = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const rows = [
+    ['お客さま注文番号', '型番（必須）', 'メーカー名', '数量（必須）', '希望出荷日']
+      .map(q)
+      .join(','),
+  ];
   for (const l of lines) {
     const key = l.key ?? l.model;
     if (!key) continue;
-    rows.push([csvCell(key, delimiter), String(l.qty)].join(delimiter));
+    rows.push(
+      [
+        q(opts.orderNo ?? ''),
+        q(key),
+        // メーカー名は任意。「—」は BOM の見た目用の記号なので送らない
+        q(l.maker && l.maker !== '—' ? l.maker : ''),
+        q(String(l.qty)),
+        q(opts.shipDate ?? ''),
+      ].join(','),
+    );
   }
   return rows.join('\r\n') + '\r\n';
 }

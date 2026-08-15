@@ -1669,3 +1669,94 @@ ol.note.steps {
 ol.note.steps li {
   margin-bottom: 2px;
 }
+
+
+/* --- 手引きアイコン（ふだんは小さく、載せると大きく） --- */
+/*
+  「どこを見ればいいか」は最初の1回しか要らない。常時大きく出すと毎日邪魔になり、
+  かといって文章だけではメーカーサイトのどのボタンかが伝わらない。
+*/
+.hint {
+  position: relative;
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: middle;
+  cursor: help;
+}
+.hint-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.hint:hover .hint-mark,
+.hint:focus .hint-mark {
+  background: var(--text);
+}
+.hint-pop {
+  position: absolute;
+  left: 0;
+  top: 22px;
+  z-index: 40;
+  display: none;
+  width: 360px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(29, 37, 48, 0.18);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text);
+  white-space: normal;
+}
+.hint:hover .hint-pop,
+.hint:focus .hint-pop,
+.hint:focus-within .hint-pop {
+  display: block;
+}
+.hint-pop b {
+  display: block;
+  margin-bottom: 6px;
+}
+.hint-fig {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.hint-text {
+  display: block;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* 取り込んだ加工有効範囲図。線だけを描き直しているので拡大しても読める */
+.pdfview {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  margin-bottom: 10px;
+}
+.pdfview svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.pdfview polyline {
+  fill: none;
+  stroke: #1d2530;
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+}
