@@ -1,4 +1,3 @@
-import type { PdfDrawing } from './lib/pdfShape';
 
 // 盤内レイアウトと BOM が共有する唯一の型定義。
 // 各面の座標系は「面の左下を原点、X 右、Y 上、単位 mm」で統一する。
@@ -201,11 +200,6 @@ export type PanelSpec = {
    * 未登録の面は面いっぱい使える扱い（判定しない）。
    */
   workArea?: WorkArea;
-  /**
-   * 取り込んだ加工有効範囲図（PDF）。数値を打つときの手引きとして図を出すだけで、
-   * 範囲そのものは workArea の数値で持つ（図は寸法どおりに描かれていないため）。
-   */
-  areaPdf?: PdfDrawing;
 };
 
 export type DuctLayoutId =

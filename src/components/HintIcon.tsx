@@ -21,72 +21,126 @@ export function HintIcon({ label, children }: { label: string; children: ReactNo
   );
 }
 
+/** ダウンロード画面のどの行を指すか。 */
+type Row = 'spec' | 'hole';
+
 /**
- * メーカーの図面ダウンロード画面のどれを落とすか。
+ * メーカーの図面ダウンロード画面の描き起こし。指定した行の PDF ボタンを赤で囲って示す。
  *
- * 実際のサイトの画面写真ではなく描き起こし。文字が潰れないのと、
- * 先方の画面が変わっても「穴加工用図面の PDF」という要点は変わらないため。
+ * 画面写真ではなく描き起こしにしてある。文字が潰れないのと、先方の画面が変わっても
+ * 「どの図面を落とすか」という要点は変わらないため。
+ * 行の並びと呼び名は実際の画面に合わせてある（探すときに目で照合できるように）。
+ */
+function DownloadDialog({ highlight }: { highlight: Row }) {
+  const rows: { id: string; label: string; sub?: string; btns: string[] }[] = [
+    { id: 'spec', label: '納入仕様書', sub: '製品外形図・仕様書', btns: ['DXF', 'PDF'] },
+    { id: 'hole', label: '穴加工用図面', sub: 'キャビスタ用', btns: ['DXF', 'PDF'] },
+    { id: 'cad3d', label: '3D CADデータ', btns: ['STEP', '3D PDF'] },
+    { id: 'ecad', label: '設計用CADデータ', sub: 'キャビスタ連携用', btns: ['ECAD®', '使い方'] },
+  ];
+  const top = 78;
+  const step = 40;
+
+  return (
+    <svg viewBox="0 0 392 268" className="hint-fig">
+      <rect x={0} y={0} width={392} height={268} fill="#fff" />
+      <rect x={0} y={0} width={340} height={26} fill="#e8407a" />
+      <text x={170} y={18} fontSize={13} fill="#fff" textAnchor="middle" fontWeight="700">
+        図面ダウンロード
+      </text>
+      <circle cx={16} cy={46} r={4} fill="#2f6fd0" />
+      <text x={26} y={50} fontSize={12} fill="#2f6fd0" fontWeight="700">
+        RA30-65
+      </text>
+      <text x={10} y={68} fontSize={9} fill="#2f6fd0" textDecoration="underline">
+        図面データのご利用について
+      </text>
+
+      {rows.map((r, i) => {
+        const y = top + i * step;
+        const on = r.id === highlight;
+        return (
+          <g key={r.id}>
+            <rect x={8} y={y} width={324} height={34} fill="#eaf6ea" stroke="#d3e6d3" />
+            <text x={16} y={r.sub ? y + 15 : y + 21} fontSize={11} fontWeight="700" fill="#1d2530">
+              {r.label}
+            </text>
+            {r.sub && (
+              <text x={16} y={y + 27} fontSize={8} fill="#6b7684">
+                （{r.sub}）
+              </text>
+            )}
+            <circle cx={152} cy={y + 17} r={7} fill="#2f6fd0" />
+            <text x={152} y={y + 21} fontSize={9} fill="#fff" textAnchor="middle" fontWeight="700">
+              ?
+            </text>
+            {r.btns.map((b, j) => {
+              // 目当てはどの行も2つめ（PDF）の列。囲みは枠だけにして、文字はそのまま読ませる
+              const mark = on && j === 1;
+              const x = 168 + j * 82;
+              return (
+                <g key={b}>
+                  <rect
+                    x={x}
+                    y={y + 5}
+                    width={76}
+                    height={24}
+                    rx={3}
+                    fill={b === '使い方' ? '#8bbf8b' : '#2f9e5e'}
+                  />
+                  <text
+                    x={x + 38}
+                    y={y + 21}
+                    fontSize={b.length > 4 ? 10 : 12}
+                    fill="#fff"
+                    textAnchor="middle"
+                    fontWeight="700"
+                  >
+                    {b}
+                  </text>
+                  {mark && (
+                    <>
+                      <rect
+                        x={x - 3}
+                        y={y + 2}
+                        width={82}
+                        height={30}
+                        rx={5}
+                        fill="none"
+                        stroke="#e8453c"
+                        strokeWidth={2.5}
+                      />
+                      <text x={342} y={y + 22} fontSize={12} fill="#e8453c" fontWeight="700">
+                        ←これ
+                      </text>
+                    </>
+                  )}
+                </g>
+              );
+            })}
+          </g>
+        );
+      })}
+
+      <text x={10} y={252} fontSize={8} fill="#6b7684">
+        ※ PDF図面が正しく表示されない場合はポップアップブロックを無効にしてください
+      </text>
+    </svg>
+  );
+}
+
+/**
+ * 加工有効範囲の数値をどの図面から読むか。
+ * 「穴加工用図面」の PDF がハッチングの図（加工有効範囲図）にあたる。
  */
 export function DownloadHint() {
-  const btn = (x: number, y: number, w: number, label: string, on = false) => (
-    <>
-      <rect
-        x={x}
-        y={y}
-        width={w}
-        height={20}
-        rx={3}
-        fill={on ? '#e8453c' : '#2f9e5e'}
-        stroke={on ? '#7a1610' : 'none'}
-        strokeWidth={on ? 2 : 0}
-      />
-      <text x={x + w / 2} y={y + 14} fontSize={11} fill="#fff" textAnchor="middle">
-        {label}
-      </text>
-    </>
-  );
   return (
     <>
-      <svg viewBox="0 0 330 190" className="hint-fig">
-        <rect x={0} y={0} width={330} height={190} rx={6} fill="#fff" stroke="#dfe4ea" />
-        <rect x={0} y={0} width={330} height={22} rx={6} fill="#e8407a" />
-        <text x={165} y={16} fontSize={12} fill="#fff" textAnchor="middle" fontWeight="700">
-          図面ダウンロード
-        </text>
-        <text x={12} y={42} fontSize={12} fill="#1d2530" fontWeight="700">
-          ● 型式（例 RA30-65）
-        </text>
-
-        <text x={12} y={72} fontSize={11} fill="#6b7684">
-          納入仕様書
-        </text>
-        {btn(150, 60, 62, 'DXF')}
-        {btn(220, 60, 62, 'PDF')}
-
-        <text x={12} y={106} fontSize={11} fill="#1d2530" fontWeight="700">
-          穴加工用図面
-        </text>
-        {btn(150, 94, 62, 'DXF')}
-        {btn(220, 94, 62, 'PDF', true)}
-        <text x={288} y={108} fontSize={16} fill="#e8453c" fontWeight="700">
-          ←
-        </text>
-
-        <text x={12} y={140} fontSize={11} fill="#6b7684">
-          3D CADデータ
-        </text>
-        {btn(150, 128, 62, 'STEP')}
-        {btn(220, 128, 62, '3D PDF')}
-
-        <text x={12} y={172} fontSize={10} fill="#6b7684">
-          ※ ポップアップブロックは無効にしておく
-        </text>
-      </svg>
       <span className="hint-text">
-        メーカーの図面ダウンロード画面で<b>「穴加工用図面」の PDF</b>です。
-        これが加工有効範囲図（ハッチングの図）にあたります。
-        納入仕様書のほうではありません。
+        メーカーの図面ダウンロード画面で<b>「穴加工用図面（キャビスタ用）」の PDF</b>です。
+        これが加工有効範囲図（ハッチングの図）にあたります。納入仕様書のほうではありません。
       </span>
+      <DownloadDialog highlight="hole" />
     </>
   );
 }
@@ -94,12 +148,20 @@ export function DownloadHint() {
 /**
  * 奥行きの内訳をどこで見るか。
  *
- * 「背面→中板上面」と「扉裏の突出」は言葉だけだと取り違えやすいので、
- * 断面の絵で示す。実物を測るときの目安にもなる。
+ * 「どの図面を落とすか」と「その図のどこを測るか」の2枚で示す。
+ * ダウンロード画面には似た名前が4行並んでいて、図面名だけ言われても迷う。
+ * 「背面→中板上面」と「扉裏の突出」も、言葉だけだと取り違えやすい。
  */
 export function DepthHint() {
   return (
     <>
+      <span className="hint-text">
+        メーカーの図面ダウンロード画面で<b>「納入仕様書（製品外形図・仕様書）」の PDF</b>です。
+        その中の側面図・断面図から、下の2つを読みます。
+        <b>メーカー図面の値が実物と合わないことがある</b>ので、
+        既定値は置かず毎回入れ直す作りにしています。
+      </span>
+      <DownloadDialog highlight="spec" />
       <svg viewBox="0 0 330 180" className="hint-fig">
         <rect x={0} y={0} width={330} height={180} fill="#fff" />
         {/* 盤の断面（横から見たところ） */}
@@ -141,11 +203,6 @@ export function DepthHint() {
           有効奥行き（この2つを引いた残り）
         </text>
       </svg>
-      <span className="hint-text">
-        メーカーの図面ダウンロード画面の<b>「納入仕様書」の PDF</b>（製品外形図・仕様書）で
-        確かめます。<b>メーカー図面の値が実物と合わないことがある</b>ので、
-        既定値は置かず毎回入れ直す作りにしています。
-      </span>
     </>
   );
 }

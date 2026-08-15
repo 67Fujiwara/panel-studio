@@ -15,7 +15,14 @@ import type { BomLine, BomSettings, PriceBook, PriceEntry } from '../types';
  *
  * 読み込み側は列を人に選ばせる。先方の CSV の列構成をこちらで決め打ちすると、
  * 変わったときに直せなくなるため。
+ *
+ * **値段を付けるのは機器だけ。** DINレール・配線ダクト・取付ネジ（派生部品）は外す。
+ * 定尺を切って使うものと在庫のネジで、案件ごとに型番で買うものではない。
+ * 拾っても金額が合わないし、見積依頼に混ぜても先方で弾かれる行が増えるだけになる。
  */
+
+/** 派生部品（DINレール・ダクト・ネジ）は値段を付けない。 */
+const priceable = (l: BomLine) => l.source !== 'derived';
 
 /**
  * 見積依頼用の CSV。**ミスミの「型番一括入力」にそのまま入る書式**にする。
@@ -37,6 +44,8 @@ export function quoteRequestCsv(
       .join(','),
   ];
   for (const l of lines) {
+    // DINレール・ダクト・ネジは載せない（型番で買うものではないので先方で弾かれる）
+    if (!priceable(l)) continue;
     const key = l.key ?? l.model;
     if (!key) continue;
     rows.push(
@@ -152,18 +161,27 @@ export type PricedLine = BomLine & {
 /** 見つからなかった行に出す文言。金額欄を空にするより、理由が読めるほうがよい。 */
 export const NO_PRICE = 'ミスミ取扱なし';
 
+/** 値段を付けない行に出す文言。「調べたが無かった」と区別する。 */
+export const NOT_PRICED = '対象外';
+
 export function priceLines(lines: BomLine[], book: PriceBook): PricedLine[] {
   return lines.map((l) => {
+    if (!priceable(l)) return { ...l, price: null, amount: null };
     const price = book[l.key ?? l.model] ?? null;
     return { ...l, price, amount: price ? price.unit * l.qty : null };
   });
 }
 
-/** 単価が付いた行の合計。付いていない行は数えない（数えると総額が過小になる）。 */
+/**
+ * 単価が付いた行の合計。
+ * 単価が無い機器は数えない（数えると総額が過小になる）。
+ * 派生部品は初めから対象外なので「不明」にも数えない（毎回出ると警告が効かなくなる）。
+ */
 export function priceTotal(lines: PricedLine[]): { total: number; missing: number } {
   let total = 0;
   let missing = 0;
   for (const l of lines) {
+    if (!priceable(l)) continue;
     if (l.amount === null) missing++;
     else total += l.amount;
   }
@@ -174,6 +192,7 @@ export function priceTotal(lines: PricedLine[]): { total: number; missing: numbe
  * 金額つきの BOM CSV。
  * 単価が無い行は金額を空にせず「ミスミ取扱なし」と書く。空欄だと
  * 「ゼロ円」なのか「調べていない」のか読めないため。
+ * 派生部品（DINレール・ダクト・ネジ）は初めから値段を付けないので「対象外」と書く。
  */
 export function pricedBomCsv(lines: PricedLine[], s: BomSettings): string {
   const d = s.delimiter;
@@ -181,6 +200,7 @@ export function pricedBomCsv(lines: PricedLine[], s: BomSettings): string {
   const rows: string[] = [];
   if (s.withHeader) rows.push(head.map((h) => csvCell(h, d)).join(d));
   for (const l of lines) {
+    const none = csvCell(priceable(l) ? NO_PRICE : NOT_PRICED, d);
     rows.push(
       [
         csvCell(l.model, d),
@@ -188,8 +208,8 @@ export function pricedBomCsv(lines: PricedLine[], s: BomSettings): string {
         String(l.qty),
         csvCell(l.unit, d),
         l.source === 'derived' ? '派生部品' : '機器',
-        l.price ? String(l.price.unit) : csvCell(NO_PRICE, d),
-        l.amount === null ? csvCell(NO_PRICE, d) : String(l.amount),
+        l.price ? String(l.price.unit) : none,
+        l.amount === null ? none : String(l.amount),
         csvCell(l.price?.supplier ?? '', d),
       ].join(d),
     );

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { FACES, FACE_LABEL, faceSize } from '../data/faces';
 import { NITTO_RA_PRESET, blankFaceArea, resolveArea } from '../lib/workArea';
-import { readPdfDrawing } from '../lib/pdfShape';
 import { DownloadHint, HintIcon } from './HintIcon';
 import { useStore } from '../store';
 import type { AreaExclude, FaceId, FaceWorkArea, PanelSpec, WorkArea } from '../types';
@@ -56,27 +55,6 @@ export function WorkAreaEditor() {
   const spec: PanelSpec = target < 0 ? panel : (enclosures[target] ?? panel);
   const area: WorkArea = spec.workArea ?? {};
   const [openFace, setOpenFace] = useState<FaceId | null>(null);
-  const [pdfMsg, setPdfMsg] = useState('');
-  const [pdfOpen, setPdfOpen] = useState(false);
-
-  /**
-   * 加工有効範囲図（PDF）を取り込む。
-   * 図から範囲を読み取るのではなく、**数値を打つときに横に出しておく**ためのもの。
-   * 図は寸法どおりに描かれていないので、形は当てにできない。
-   */
-  const onPdf = async (file: File | undefined) => {
-    if (!file) return;
-    setPdfMsg('');
-    try {
-      const drawing = await readPdfDrawing(file);
-      if (target < 0) setPanel({ areaPdf: drawing });
-      else updateEnclosure(target, { areaPdf: drawing });
-      setPdfOpen(true);
-      setPdfMsg(`${drawing.name} を取り込みました（${drawing.pages.length} ページ）。`);
-    } catch (e) {
-      setPdfMsg(`読み込めませんでした: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  };
 
   const write = (next: WorkArea) => {
     if (target < 0) setPanel({ workArea: next });
@@ -216,65 +194,6 @@ export function WorkAreaEditor() {
         />
       )}
 
-      {/*
-        図は**表の下**に出す。上に置くと表が画面の外へ押し出され、
-        「図を見ながら数値を打つ」ができなくなる（窓を行き来するのと変わらない）。
-      */}
-      <div className="row-buttons">
-        <label className="filebtn">
-          加工有効範囲図（PDF）を取り込む
-          <input
-            type="file"
-            accept=".pdf,.PDF"
-            onChange={(e) => void onPdf(e.target.files?.[0] ?? undefined)}
-          />
-        </label>
-        {spec.areaPdf && (
-          <>
-            <button onClick={() => setPdfOpen((v) => !v)}>
-              {pdfOpen ? '図を閉じる' : `図を見る（${spec.areaPdf.name}）`}
-            </button>
-            <button
-              onClick={() =>
-                target < 0
-                  ? setPanel({ areaPdf: undefined })
-                  : updateEnclosure(target, { areaPdf: undefined })
-              }
-            >
-              図を外す
-            </button>
-          </>
-        )}
-      </div>
-      <p className="note">
-        取り込んだ図は<b>数値を打つときの手引き</b>として上の表の下に出すだけです。
-        図から範囲を自動で読み取ることはしません（図面の注記どおり、
-        <b>寸法値どおりに図形が描かれていない</b>ため）。図は型式と一緒に保存します。
-      </p>
-      {pdfMsg && <p className={`calc${pdfMsg.includes('取り込み') ? '' : ' bad'}`}>{pdfMsg}</p>}
-      {pdfOpen && spec.areaPdf && (
-        <div className="pdfview">
-          {spec.areaPdf.pages.map((pg, i) => (
-            <svg key={i} viewBox={`0 0 ${pg.w} ${pg.h}`}>
-              <rect x={0} y={0} width={pg.w} height={pg.h} fill="#fff" />
-              <g transform={`translate(0 ${pg.h}) scale(1 -1)`}>
-                {pg.polys.map((pts, j) => (
-                  <polyline
-                    key={j}
-                    points={pts
-                      .reduce<string[]>((acc, v, k) => {
-                        if (k % 2 === 0) acc.push(String(v));
-                        else acc[acc.length - 1] += `,${v}`;
-                        return acc;
-                      }, [])
-                      .join(' ')}
-                  />
-                ))}
-              </g>
-            </svg>
-          ))}
-        </div>
-      )}
     </>
   );
 }

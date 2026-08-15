@@ -1729,13 +1729,22 @@ ol.note.steps li {
   font-weight: 400;
   color: var(--text);
   white-space: normal;
+  /*
+    手引きは読むだけのもの。ボタンの上に重なっても押せなくならないよう、
+    当たり判定は持たせない（真下に「この寸法で進む」があり、実際に塞いでいた）。
+  */
+  pointer-events: none;
+  /* 画面より高くなったときは下を切る。要点の文は図より先に置いてあるので残る */
+  max-height: 78vh;
+  overflow: hidden;
 }
 .hint:hover .hint-pop,
 .hint:focus .hint-pop,
 .hint:focus-within .hint-pop {
   display: block;
 }
-.hint-pop b {
+/* 見出しだけを行にする。本文中の強調まで行にすると、文が途中で折れて読みにくい */
+.hint-pop > b:first-child {
   display: block;
   margin-bottom: 6px;
 }
@@ -1749,27 +1758,10 @@ ol.note.steps li {
 }
 .hint-text {
   display: block;
+  margin-bottom: 8px;
   color: var(--muted);
   line-height: 1.6;
 }
-
-/* 取り込んだ加工有効範囲図。線だけを描き直しているので拡大しても読める */
-.pdfview {
-  max-height: 60vh;
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fff;
-  margin-bottom: 10px;
-}
-.pdfview svg {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-.pdfview polyline {
-  fill: none;
-  stroke: #1d2530;
-  stroke-width: 0.5;
-  vector-effect: non-scaling-stroke;
+.hint-text:last-child {
+  margin-bottom: 0;
 }

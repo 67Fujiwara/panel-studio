@@ -7,7 +7,14 @@ import type { DeviceLookup } from '../lib/layout';
 import { DIN_RAIL_WIDTH } from '../data/enclosures';
 import { buildDxfSet, downloadDxfSet } from '../lib/dxfExport';
 import { autoMachining, derivedMachining } from '../lib/machining';
-import { NO_PRICE, priceLines, priceTotal, pricedBomCsv, quoteRequestCsv } from '../lib/price';
+import {
+  NOT_PRICED,
+  NO_PRICE,
+  priceLines,
+  priceTotal,
+  pricedBomCsv,
+  quoteRequestCsv,
+} from '../lib/price';
 import { ShapeGeometry } from './ShapeGeometry';
 import { AiAllFaces } from './AiAllFaces';
 import { deviceLookup, useStore } from '../store';
@@ -489,6 +496,7 @@ export function FacePicker() {
             </table>
             <p className="note">
               グレーの行は<b>派生部品</b>（DINレール・ダクト・ネジ）。手作業で一番漏れるところを自動で足しています。
+              数を拾うだけで<b>値段は付けません</b>（定尺の切り売りと在庫のネジなので、案件ごとに型番で買うものではありません）。
             </p>
           </>
         )}
@@ -496,7 +504,7 @@ export function FacePicker() {
         <p className="calc">盤内総発熱 = {heat.toFixed(1)} W</p>
         {bom.length > 0 && (
           <p className={`calc${money.missing > 0 ? ' bad' : ''}`}>
-            部品金額 = {money.total.toLocaleString('ja-JP')} 円
+            機器金額 = {money.total.toLocaleString('ja-JP')} 円
             {money.missing > 0 && `（単価不明 ${money.missing} 件は含みません）`}
           </p>
         )}
@@ -636,9 +644,10 @@ export function FacePicker() {
         <h3>CSV 書き出し</h3>
         <p className="note">
           <b>部品表（金額つき）</b>は設定画面の単価表を引いて、単価・金額・合計を入れます。
-          単価が無いものは「{NO_PRICE}」と出ます。
+          単価が無いものは「{NO_PRICE}」、DINレール・ダクト・ネジは「{NOT_PRICED}」と出ます。
           <b>見積依頼 CSV</b> はミスミの<b>「型番一括入力」にそのまま入る書式</b>
-          （注文番号・型番・メーカー名・数量・希望出荷日／Shift-JIS）で出します。
+          （注文番号・型番・メーカー名・数量・希望出荷日／Shift-JIS）で、
+          <b>機器だけ</b>を出します。
           返ってきた見積 CSV を設定画面で読み込むと単価が埋まります。
         </p>
         <div className="row-buttons">
