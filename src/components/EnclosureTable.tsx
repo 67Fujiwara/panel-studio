@@ -1,3 +1,4 @@
+import { withAutoArea } from '../lib/workArea';
 import { useStore } from '../store';
 import type { PanelSpec } from '../types';
 
@@ -135,7 +136,12 @@ export function EnclosureTable() {
                   />
                 </td>
                 <td>
-                  <button onClick={() => setPanel(e)} title="この型式を今の盤に読み込む">
+                  <button
+                    // マスタに範囲が未登録でも、シリーズから分かるぶんは自動で当てる。
+                    // 前の盤の範囲は別物なので持ち越さない（e 側の登録が正）
+                    onClick={() => setPanel(withAutoArea({ ...e, workArea: e.workArea }).spec)}
+                    title="この型式を今の盤に読み込む"
+                  >
                     使う
                   </button>
                 </td>

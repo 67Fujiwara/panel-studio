@@ -133,6 +133,34 @@ export function blankFaceArea(): FaceWorkArea {
  *    ここに入れてあるのは「毎回ゼロから打ち込まなくて済む出発点」であって、正解の保証ではない。
  *    ※1 の注記どおり、屋外形はボデー外形が基準（ヨコ W-4 × タテ H-6）になる点も要確認。
  */
+/**
+ * 型式名からシリーズを見分けて、対応する加工有効範囲を返す。
+ *
+ * DXF の中に範囲の図形は無い（加工有効範囲図は模式図、製品図にはハッチング無し）ので、
+ * **図形からではなく型式名から**当てる。型式は DXF のファイル名から入るため、
+ * 実務上は「DXF を読ませれば範囲も入る」ことになる。
+ * 手で登録して回る必要があるのは、ここに無いシリーズだけ。
+ */
+export function presetForModel(model: string | undefined): { series: string; area: WorkArea } | null {
+  const m = (model ?? '').trim().toUpperCase();
+  // RA30-65 / RA30-78-1C_K / RA30-55C_K … 派生記号が付いても頭の「RA+数字」で見る
+  if (/^RA\d/.test(m)) return { series: '日東工業 RA形（片扉）', area: NITTO_RA_PRESET };
+  return null;
+}
+
+/**
+ * 盤スペックに、型式から分かる加工有効範囲を書き足して返す。
+ *
+ * **登録済みの値は上書きしない。** 人が直した数値を、型式を選び直した拍子に
+ * プリセットへ戻してしまうのが一番まずい。何も無いときだけ埋める。
+ */
+export function withAutoArea(spec: PanelSpec): { spec: PanelSpec; applied: string | null } {
+  if (areaFaceCount(spec.workArea) > 0) return { spec, applied: null };
+  const preset = presetForModel(spec.model);
+  if (!preset) return { spec, applied: null };
+  return { spec: { ...spec, workArea: structuredClone(preset.area) }, applied: preset.series };
+}
+
 export const NITTO_RA_PRESET: WorkArea = {
   // 扉：四辺とも端から 10mm
   door: { inset: { top: 10, bottom: 10, left: 10, right: 10 }, excludes: [] },
