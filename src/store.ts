@@ -215,7 +215,19 @@ type State = {
    * AI が出した段割りを今の面に反映する。
    * 座標は決めさせず、並び順と段だけを書き換えて詰め込みに任せる。
    */
-  applyAiPlan: (plan: AiPlan) => void;
+  /**
+   * AI の案を当てる。
+   * face を渡すとその面に当てる（全面まとめて回すとき。画面は切り替えない）。
+   * keepUndo を立てると控えを上書きしない＝まとめて1回で戻せる。
+   */
+  applyAiPlan: (plan: AiPlan, opts?: { face?: FaceId; keepUndo?: boolean }) => void;
+  /**
+   * AI の案を取り消して、押す前の状態に戻す。
+   * 戻せる控えが無ければ false（同じ案を2回取り消せないようにする）。
+   */
+  undoAiPlan: () => boolean;
+  /** 不採用のときに書いてもらった作法を足す。次からの依頼に指示として添える */
+  addHouseRule: (text: string) => void;
 
   /** 盤マスタ。今の盤の寸法をそのまま型式として登録する */
   addEnclosure: (from?: PanelSpec) => void;
@@ -279,6 +291,17 @@ type State = {
   setCenter: (placed: PlacedDevice, size: { w: number; h: number }, cx: number, cy: number) => void;
   resetLayout: () => void;
 };
+
+/**
+ * AI の案を押す前の控え。1回ぶんだけ持つ。
+ * ストアの状態に入れないのは、バックアップの書き出し対象に混ぜたくないため。
+ */
+let aiUndo: {
+  items: LayoutItem[];
+  pinned: PlacedDevice[];
+  machining: Machining[];
+  profile: Profile;
+} | null = null;
 
 export const useStore = create<State>((set) => ({
   screen: 'start',
@@ -510,9 +533,20 @@ export const useStore = create<State>((set) => ({
       return { ai };
     }),
 
-  applyAiPlan: (plan) =>
+  applyAiPlan: (plan, opts) =>
     set((s) => {
-      const face = s.face;
+      const face = opts?.face ?? s.face;
+      // 不採用のときに戻せるよう、押す前をまるごと控えておく。
+      // 「AI に任せてみる」の心理的な敷居は、取り消せるかどうかで決まる。
+      // 全面まとめて回すときは最初の1回だけ控え、まとめて戻せるようにする
+      if (!(opts?.keepUndo && aiUndo)) {
+        aiUndo = {
+          items: s.items,
+          pinned: s.pinned,
+          machining: s.machining,
+          profile: s.profile,
+        };
+      }
       const rot = plan.rotate ?? {};
       const mine = s.items.filter((i) => i.face === face);
       const others = s.items.filter((i) => i.face !== face);
@@ -593,6 +627,24 @@ export const useStore = create<State>((set) => ({
         pinned: s.pinned.filter((p) => p.face !== face),
         selectedUid: null,
       };
+    }),
+
+  undoAiPlan: () => {
+    if (!aiUndo) return false;
+    const back = aiUndo;
+    aiUndo = null;
+    useStore.setState({ ...back, selectedUid: null });
+    return true;
+  },
+
+  addHouseRule: (text) =>
+    set((s) => {
+      const t = text.trim();
+      if (!t) return s;
+      const rules = [...(s.ai.houseRules ?? []), t];
+      const ai = { ...s.ai, houseRules: rules };
+      saveAi(ai);
+      return { ai };
     }),
 
   // --- 盤マスタ ---

@@ -348,6 +348,13 @@ export type AiSettings = {
   model: string;
   /** ブラウザに置く API キー。プロキシ運用なら空のまま */
   apiKey: string;
+  /**
+   * 不採用のときに書いてもらう「うちの作法」。
+   *
+   * ⚠ これはモデルを学習させるものではない（API 越しに学習はできない）。
+   *    次からの依頼に**指示として毎回添える**もの。効き方は指示文と同じ。
+   */
+  houseRules?: string[];
   /** ブラウザから直に Anthropic を叩くときの許可ヘッダを付ける */
   directBrowser: boolean;
   maxTokens: number;

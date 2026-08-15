@@ -150,6 +150,9 @@ const COMMON = [
   'area が渡されたときは **加工有効範囲** です。rect の中だけが使え、',
   'excludes の矩形は使えません（ボルトホルダーなど）。機器も加工もこの中に収めること。',
   'area が無い面は面いっぱい使えます。',
+  '',
+  'devices が空のときは**加工だけ**を考えてください（換気口、ケーブル引き込みの切り欠き、',
+  '銘板の開口など）。その場合は cuts だけを返し、rows と places は空配列にしてください。',
 ];
 
 /** 中板（ダクトを扱う面）の指示。段割りだけを決めさせる。 */
@@ -215,8 +218,17 @@ const FREE_PROMPT = [
  * ここに書いてあることが、規則で書き下せないから AI に任せている中身そのもの。
  * 変えたくなったらこの文面を直す。中板とそれ以外で決めるものが違うので分けてある。
  */
-export function systemPrompt(req: AiRequest): string {
-  return (req.plate ? PLATE_PROMPT : FREE_PROMPT).join('\n');
+export function systemPrompt(req: AiRequest, houseRules: string[] = []): string {
+  const base = (req.plate ? PLATE_PROMPT : FREE_PROMPT).join('\n');
+  const rules = houseRules.filter((r) => r.trim());
+  if (rules.length === 0) return base;
+  // 不採用のときに書いてもらった作法。学習ではなく、毎回の指示に足しているだけ
+  return [
+    base,
+    '',
+    'この会社での決め事（過去に「不採用」で指摘されたこと）。必ず守ること:',
+    ...rules.map((r) => `- ${r}`),
+  ].join('\n');
 }
 
 /** 中板の指示文。古い呼び出しと自動テストのために残してある。 */
@@ -243,8 +255,9 @@ export function parsePlan(text: string): AiPlan | null {
   if (start < 0 || end <= start) return null;
   try {
     const data = JSON.parse(text.slice(start, end + 1)) as AiPlan;
-    // 中板は rows、それ以外は places。どちらも無ければ配置案として読めない
-    if (!Array.isArray(data.rows) && !Array.isArray(data.places)) return null;
+    // 中板は rows、それ以外は places。機器ゼロなら cuts だけの案もありうる
+    if (!Array.isArray(data.rows) && !Array.isArray(data.places) && !Array.isArray(data.cuts))
+      return null;
     return data;
   } catch {
     return null;
@@ -269,7 +282,11 @@ export function validatePlan(plan: AiPlan, req: AiRequest): PlanCheck {
     return null;
   };
 
-  if (req.plate) {
+  // 機器ゼロの依頼（加工だけ）。cuts が無ければ何も提案されていない
+  if (known.size === 0) {
+    if (!Array.isArray(plan.cuts) || plan.cuts.length === 0)
+      return { ok: false, reason: '加工の案がありません' };
+  } else if (req.plate) {
     if (!Array.isArray(plan.rows)) return { ok: false, reason: 'rows がありません' };
     for (const row of plan.rows) {
       if (!Array.isArray(row.uids)) return { ok: false, reason: '段の中身が配列ではありません' };
@@ -288,7 +305,7 @@ export function validatePlan(plan: AiPlan, req: AiRequest): PlanCheck {
     }
   }
 
-  if (seen.size !== known.size) {
+  if (known.size > 0 && seen.size !== known.size) {
     const missing = [...known].filter((u) => !seen.has(u)).length;
     return { ok: false, reason: `${missing} 台が${note}に割り当てられていません` };
   }
@@ -317,6 +334,7 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
  * 社内にプロキシを立てる場合はそのURLに差し替える（そちらが本命。理由は README）。
  */
 export const DEFAULT_AI: AiSettings = {
+  houseRules: [],
   endpoint: 'https://api.anthropic.com/v1/messages',
   model: 'claude-sonnet-5',
   apiKey: '',
@@ -353,7 +371,7 @@ export async function requestPlan(
   const body = {
     model: s.model,
     max_tokens: s.maxTokens,
-    system: systemPrompt(req),
+    system: systemPrompt(req, s.houseRules ?? []),
     messages: [{ role: 'user', content: JSON.stringify(req) + extra }],
   };
 

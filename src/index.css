@@ -1623,3 +1623,21 @@ table.workarea button.linkish {
   margin: 0;
   font-size: 13px;
 }
+
+
+/* --- AI の採否とフィードバック --- */
+.ai-verdict {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.ai-notes li.bad {
+  color: var(--bad);
+}
+ul.cutsummary.rules li {
+  gap: 8px;
+}
+ul.cutsummary.rules li span {
+  flex: 1 1 auto;
+  min-width: 0;
+}

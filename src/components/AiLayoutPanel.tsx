@@ -25,12 +25,17 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
   const myDevices = useStore((s) => s.myDevices);
   const ai = useStore((s) => s.ai);
   const applyAiPlan = useStore((s) => s.applyAiPlan);
+  const undoAiPlan = useStore((s) => s.undoAiPlan);
+  const addHouseRule = useStore((s) => s.addHouseRule);
   const go = useStore((s) => s.go);
 
   const lookup = useMemo(() => deviceLookup(devices, myDevices), [devices, myDevices]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>('');
   const [notes, setNotes] = useState<string[]>([]);
+  /** 直前に当てた案の採否がまだ決まっていないか */
+  const [pending, setPending] = useState(false);
+  const [feedback, setFeedback] = useState('');
 
   const missing = aiReady(ai);
   const count = items.filter((i) => i.face === face).length;
@@ -40,6 +45,7 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
     setBusy(true);
     setMsg('');
     setNotes([]);
+    setPending(false);
     const req = buildRequest(panel, profile, face, items, lookup);
     const extra = withHint ? violationHint(layout.violations) : '';
     const { plan, error } = await requestPlan(ai, req, extra);
@@ -58,6 +64,33 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
       plate
         ? `${check.plan.rows?.length ?? 0} 段に割り付けました${cutMsg}。`
         : `${check.plan.places?.length ?? 0} 台を配置しました${cutMsg}。`,
+    );
+    setPending(true);
+  };
+
+  /** 採用。控えを捨てるだけで、図はそのまま。 */
+  const accept = () => {
+    setPending(false);
+    setFeedback('');
+    setMsg('採用しました。');
+  };
+
+  /**
+   * 不採用。押す前の状態に戻し、書いてもらった理由を次からの指示に足す。
+   * ⚠ モデルを学習させるわけではない（API 越しに学習はできない）。毎回の指示に添えるだけ。
+   */
+  const reject = () => {
+    const back = undoAiPlan();
+    if (feedback.trim()) addHouseRule(feedback.trim());
+    setPending(false);
+    setNotes([]);
+    setFeedback('');
+    setMsg(
+      back
+        ? feedback.trim()
+          ? '元に戻しました。書いていただいた内容は次からの指示に足します。'
+          : '元に戻しました。'
+        : '戻せる控えがありませんでした。',
     );
   };
 
@@ -89,8 +122,12 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
       ) : (
         <>
           <div className="row-buttons">
-            <button className="primary" disabled={busy || count === 0} onClick={() => void run(false)}>
-              {busy ? '考えています…' : `AI に${plate ? '並べて' : '置いて'}もらう（${count} 台）`}
+            <button className="primary" disabled={busy} onClick={() => void run(false)}>
+              {busy
+                ? '考えています…'
+                : count === 0
+                  ? 'AI に加工を考えてもらう'
+                  : `AI に${plate ? '並べて' : '置いて'}もらう（${count} 台）`}
             </button>
             {layout.violations.length > 0 && (
               <button disabled={busy} onClick={() => void run(true)}>
@@ -98,7 +135,12 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
               </button>
             )}
           </div>
-          {count === 0 && <p className="note">先に使用部品を選んでください。</p>}
+          {count === 0 && (
+            <p className="note">
+              使用部品を選んでいないので、<b>加工だけ</b>を考えてもらいます
+              （換気口・ケーブル引き込みの切り欠きなど）。
+            </p>
+          )}
         </>
       )}
 
@@ -113,6 +155,40 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
             <li key={i}>{n}</li>
           ))}
         </ul>
+      )}
+
+      {/*
+        採否を必ず人に決めさせる。自動で確定させると、気づかないうちに
+        AI の案で図が進んでしまう。不採用なら押す前に戻す。
+      */}
+      {pending && (
+        <div className="ai-verdict">
+          <p className="note">
+            この案を<b>採用しますか</b>。不採用なら押す前の状態に戻します。
+          </p>
+          <label className="num">
+            <span>
+              気になったところ<em>不採用のときは書いてください</em>
+            </span>
+            <input
+              type="text"
+              value={feedback}
+              placeholder="例: 端子台は必ず右端から並べる"
+              onChange={(e) => setFeedback(e.target.value)}
+            />
+          </label>
+          <p className="note">
+            書いた内容は<b>次からの依頼に指示として毎回添えます</b>
+            （設定画面で確認・削除できます）。
+            モデルそのものを学習させるものではありません。
+          </p>
+          <div className="row-buttons">
+            <button className="primary" onClick={accept}>
+              採用する
+            </button>
+            <button onClick={reject}>不採用（元に戻す）</button>
+          </div>
+        </div>
       )}
     </div>
   );

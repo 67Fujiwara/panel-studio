@@ -11,6 +11,7 @@ export function AiSettingsPanel() {
   const ai = useStore((s) => s.ai);
   const setAi = useStore((s) => s.setAi);
   const missing = aiReady(ai);
+  const rules = ai.houseRules ?? [];
 
   return (
     <>
@@ -69,8 +70,33 @@ export function AiSettingsPanel() {
       </label>
 
       <p className={`calc${missing ? ' bad' : ''}`}>
-        {missing ?? '接続先は設定済みです。中板の画面に「AI 自動配置」が出ます。'}
+        {missing ?? '接続先は設定済みです。各面の画面に「AI 自動配置」が出ます。'}
       </p>
+
+      <h4>この会社での決め事（{rules.length}）</h4>
+      <p className="note">
+        AI の案を<b>不採用</b>にしたときに書いていただいた内容です。
+        <b>次からの依頼に指示として毎回添えます。</b>
+        モデルそのものを学習させるものではありません（API 越しに学習はできません）。
+        効き方は指示文と同じなので、増えすぎたら整理してください。
+      </p>
+      {rules.length === 0 ? (
+        <p className="note">まだありません。</p>
+      ) : (
+        <ul className="cutsummary rules">
+          {rules.map((r, i) => (
+            <li key={i}>
+              <span>{r}</span>
+              <button
+                aria-label="決め事を消す"
+                onClick={() => setAi({ houseRules: rules.filter((_, j) => j !== i) })}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </>
   );
 }

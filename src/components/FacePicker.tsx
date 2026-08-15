@@ -8,6 +8,7 @@ import { DIN_RAIL_WIDTH } from '../data/enclosures';
 import { buildDxfSet, downloadDxfSet } from '../lib/dxfExport';
 import { autoMachining, derivedMachining } from '../lib/machining';
 import { ShapeGeometry } from './ShapeGeometry';
+import { AiAllFaces } from './AiAllFaces';
 import { deviceLookup, useStore } from '../store';
 import { rotatedSize } from '../types';
 import type {
@@ -421,6 +422,8 @@ export function FacePicker() {
       </div>
 
       <div className="bombox">
+        <AiAllFaces />
+
         <h2>BOM（盤全体）</h2>
         {bom.length === 0 ? (
           <p className="note">機器を選ぶとここに盤全体の部品表が出ます。</p>

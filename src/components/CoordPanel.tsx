@@ -16,12 +16,15 @@ export function CoordPanel({ layout, devices }: { layout: LayoutResult; devices:
   const items = useStore((s) => s.items);
   const face = useStore((s) => s.face);
 
-  // 座標をいじるたびに行が並び替わらないよう、「＋で足した順」で固定して出す
+  // 座標をいじるたびに行が並び替わらないよう、「＋で足した順」で固定して出す。
+  // 並べる向きは**新しいものが上**。足した1台がすぐ目に入り、そのまま座標を打てる
+  // （足すたびに下へ伸びると、毎回スクロールして探すことになる）
   const byUid = new Map(layout.placed.map((p) => [p.uid, p]));
   const rows = items
     .filter((i) => i.face === face)
     .map((i) => byUid.get(i.uid))
-    .filter((p): p is NonNullable<typeof p> => Boolean(p));
+    .filter((p): p is NonNullable<typeof p> => Boolean(p))
+    .reverse();
 
   if (rows.length === 0) {
     return (
