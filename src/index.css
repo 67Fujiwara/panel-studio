@@ -185,6 +185,19 @@ svg.unfold {
   stroke-width: 0.75;
 }
 /*
+  CAD の外形線を取り込んである機器。レイアウト画面と同じく、外形線そのものを機器の姿にする。
+  中板の枠は破線なので、中身まで破線を継がないよう打ち消す。
+  この縮尺で実寸の線幅を引くと潰れるため、太さは拡大率によらない。
+*/
+.ufcell .ufbody .ufshape polyline,
+.ufcell .ufbody .ufshape polygon,
+.ufcell .ufbody .ufshape circle {
+  fill: none;
+  stroke-dasharray: none;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+/*
   加工。レイアウト画面の加工線（.cutouts）と同じ赤にして、同じものだと分かるようにする。
   この縮尺ではタップの二重丸が潰れるので、塗り方で見分けさせる。
   φ4 の穴は 1〜2px にしかならないため、線は拡大率によらない太さで引いて点として残す。

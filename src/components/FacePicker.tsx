@@ -244,18 +244,44 @@ function FaceContents({
         const spec = devices.get(p.specId);
         if (!spec) return null;
         const s = rotatedSize(spec.size, p.rot);
+        const color = colorOf(spec.category);
+        if (!spec.shape) {
+          return (
+            <rect
+              key={p.uid}
+              className="ufdev"
+              x={p.x}
+              y={p.y}
+              width={s.w}
+              height={s.h}
+              // セルの塗り（.ufcell rect）に負けないよう、分類の色は style で当てる。
+              // fill 属性は presentation attribute なので CSS に上書きされてしまう
+              style={{ fill: color }}
+            />
+          );
+        }
+        /*
+          CAD の外形線を取り込んである機器は、**どの面でも**その形で描く。
+          四角のままだと、レイアウト画面では実形状・展開図では箱、と同じ機器が
+          2通りに見えてしまう。見分けが付かないと、盤ぜんたいを俯瞰する意味が薄れる。
+
+          セルの中は Y 上向き（面の座標）のままなので、回転はそのままの向きで掛けられる
+          （レイアウト画面は SVG の Y 下向きなので符号が逆になっている）。
+        */
+        const cx = p.x + s.w / 2;
+        const cy = p.y + s.h / 2;
         return (
-          <rect
-            key={p.uid}
-            className="ufdev"
-            x={p.x}
-            y={p.y}
-            width={s.w}
-            height={s.h}
-            // セルの塗り（.ufcell rect）に負けないよう、分類の色は style で当てる。
-            // fill 属性は presentation attribute なので CSS に上書きされてしまう
-            style={{ fill: colorOf(spec.category) }}
-          />
+          <g key={p.uid} className="ufshape">
+            <g transform={`rotate(${p.rot ?? 0} ${cx} ${cy})`}>
+              <g
+                transform={`translate(${cx - spec.size.w / 2} ${cy - spec.size.h / 2}) scale(${
+                  spec.size.w / (spec.shape.w || 1)
+                } ${spec.size.h / (spec.shape.h || 1)})`}
+              >
+                <ShapeGeometry shape={spec.shape} color={color} />
+              </g>
+            </g>
+          </g>
         );
       })}
       {/* 加工はいちばん上に描く。機器の下に隠れると位置が確かめられない */}
