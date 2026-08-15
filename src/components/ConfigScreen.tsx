@@ -4,7 +4,12 @@ import { EnclosureTable } from './EnclosureTable';
 import { DuctRailSettings } from './DuctRailSettings';
 import { DuctTable } from './DuctTable';
 import { AiSettingsPanel } from './AiSettingsPanel';
-import { useStore, type ConfigFile } from '../store';
+import {
+  useStore,
+  type ConfigFile,
+  type MyConfigFile,
+  type ProjectFile,
+} from '../store';
 import { downloadJson, pickJson } from '../lib/jsonFile';
 
 /**
@@ -22,18 +27,40 @@ export function ConfigScreen() {
   const loadConfig = useStore((s) => s.loadConfig);
   const enclosures = useStore((s) => s.enclosures);
   const ducts = useStore((s) => s.ducts);
+  const owners = useStore((s) => s.owners);
+  const myDevices = useStore((s) => s.myDevices);
+  const projects = useStore((s) => s.projects);
+  const loadMyConfig = useStore((s) => s.loadMyConfig);
+  const loadProjectFile = useStore((s) => s.loadProjectFile);
 
   const [open, setOpen] = useState<string | null>(categories[0]?.id ?? null);
   const [editing, setEditing] = useState<string | null>(null);
 
-  const exportFile = () => {
+  // 手で書き出す／読み込む口。ふだんはバックアップ先フォルダへ自動で書かれるので、
+  // ここは「別の PC へ持っていく」「古いファイルを開く」ときの逃げ道
+  const exportConfig = () => {
     const file: ConfigFile = { schemaVersion: 1, categories, devices, profile, enclosures, ducts };
     downloadJson(file, 'panel-studio-settings.json');
   };
-
-  const importFile = async () => {
+  const importConfig = async () => {
     const data = await pickJson<ConfigFile>();
     if (data?.schemaVersion === 1) loadConfig(data);
+  };
+  const exportMy = () => {
+    const file: MyConfigFile = { schemaVersion: 1, owners, devices: myDevices };
+    downloadJson(file, 'panel-studio-myparts.json');
+  };
+  const importMy = async () => {
+    const data = await pickJson<MyConfigFile>();
+    if (data?.schemaVersion === 1) loadMyConfig(data);
+  };
+  const exportProjects = () => {
+    const file: ProjectFile = { schemaVersion: 1, projects };
+    downloadJson(file, 'panel-studio-projects.json');
+  };
+  const importProjects = async () => {
+    const data = await pickJson<ProjectFile>();
+    if (data?.schemaVersion === 1) loadProjectFile(data);
   };
 
   return (
@@ -43,13 +70,58 @@ export function ConfigScreen() {
         <p className="note">
           制御盤の型式、配線ダクトと DINレールの決め事、分類・部品をここで登録します。
           どれも案件ごとに変えるものではないので、レイアウト画面ではなくここにまとめてあります。
-          共有フォルダに書き出しておけば、全員が同じ設定を使えます。
         </p>
-        <div className="row-buttons">
-          <button onClick={exportFile}>書き出し（JSON）</button>
-          <button onClick={() => void importFile()}>読み込み（JSON）</button>
-        </div>
       </div>
+
+      <h3 className="section">バックアップ</h3>
+      <p className="note">
+        <b>ふだんは操作不要です。</b>画面上の帯でバックアップ先フォルダを決めておけば、
+        設定・My部品・完了案件が<b>変わるたびに自動で書き出されます</b>
+        （打っている最中は書かず、手が止まってから。動きがなくても一定時間ごとに書きます）。
+        以前は3つの画面に分かれていた書き出し・読み込みは、ここにまとめました。
+      </p>
+      <table className="encl backup-io">
+        <thead>
+          <tr>
+            <th>中身</th>
+            <th>ファイル名</th>
+            <th>手動</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>設定・盤マスタ・ダクト・部品表</td>
+            <td>panel-studio-settings.json</td>
+            <td className="cand-actions">
+              <button onClick={exportConfig}>書き出し</button>
+              <button onClick={() => void importConfig()}>読み込み</button>
+            </td>
+          </tr>
+          <tr>
+            <td>My部品（担当者ごとの部品）</td>
+            <td>panel-studio-myparts.json</td>
+            <td className="cand-actions">
+              <button onClick={exportMy}>書き出し</button>
+              <button onClick={() => void importMy()}>読み込み</button>
+            </td>
+          </tr>
+          <tr>
+            <td>完了案件</td>
+            <td>panel-studio-projects.json</td>
+            <td className="cand-actions">
+              <button onClick={exportProjects} disabled={projects.length === 0}>
+                書き出し
+              </button>
+              <button onClick={() => void importProjects()}>読み込み</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="note warn">
+        ⚠ <b>API キーはどのファイルにも入りません。</b>
+        共有フォルダに置いたファイルからキーが漏れないようにするためです。
+        キーは各自のブラウザにだけ残るので、PC を替えたら入れ直してください。
+      </p>
 
       <EnclosureTable />
 

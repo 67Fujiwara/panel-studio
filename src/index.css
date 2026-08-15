@@ -1457,3 +1457,70 @@ table.bom .qty em {
     background: #3a2220;
   }
 }
+
+
+/* --- バックアップ先の帯 --- */
+/*
+  「このブラウザにしかない」は消えてから気づく類の話なので、
+  決めるまでは黄色い帯で出しっぱなしにする。決めたあとは細い1行に落とす。
+*/
+.backupbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.backupbar.warn {
+  background: #fff7e6;
+  color: #8a5a00;
+}
+.backupbar.ok {
+  background: var(--surface);
+  color: var(--muted);
+}
+.backupbar .mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+}
+.backupbar.warn .mark {
+  background: #e08a00;
+}
+.backupbar.ok .mark {
+  background: var(--ok);
+}
+.backupbar > span:nth-child(2) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.backupbar em {
+  font-style: normal;
+}
+.backupbar em.bad {
+  color: var(--bad);
+}
+.backupbar button {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.backupbar button.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  border-radius: 999px;
+  font-weight: 600;
+}
+table.backup-io td:nth-child(2) {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}

@@ -2,10 +2,9 @@ import { useMemo, useState } from 'react';
 import { FACES } from '../data/faces';
 import { buildBom } from '../lib/bom';
 import { autoLayout } from '../lib/layout';
-import { downloadJson, pickJson } from '../lib/jsonFile';
 import { buildDxfSet, downloadDxfSet } from '../lib/dxfExport';
 import { asciiFileName } from '../lib/csv';
-import { deviceLookup, useStore, type ProjectFile } from '../store';
+import { deviceLookup, useStore } from '../store';
 import type { Project } from '../store';
 
 /** その案件の機器点数と型式数。一覧で規模がつかめるようにする。 */
@@ -28,7 +27,6 @@ export function ProjectsScreen() {
   const repeatProject = useStore((s) => s.repeatProject);
   const updateProject = useStore((s) => s.updateProject);
   const removeProject = useStore((s) => s.removeProject);
-  const loadProjectFile = useStore((s) => s.loadProjectFile);
 
   const [open, setOpen] = useState<string | null>(null);
   const [owner, setOwner] = useState('');
@@ -56,15 +54,6 @@ export function ProjectsScreen() {
     return buildBom(layouts, p.profile, lookup, ducts);
   };
 
-  const exportFile = () => {
-    const file: ProjectFile = { schemaVersion: 1, projects };
-    downloadJson(file, 'panel-studio-projects.json');
-  };
-  const importFile = async () => {
-    const data = await pickJson<ProjectFile>();
-    if (data?.schemaVersion === 1) loadProjectFile(data);
-  };
-
   return (
     <div className="screen">
       <div className="screen-head">
@@ -75,15 +64,9 @@ export function ProjectsScreen() {
           <b>DXF</b> はその案件の図面4ファイル（キャビネット／中板 × 機器つき／加工穴のみ）を ZIP で出します。
         </p>
         <p className="note">
-          このブラウザにも残していますが、<b>共有フォルダで引き継ぐときは JSON で書き出して</b>
-          ください。他の人の環境では読み込みが必要です。
+          記録は<b>バックアップ先フォルダへ自動で書き出します</b>。
+          書き出し・読み込みの操作は<b>設定</b>画面にまとめてあります。
         </p>
-        <div className="row-buttons">
-          <button onClick={exportFile} disabled={projects.length === 0}>
-            書き出し（JSON）
-          </button>
-          <button onClick={() => void importFile()}>読み込み（JSON）</button>
-        </div>
       </div>
 
       {projects.length === 0 ? (

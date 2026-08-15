@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { PartEditor } from './PartEditor';
-import { downloadJson, pickJson } from '../lib/jsonFile';
-import { useStore, type MyConfigFile } from '../store';
+import { useStore } from '../store';
 
 /**
  * MyConfig 画面。担当者ごとの My部品を登録する。
@@ -16,20 +15,10 @@ export function MyConfigScreen() {
   const addOwner = useStore((s) => s.addOwner);
   const removeOwner = useStore((s) => s.removeOwner);
   const addPart = useStore((s) => s.addPart);
-  const loadMyConfig = useStore((s) => s.loadMyConfig);
 
   const [name, setName] = useState('');
   const [open, setOpen] = useState<string | null>(owners[0] ?? null);
   const [editing, setEditing] = useState<string | null>(null);
-
-  const exportFile = () => {
-    const file: MyConfigFile = { schemaVersion: 1, owners, devices: myDevices };
-    downloadJson(file, 'panel-studio-myparts.json');
-  };
-  const importFile = async () => {
-    const data = await pickJson<MyConfigFile>();
-    if (data?.schemaVersion === 1) loadMyConfig(data);
-  };
 
   return (
     <div className="screen">
@@ -38,7 +27,7 @@ export function MyConfigScreen() {
         <p className="note">
           ここで登録した部品は、レイアウト画面のツリーに
           <b>My部品 → 担当者 → 部品</b> の形で出ます。
-          共有フォルダに書き出しておけば、<b>他の担当者からも見えます</b>。
+          バックアップ先フォルダへは<b>自動で書き出します</b>（設定画面でまとめて扱います）。
         </p>
         <div className="row-buttons">
           <input
@@ -57,8 +46,6 @@ export function MyConfigScreen() {
           >
             ＋ 担当者を追加
           </button>
-          <button onClick={exportFile}>書き出し（JSON）</button>
-          <button onClick={() => void importFile()}>読み込み（JSON）</button>
         </div>
       </div>
 

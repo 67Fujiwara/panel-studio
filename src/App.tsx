@@ -9,6 +9,7 @@ import { PanelCanvas } from './components/PanelCanvas';
 import { ProjectsScreen } from './components/ProjectsScreen';
 import { SettingsPanel } from './components/SettingsPanel';
 import { AiLayoutPanel } from './components/AiLayoutPanel';
+import { BackupBar } from './components/BackupBar';
 import { StartScreen } from './components/StartScreen';
 import { FACE_BY_ID, FACE_LABEL } from './data/faces';
 import { autoLayout, effectiveDepth } from './lib/layout';
@@ -96,6 +97,7 @@ export default function App() {
           </span>
           {nav}
         </header>
+        <BackupBar />
         <main>
           <aside className="left">
             {/*
@@ -138,6 +140,7 @@ export default function App() {
         <span className="tag">制御盤 盤内レイアウト &amp; BOM</span>
         {nav}
       </header>
+      <BackupBar />
       <main className="single">
         {screen === 'start' && <StartScreen />}
         {screen === 'faces' && <FacePicker />}
