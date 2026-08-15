@@ -80,7 +80,7 @@ export function ConfigScreen() {
         （打っている最中は書かず、手が止まってから。動きがなくても一定時間ごとに書きます）。
         以前は3つの画面に分かれていた書き出し・読み込みは、ここにまとめました。
       </p>
-      <table className="encl backup-io">
+      <table className="backup-io">
         <thead>
           <tr>
             <th>中身</th>

@@ -1520,6 +1520,24 @@ table.bom .qty em {
   border-radius: 999px;
   font-weight: 600;
 }
+/* 盤・ダクトのマスタ表とは別物なので、encl のクラスは付けない（表の並びが変わるため） */
+table.backup-io {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 10px;
+}
+table.backup-io th {
+  text-align: left;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding: 4px 6px;
+}
+table.backup-io td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
 table.backup-io td:nth-child(2) {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
