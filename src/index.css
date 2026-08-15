@@ -57,6 +57,12 @@ main.single {
   display: block;
   overflow-y: auto;
   padding: 24px;
+  /*
+    スクロールバーの場所を常に空けておく。出入りのたびに中身の幅が変わると、
+    中央寄せの画面が左右にずれる。手引きを開いた拍子にこれが起きると、
+    カーソルの下からアイコンが逃げて開閉を繰り返す。
+  */
+  scrollbar-gutter: stable;
 }
 
 /* --- 面の選択 --- */
@@ -1689,10 +1695,16 @@ ol.note.steps li {
   「どこを見ればいいか」は最初の1回しか要らない。常時大きく出すと毎日邪魔になり、
   かといって文章だけではメーカーサイトのどのボタンかが伝わらない。
 */
+/*
+  当たり判定はアイコンの絵より少し広く取る。16px の丸だけだと、
+  数ピクセルのずれでカーソルが外れて開閉を繰り返す。
+  余白ぶんは負のマージンで打ち消し、見た目の位置は変えない。
+*/
 .hint {
   position: relative;
   display: inline-block;
-  margin-left: 6px;
+  padding: 5px;
+  margin: -5px -5px -5px 1px;
   vertical-align: middle;
   cursor: help;
 }
@@ -1716,7 +1728,7 @@ ol.note.steps li {
 .hint-pop {
   position: absolute;
   left: 0;
-  top: 22px;
+  top: 26px;
   z-index: 40;
   display: none;
   width: 360px;
@@ -1738,6 +1750,12 @@ ol.note.steps li {
   max-height: 78vh;
   overflow: hidden;
 }
+/* 図を横に並べる手引き。中身の幅ぶんだけ広げる */
+.hint-pop.wide {
+  width: 700px;
+  /* 窓が狭いときに横スクロールバーを出さない（出入りするとまた画面が揺れる） */
+  max-width: calc(100vw - 48px);
+}
 .hint:hover .hint-pop,
 .hint:focus .hint-pop,
 .hint:focus-within .hint-pop {
@@ -1755,6 +1773,24 @@ ol.note.steps li {
   margin-bottom: 6px;
   border: 1px solid var(--line);
   border-radius: 4px;
+}
+/*
+  図を横並びにする。縦に積むと画面より高くなり、スクロールバーが出入りするたびに
+  中身が左右にずれてカーソルがアイコンから外れる（開閉を繰り返す原因になる）。
+*/
+.hint-figs {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.hint-figs .hint-fig {
+  flex: 1 1 0;
+  min-width: 0;
+  margin-bottom: 0;
+}
+/* ダウンロード画面のほうが文字が細かいので、そちらに幅を多めに配る */
+.hint-figs .hint-fig:first-child {
+  flex-grow: 1.25;
 }
 .hint-text {
   display: block;

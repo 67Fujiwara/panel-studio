@@ -7,13 +7,22 @@ import type { ReactNode } from 'react';
  * 画面に常時大きく出しておくと毎日邪魔になる。かといって説明文だけだと
  * メーカーサイトのどのボタンかは伝わらない。so アイコンに畳んでおく。
  */
-export function HintIcon({ label, children }: { label: string; children: ReactNode }) {
+export function HintIcon({
+  label,
+  wide,
+  children,
+}: {
+  label: string;
+  /** 図を横に並べる手引き用。中身の幅に合わせて広げる */
+  wide?: boolean;
+  children: ReactNode;
+}) {
   return (
     <span className="hint" tabIndex={0} aria-label={label}>
       <span className="hint-mark" aria-hidden="true">
         ?
       </span>
-      <span className="hint-pop" role="tooltip">
+      <span className={`hint-pop${wide ? ' wide' : ''}`} role="tooltip">
         <b>{label}</b>
         {children}
       </span>
@@ -157,52 +166,66 @@ export function DepthHint() {
     <>
       <span className="hint-text">
         メーカーの図面ダウンロード画面で<b>「納入仕様書（製品外形図・仕様書）」の PDF</b>です。
-        その中の側面図・断面図から、下の2つを読みます。
+        その中の側面図・断面図から、右の2つを読みます。
         <b>メーカー図面の値が実物と合わないことがある</b>ので、
         既定値は置かず毎回入れ直す作りにしています。
       </span>
-      <DownloadDialog highlight="spec" />
-      <svg viewBox="0 0 330 180" className="hint-fig">
-        <rect x={0} y={0} width={330} height={180} fill="#fff" />
-        {/* 盤の断面（横から見たところ） */}
-        <rect x={40} y={30} width={230} height={110} fill="none" stroke="#1d2530" strokeWidth={2} />
-        {/* 中板 */}
-        <rect x={95} y={34} width={7} height={102} fill="#6b7684" />
-        <text x={98} y={155} fontSize={10} fill="#6b7684" textAnchor="middle">
-          中板
-        </text>
-        {/* 扉 */}
-        <rect x={262} y={30} width={8} height={110} fill="#6b7684" />
-        <text x={266} y={155} fontSize={10} fill="#6b7684" textAnchor="middle">
-          扉
-        </text>
-        {/* 扉裏の機器 */}
-        <rect x={238} y={60} width={24} height={26} fill="#4f6bed" fillOpacity={0.5} />
+      {/*
+        図は横に並べる。縦に積むと画面より高くなってスクロールバーが出入りし、
+        そのぶん中身が左右にずれてカーソルがアイコンから外れる（点滅の元になる）。
+      */}
+      <span className="hint-figs">
+        <DownloadDialog highlight="spec" />
+        <svg viewBox="0 0 330 190" className="hint-fig">
+          <rect x={0} y={0} width={330} height={190} fill="#fff" />
+          {/* 盤の断面（横から見たところ） */}
+          <rect
+            x={40}
+            y={30}
+            width={230}
+            height={110}
+            fill="none"
+            stroke="#1d2530"
+            strokeWidth={2}
+          />
+          {/* 中板 */}
+          <rect x={95} y={34} width={7} height={102} fill="#6b7684" />
+          <text x={98} y={152} fontSize={10} fill="#6b7684" textAnchor="middle">
+            中板
+          </text>
+          {/* 扉 */}
+          <rect x={262} y={30} width={8} height={110} fill="#6b7684" />
+          <text x={288} y={137} fontSize={10} fill="#6b7684" textAnchor="middle">
+            扉
+          </text>
+          {/* 扉裏の機器 */}
+          <rect x={238} y={60} width={24} height={26} fill="#4f6bed" fillOpacity={0.5} />
 
-        {/* 背面→中板上面 */}
-        <line x1={40} y1={20} x2={102} y2={20} stroke="#c0392b" strokeWidth={1.5} />
-        <line x1={40} y1={16} x2={40} y2={24} stroke="#c0392b" strokeWidth={1.5} />
-        <line x1={102} y1={16} x2={102} y2={24} stroke="#c0392b" strokeWidth={1.5} />
-        <text x={71} y={12} fontSize={10} fill="#c0392b" textAnchor="middle">
-          背面→中板上面
-        </text>
+          {/* 背面→中板上面 */}
+          <line x1={40} y1={20} x2={102} y2={20} stroke="#c0392b" strokeWidth={1.5} />
+          <line x1={40} y1={16} x2={40} y2={24} stroke="#c0392b" strokeWidth={1.5} />
+          <line x1={102} y1={16} x2={102} y2={24} stroke="#c0392b" strokeWidth={1.5} />
+          <text x={71} y={12} fontSize={10} fill="#c0392b" textAnchor="middle">
+            背面→中板上面
+          </text>
 
-        {/* 扉裏の突出 */}
-        <line x1={238} y1={168} x2={270} y2={168} stroke="#c0392b" strokeWidth={1.5} />
-        <line x1={238} y1={164} x2={238} y2={172} stroke="#c0392b" strokeWidth={1.5} />
-        <line x1={270} y1={164} x2={270} y2={172} stroke="#c0392b" strokeWidth={1.5} />
-        <text x={254} y={162} fontSize={10} fill="#c0392b" textAnchor="middle">
-          扉裏の突出
-        </text>
+          {/* 扉裏の突出 */}
+          <line x1={238} y1={166} x2={270} y2={166} stroke="#c0392b" strokeWidth={1.5} />
+          <line x1={238} y1={162} x2={238} y2={170} stroke="#c0392b" strokeWidth={1.5} />
+          <line x1={270} y1={162} x2={270} y2={170} stroke="#c0392b" strokeWidth={1.5} />
+          <text x={254} y={182} fontSize={10} fill="#c0392b" textAnchor="middle">
+            扉裏の突出
+          </text>
 
-        {/* 有効奥行き */}
-        <line x1={102} y1={105} x2={238} y2={105} stroke="#2f6fd0" strokeWidth={1.5} />
-        <line x1={102} y1={101} x2={102} y2={109} stroke="#2f6fd0" strokeWidth={1.5} />
-        <line x1={238} y1={101} x2={238} y2={109} stroke="#2f6fd0" strokeWidth={1.5} />
-        <text x={170} y={100} fontSize={11} fill="#2f6fd0" textAnchor="middle" fontWeight="700">
-          有効奥行き（この2つを引いた残り）
-        </text>
-      </svg>
+          {/* 有効奥行き。線は実寸の位置、文字は空いているところへ逃がす */}
+          <line x1={102} y1={110} x2={238} y2={110} stroke="#2f6fd0" strokeWidth={1.5} />
+          <line x1={102} y1={106} x2={102} y2={114} stroke="#2f6fd0" strokeWidth={1.5} />
+          <line x1={238} y1={106} x2={238} y2={114} stroke="#2f6fd0" strokeWidth={1.5} />
+          <text x={170} y={124} fontSize={9} fill="#2f6fd0" textAnchor="middle" fontWeight="700">
+            有効奥行き（この2つを引いた残り）
+          </text>
+        </svg>
+      </span>
     </>
   );
 }
