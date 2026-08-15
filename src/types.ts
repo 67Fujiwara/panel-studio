@@ -474,4 +474,27 @@ export type BomLine = {
   unit: string;
   /** 機器本体か、DINレール等の派生部品か */
   source: 'device' | 'derived';
+  /**
+   * 単価表を引くときの型番。model は「（必要長 3000mm）」のような但し書きが
+   * 付くことがあるので、突き合わせ用に素の型番を別に持つ。
+   */
+  key?: string;
 };
+
+/**
+ * 単価表の1件。型番をキーにして持つ。
+ *
+ * 部品マスタではなく型番の表にするのは、DINレール・ダクト・ネジのような
+ * 派生部品にも値段が要るため（あれらは DeviceSpec ではない）。
+ */
+export type PriceEntry = {
+  /** 単価(円) */
+  unit: number;
+  /** 仕入先。ミスミ以外もあるので文字列で持つ */
+  supplier?: string;
+  /** いつ時点の値か。見積は水物なので必ず出す */
+  at?: string;
+};
+
+/** 型番 → 単価。 */
+export type PriceBook = Record<string, PriceEntry>;

@@ -21,6 +21,7 @@ import type {
   DuctSpec,
   DuctTarget,
   FaceId,
+  PriceBook,
   Machining,
   MachiningDraft,
   MountType,
@@ -126,6 +127,8 @@ export type ConfigFile = {
   enclosures?: PanelSpec[];
   /** ダクトマスタ。古いファイルには無いので任意 */
   ducts?: DuctSpec[];
+  /** 単価表（型番→単価）。古いファイルには無いので任意 */
+  prices?: PriceBook;
 };
 
 /** MyConfig 画面が読み書きするファイルの中身。共有フォルダに置いて全員で見る。 */
@@ -228,6 +231,16 @@ type State = {
   undoAiPlan: () => boolean;
   /** 不採用のときに書いてもらった作法を足す。次からの依頼に指示として添える */
   addHouseRule: (text: string) => void;
+  /**
+   * まだ採否を決めていない AI の案。
+   * 画面を移っても消えないよう、部品側ではなくストアに置く
+   * （面を見に行って戻ったら採用・不採用が消えている、を防ぐ）。
+   */
+  aiReview: AiReview | null;
+  setAiReview: (r: AiReview | null) => void;
+  /** 採否の欄に書きかけの指摘。これも画面を移っても残す */
+  aiFeedback: string;
+  setAiFeedback: (t: string) => void;
 
   /** 盤マスタ。今の盤の寸法をそのまま型式として登録する */
   addEnclosure: (from?: PanelSpec) => void;
@@ -246,6 +259,12 @@ type State = {
    * 'all' で盤ぜんたい。id を空にすると指定を外して盤ぜんたいの型式に戻す。
    */
   setDuctSpecAt: (target: DuctTarget, id: string) => void;
+
+  /** 単価表。型番をキーに持つ。ミスミの一括見積 CSV から取り込む */
+  prices: PriceBook;
+  /** 取り込んだぶんを重ねる。既にある型番は上書き（新しい見積を正とする） */
+  mergePrices: (book: PriceBook) => void;
+  clearPrices: () => void;
 
   loadConfig: (f: ConfigFile) => void;
   loadMyConfig: (f: MyConfigFile) => void;
@@ -303,6 +322,20 @@ let aiUndo: {
   profile: Profile;
 } | null = null;
 
+/** 採否待ちの案1件。 */
+export type AiReview = {
+  /** 1面だけか、全面まとめてか */
+  scope: 'face' | 'all';
+  /** scope === 'face' のときの対象面 */
+  face?: FaceId;
+  /** 見出しに出す一言 */
+  msg: string;
+  /** AI が書いた理由 */
+  notes: string[];
+  /** 全面まとめてのときの面ごとの結果 */
+  results?: { face: FaceId; ok: boolean; text: string }[];
+};
+
 export const useStore = create<State>((set) => ({
   screen: 'start',
   face: 'plate',
@@ -315,8 +348,12 @@ export const useStore = create<State>((set) => ({
   myDevices: [],
   enclosures: SAMPLE_ENCLOSURES,
   ducts: SAMPLE_DUCTS,
+  prices: {},
   projects: loadProjects(),
   ai: loadAi(),
+
+  aiReview: null,
+  aiFeedback: '',
 
   items: [],
   machining: [],
@@ -352,6 +389,8 @@ export const useStore = create<State>((set) => ({
       selectedUid: null,
       selectedCut: null,
       selectedDuct: null,
+      aiReview: null,
+      aiFeedback: '',
       face: 'plate' as FaceId,
       screen: 'start' as Screen,
     })),
@@ -629,6 +668,9 @@ export const useStore = create<State>((set) => ({
       };
     }),
 
+  setAiReview: (r) => set({ aiReview: r }),
+  setAiFeedback: (t) => set({ aiFeedback: t }),
+
   undoAiPlan: () => {
     if (!aiUndo) return false;
     const back = aiUndo;
@@ -747,6 +789,9 @@ export const useStore = create<State>((set) => ({
       };
     }),
 
+  mergePrices: (book) => set((s) => ({ prices: { ...s.prices, ...book } })),
+  clearPrices: () => set({ prices: {} }),
+
   loadConfig: (f) =>
     set((s) => ({
       categories: f.categories,
@@ -754,6 +799,7 @@ export const useStore = create<State>((set) => ({
       profile: f.profile,
       enclosures: f.enclosures ?? s.enclosures,
       ducts: f.ducts ?? s.ducts,
+      prices: f.prices ?? s.prices,
     })),
   loadMyConfig: (f) => set({ owners: f.owners, myDevices: f.devices }),
 

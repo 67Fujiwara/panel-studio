@@ -42,6 +42,7 @@ export function BackupBar() {
         profile: s.profile,
         enclosures: s.enclosures,
         ducts: s.ducts,
+        prices: s.prices,
       };
       return f;
     }
@@ -80,7 +81,8 @@ export function BackupBar() {
         now.devices !== before.devices ||
         now.profile !== before.profile ||
         now.enclosures !== before.enclosures ||
-        now.ducts !== before.ducts
+        now.ducts !== before.ducts ||
+        now.prices !== before.prices
       )
         kinds.push('config');
       if (now.owners !== before.owners || now.myDevices !== before.myDevices) kinds.push('my');

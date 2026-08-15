@@ -30,12 +30,19 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
   const go = useStore((s) => s.go);
 
   const lookup = useMemo(() => deviceLookup(devices, myDevices), [devices, myDevices]);
+  const review = useStore((s) => s.aiReview);
+  const setAiReview = useStore((s) => s.setAiReview);
+  const feedback = useStore((s) => s.aiFeedback);
+  const setAiFeedback = useStore((s) => s.setAiFeedback);
+
+  const [localMsg, setMsg] = useState<string>('');
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string>('');
-  const [notes, setNotes] = useState<string[]>([]);
-  /** 直前に当てた案の採否がまだ決まっていないか */
-  const [pending, setPending] = useState(false);
-  const [feedback, setFeedback] = useState('');
+  // 直前に当てた案。画面を移っても消えないようストアに持たせる。
+  // その面の案のときだけ出す（別の面の採否をここに出しても直せない）
+  const mine = review?.scope === 'face' && review.face === face ? review : null;
+  const pending = mine !== null;
+  const msg = mine?.msg ?? localMsg;
+  const notes = mine?.notes ?? [];
 
   const missing = aiReady(ai);
   const count = items.filter((i) => i.face === face).length;
@@ -44,8 +51,7 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
   const run = async (withHint: boolean) => {
     setBusy(true);
     setMsg('');
-    setNotes([]);
-    setPending(false);
+    setAiReview(null);
     const req = buildRequest(panel, profile, face, items, lookup);
     const extra = withHint ? violationHint(layout.violations) : '';
     const { plan, error } = await requestPlan(ai, req, extra);
@@ -57,21 +63,22 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
     if (!check.ok) return setMsg(`配置案が使えません: ${check.reason}`);
 
     applyAiPlan(check.plan);
-    setNotes(check.plan.notes ?? []);
     const cuts = check.plan.cuts?.length ?? 0;
     const cutMsg = cuts > 0 ? `／加工 ${cuts} 件を追加` : '';
-    setMsg(
-      plate
+    setAiReview({
+      scope: 'face',
+      face,
+      msg: plate
         ? `${check.plan.rows?.length ?? 0} 段に割り付けました${cutMsg}。`
         : `${check.plan.places?.length ?? 0} 台を配置しました${cutMsg}。`,
-    );
-    setPending(true);
+      notes: check.plan.notes ?? [],
+    });
   };
 
   /** 採用。控えを捨てるだけで、図はそのまま。 */
   const accept = () => {
-    setPending(false);
-    setFeedback('');
+    setAiReview(null);
+    setAiFeedback('');
     setMsg('採用しました。');
   };
 
@@ -82,9 +89,8 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
   const reject = () => {
     const back = undoAiPlan();
     if (feedback.trim()) addHouseRule(feedback.trim());
-    setPending(false);
-    setNotes([]);
-    setFeedback('');
+    setAiReview(null);
+    setAiFeedback('');
     setMsg(
       back
         ? feedback.trim()
@@ -174,7 +180,7 @@ export function AiLayoutPanel({ layout }: { layout: LayoutResult; devices: Devic
               type="text"
               value={feedback}
               placeholder="例: 端子台は必ず右端から並べる"
-              onChange={(e) => setFeedback(e.target.value)}
+              onChange={(e) => setAiFeedback(e.target.value)}
             />
           </label>
           <p className="note">

@@ -7,6 +7,7 @@ import type { DeviceLookup } from '../lib/layout';
 import { DIN_RAIL_WIDTH } from '../data/enclosures';
 import { buildDxfSet, downloadDxfSet } from '../lib/dxfExport';
 import { autoMachining, derivedMachining } from '../lib/machining';
+import { NO_PRICE, priceLines, priceTotal, pricedBomCsv, quoteRequestCsv } from '../lib/price';
 import { ShapeGeometry } from './ShapeGeometry';
 import { AiAllFaces } from './AiAllFaces';
 import { deviceLookup, useStore } from '../store';
@@ -286,6 +287,7 @@ export function FacePicker() {
   const completeDesign = useStore((s) => s.completeDesign);
   const owners = useStore((s) => s.owners);
   const ducts = useStore((s) => s.ducts);
+  const prices = useStore((s) => s.prices);
   // ストアの参照をそのまま取る。ここで map すると毎回新しい配列になり再描画が止まらなくなる
   const projects = useStore((s) => s.projects);
 
@@ -316,6 +318,9 @@ export function FacePicker() {
   );
 
   const bom = buildBom(layouts, profile, lookup, ducts);
+  // 単価表を引いた BOM。単価が無い行は金額を出さず「取扱なし」と書く
+  const priced = priceLines(bom, prices);
+  const money = priceTotal(priced);
   const heat = totalHeatW(layouts, lookup);
   // 面ごとの加工（自動で出るぶん＋手で足したぶん）。展開図にも CSV にも同じものを使う
   const cutsByFace = useMemo(
@@ -463,6 +468,12 @@ export function FacePicker() {
         )}
 
         <p className="calc">盤内総発熱 = {heat.toFixed(1)} W</p>
+        {bom.length > 0 && (
+          <p className={`calc${money.missing > 0 ? ' bad' : ''}`}>
+            部品金額 = {money.total.toLocaleString('ja-JP')} 円
+            {money.missing > 0 && `（単価不明 ${money.missing} 件は含みません）`}
+          </p>
+        )}
 
         <h3>CSV の書式</h3>
         <div className="grid2">
@@ -598,6 +609,12 @@ export function FacePicker() {
         </div>
 
         <h3>CSV 書き出し</h3>
+        <p className="note">
+          <b>部品表（金額つき）</b>は設定画面の単価表を引いて、単価・金額・合計を入れます。
+          単価が無いものは「{NO_PRICE}」と出ます。
+          単価表は<b>見積依頼 CSV</b>をミスミの一括見積にかけ、返ってきた CSV を
+          設定画面で読み込むと埋まります。
+        </p>
         <div className="row-buttons">
           <button
             disabled={bom.length === 0}
@@ -606,6 +623,27 @@ export function FacePicker() {
             }
           >
             部品表 CSV
+          </button>
+          <button
+            className={priced.some((l) => l.price) ? 'primary' : undefined}
+            disabled={bom.length === 0}
+            onClick={() =>
+              downloadCsv(
+                pricedBomCsv(priced, profile.bom),
+                `${base}_bom_kingaku.csv`,
+                profile.bom.encoding,
+              )
+            }
+          >
+            部品表 CSV（金額つき）
+          </button>
+          <button
+            disabled={bom.length === 0}
+            onClick={() =>
+              downloadCsv(quoteRequestCsv(bom), `${base}_mitsumori.csv`, profile.bom.encoding)
+            }
+          >
+            見積依頼 CSV（型番＋数量）
           </button>
           <button
             disabled={cutouts.length === 0}

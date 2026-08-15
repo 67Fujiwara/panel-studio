@@ -31,6 +31,7 @@ export function buildBom(
     if (!spec) continue;
     lines.push({
       model: spec.model,
+      key: spec.model,
       maker: spec.maker,
       name: spec.name,
       qty,
@@ -46,6 +47,7 @@ export function buildBom(
   if (railCount > 0) {
     lines.push({
       model: `DINレール TH35-7.5（切断 計${railTotal}mm / ${railCount}本）`,
+      key: 'TH35-7.5',
       maker: '—',
       name: 'DINレール',
       qty: Math.ceil(railTotal / RAIL_STOCK_LENGTH),
@@ -54,6 +56,7 @@ export function buildBom(
     });
     lines.push({
       model: 'エンドストッパ',
+      key: 'エンドストッパ',
       maker: '—',
       name: 'DINレール用エンドストッパ',
       qty: railCount * 2,
@@ -80,6 +83,7 @@ export function buildBom(
     const offcut = stockQty * stock - length;
     lines.push({
       model: `${spec.model}（必要長 ${Math.ceil(length)}mm / 端材 ${Math.ceil(offcut)}mm）`,
+      key: spec.model,
       maker: spec.maker || '—',
       name: '配線ダクト',
       qty: stockQty,
@@ -98,6 +102,7 @@ export function buildBom(
   if (screws > 0) {
     lines.push({
       model: 'M4 取付ネジ',
+      key: 'M4 取付ネジ',
       maker: '—',
       name: '機器取付ネジ（直付け分）',
       qty: screws,

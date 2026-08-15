@@ -4,6 +4,7 @@ import { EnclosureTable } from './EnclosureTable';
 import { DuctRailSettings } from './DuctRailSettings';
 import { DuctTable } from './DuctTable';
 import { WorkAreaEditor } from './WorkAreaEditor';
+import { PriceBookPanel } from './PriceBookPanel';
 import { AiSettingsPanel } from './AiSettingsPanel';
 import {
   useStore,
@@ -28,6 +29,7 @@ export function ConfigScreen() {
   const loadConfig = useStore((s) => s.loadConfig);
   const enclosures = useStore((s) => s.enclosures);
   const ducts = useStore((s) => s.ducts);
+  const prices = useStore((s) => s.prices);
   const owners = useStore((s) => s.owners);
   const myDevices = useStore((s) => s.myDevices);
   const projects = useStore((s) => s.projects);
@@ -40,7 +42,15 @@ export function ConfigScreen() {
   // 手で書き出す／読み込む口。ふだんはバックアップ先フォルダへ自動で書かれるので、
   // ここは「別の PC へ持っていく」「古いファイルを開く」ときの逃げ道
   const exportConfig = () => {
-    const file: ConfigFile = { schemaVersion: 1, categories, devices, profile, enclosures, ducts };
+    const file: ConfigFile = {
+      schemaVersion: 1,
+      categories,
+      devices,
+      profile,
+      enclosures,
+      ducts,
+      prices,
+    };
     downloadJson(file, 'panel-studio-settings.json');
   };
   const importConfig = async () => {
@@ -125,6 +135,8 @@ export function ConfigScreen() {
       </p>
 
       <EnclosureTable />
+
+      <PriceBookPanel />
 
       <WorkAreaEditor />
 

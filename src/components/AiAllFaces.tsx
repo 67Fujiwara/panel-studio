@@ -27,22 +27,24 @@ export function AiAllFaces() {
   const addHouseRule = useStore((s) => s.addHouseRule);
   const go = useStore((s) => s.go);
 
+  const review = useStore((s) => s.aiReview);
+  const setAiReview = useStore((s) => s.setAiReview);
+  const feedback = useStore((s) => s.aiFeedback);
+  const setAiFeedback = useStore((s) => s.setAiFeedback);
+
   const lookup = useMemo(() => deviceLookup(devices, myDevices), [devices, myDevices]);
   const [busy, setBusy] = useState<FaceId | null>(null);
-  const [results, setResults] = useState<Result[]>([]);
-  const [pending, setPending] = useState(false);
-  const [feedback, setFeedback] = useState('');
   const missing = aiReady(ai);
 
-  // 部品を置いた面だけ回す。何も無い面まで頼むと、要らない加工が増えるだけになる
-  const targets = FACES.map((f) => f.id).filter((id) =>
-    items.some((i) => i.face === id),
-  );
+  // 「全面まとめて」なので **7面すべて** 回す。
+  // 部品を置いた面だけに絞ると、加工だけ足したい面（換気口や引き込み）が漏れる
+  const targets = FACES.map((f) => f.id);
+  const pending = review?.scope === 'all';
+  const results = review?.results ?? [];
 
   const runAll = async () => {
     const out: Result[] = [];
-    setResults([]);
-    setPending(false);
+    setAiReview(null);
     let applied = false;
     for (const face of targets) {
       setBusy(face);
@@ -67,28 +69,26 @@ export function AiAllFaces() {
           });
         }
       }
-      setResults([...out]);
+      setAiReview({ scope: 'all', msg: '', notes: [], results: [...out] });
     }
     setBusy(null);
-    setPending(applied);
+    if (!applied) setAiReview({ scope: 'all', msg: '', notes: [], results: out });
   };
 
   /** まとめて不採用。回す前の状態に戻す。 */
   const reject = () => {
-    const back = undoAiPlan();
+    undoAiPlan();
     if (feedback.trim()) addHouseRule(feedback.trim());
-    setPending(false);
-    setResults([]);
-    setFeedback('');
-    if (!back) return;
+    setAiReview(null);
+    setAiFeedback('');
   };
 
   return (
     <div className="ai-box">
       <h3>AI 自動配置（全面まとめて）</h3>
       <p className="note">
-        部品を置いた面をまとめて回します。面ごとに別の依頼にするので、
-        どこかの面が失敗しても他の面は残ります。
+        <b>7面すべて</b>を回します。部品のある面は配置を、部品の無い面は加工だけを考えます。
+        面ごとに別の依頼にするので、どこかの面が失敗しても他の面は残ります。
         採否は<b>まとめて1回</b>で、不採用なら全面が回す前に戻ります。
       </p>
       {missing ? (
@@ -96,8 +96,6 @@ export function AiAllFaces() {
           <p className="calc bad">{missing}</p>
           <button onClick={() => go('config')}>設定画面で接続先を入れる →</button>
         </>
-      ) : targets.length === 0 ? (
-        <p className="note">まだどの面にも部品がありません。面を開いて使用部品を選んでください。</p>
       ) : (
         <div className="row-buttons">
           <button className="primary" disabled={busy !== null} onClick={() => void runAll()}>
@@ -130,15 +128,15 @@ export function AiAllFaces() {
               type="text"
               value={feedback}
               placeholder="例: 端子台は必ず右端から並べる"
-              onChange={(e) => setFeedback(e.target.value)}
+              onChange={(e) => setAiFeedback(e.target.value)}
             />
           </label>
           <div className="row-buttons">
             <button
               className="primary"
               onClick={() => {
-                setPending(false);
-                setFeedback('');
+                setAiReview(null);
+                setAiFeedback('');
               }}
             >
               採用する

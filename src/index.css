@@ -1641,3 +1641,31 @@ ul.cutsummary.rules li span {
   flex: 1 1 auto;
   min-width: 0;
 }
+
+
+/* --- 単価表 --- */
+/* ファイル選択は素の input だと文言を変えられないので、ラベルをボタンに見せる */
+label.filebtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  font-size: 12px;
+  cursor: pointer;
+}
+label.filebtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+label.filebtn input {
+  display: none;
+}
+ol.note.steps {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+ol.note.steps li {
+  margin-bottom: 2px;
+}
