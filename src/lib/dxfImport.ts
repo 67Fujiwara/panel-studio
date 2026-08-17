@@ -24,7 +24,9 @@ export type Pt = { x: number; y: number };
 export type Prim =
   | { k: 'seg'; x1: number; y1: number; x2: number; y2: number }
   | { k: 'circle'; x: number; y: number; r: number }
-  | { k: 'arc'; x: number; y: number; r: number; a0: number; a1: number };
+  | { k: 'arc'; x: number; y: number; r: number; a0: number; a1: number }
+  /** 折れ線ひとかたまり。[x0,y0,x1,y1,...]。SPLINE を刻んだものに使う */
+  | { k: 'poly'; pts: number[] };
 
 export type RectCandidate = {
   key: string;
@@ -84,7 +86,98 @@ type RawEntity = {
   xScale?: number;
   yScale?: number;
   rotation?: number;
+  // SPLINE
+  controlPoints?: Pt[];
+  fitPoints?: Pt[];
+  knotValues?: number[];
+  degreeOfSplineCurve?: number;
 };
+
+/**
+ * B スプラインを折れ線に刻む（De Boor 法）。
+ *
+ * PDF からのトレースや Illustrator 経由の DXF は、**直線まで SPLINE で**描かれている
+ * ことがある。曲線を「制御点を結ぶ折れ線」で済ませると制御多角形寄りに膨らんで
+ * 実形とずれるので、ノットと次数でちゃんと評価する。
+ */
+function splinePoints(e: RawEntity): Pt[] {
+  const ctrl = e.controlPoints ?? [];
+  const degree = e.degreeOfSplineCurve ?? 3;
+  const knots = e.knotValues ?? [];
+  // ノットが揃っていなければ評価できない。フィット点か制御点の折れ線で妥協する
+  if (ctrl.length < 2 || knots.length !== ctrl.length + degree + 1) {
+    if ((e.fitPoints ?? []).length >= 2) return e.fitPoints!;
+    return ctrl;
+  }
+  const tMin = knots[degree]!;
+  const tMax = knots[ctrl.length]!;
+  if (!(tMax > tMin)) return ctrl;
+
+  const at = (t: number): Pt => {
+    // t が入るノット区間を探す（右端は最後の有効区間に丸める）
+    let k = ctrl.length - 1;
+    for (let i = degree; i < ctrl.length; i++) {
+      if (t < knots[i + 1]!) {
+        k = i;
+        break;
+      }
+    }
+    const d: Pt[] = [];
+    for (let j = 0; j <= degree; j++) d[j] = { ...ctrl[j + k - degree]! };
+    for (let r = 1; r <= degree; r++) {
+      for (let j = degree; j >= r; j--) {
+        const i = j + k - degree;
+        const den = knots[i + degree - r + 1]! - knots[i]!;
+        const a = den === 0 ? 0 : (t - knots[i]!) / den;
+        d[j] = {
+          x: (1 - a) * d[j - 1]!.x + a * d[j]!.x,
+          y: (1 - a) * d[j - 1]!.y + a * d[j]!.y,
+        };
+      }
+    }
+    return d[degree]!;
+  };
+
+  // 区間あたり数点で十分（直線の SPLINE は後の間引きで2点に落ちる）
+  const n = Math.min(400, Math.max(8, (ctrl.length - degree) * 6));
+  const out: Pt[] = [];
+  for (let i = 0; i <= n; i++) out.push(at(tMin + ((tMax - tMin) * i) / n));
+  return out;
+}
+
+/**
+ * 折れ線の間引き（Douglas–Peucker）。
+ * 直線を SPLINE で描いた図は刻むと点だらけになる。0.05mm の許容で
+ * 直線は2点まで落ち、曲線は形の分だけ残る。
+ */
+function simplify(pts: Pt[], tol: number): Pt[] {
+  if (pts.length <= 2) return pts;
+  const keep = new Uint8Array(pts.length);
+  keep[0] = keep[pts.length - 1] = 1;
+  const stack: [number, number][] = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    const ax = pts[a]!.x;
+    const ay = pts[a]!.y;
+    const dx = pts[b]!.x - ax;
+    const dy = pts[b]!.y - ay;
+    const len = Math.hypot(dx, dy) || 1;
+    let worst = -1;
+    let worstD = tol;
+    for (let i = a + 1; i < b; i++) {
+      const d = Math.abs((pts[i]!.x - ax) * dy - (pts[i]!.y - ay) * dx) / len;
+      if (d > worstD) {
+        worstD = d;
+        worst = i;
+      }
+    }
+    if (worst >= 0) {
+      keep[worst] = 1;
+      stack.push([a, worst], [worst, b]);
+    }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
 
 type Parsed = { entities?: RawEntity[]; blocks?: Record<string, { entities?: RawEntity[] }> };
 
@@ -164,6 +257,20 @@ export function flatten(
         );
         continue;
       }
+      if (e.type === 'SPLINE') {
+        const pts = simplify(
+          splinePoints(e)
+            .filter((v) => Number.isFinite(v.x) && Number.isFinite(v.y))
+            .map(map),
+          0.05,
+        );
+        // 1本を1つの折れ線として持つ。線分にばらすと SVG 要素が数万個になり描画が重い
+        if (pts.length >= 2) {
+          push({ k: 'poly', pts: pts.flatMap((v) => [v.x, v.y]) }, layer);
+        }
+        continue;
+      }
+
       if (e.vertices && e.vertices.length >= 2) {
         const pts = e.vertices.filter((v) => Number.isFinite(v.x) && Number.isFinite(v.y)).map(map);
         for (let i = 0; i + 1 < pts.length; i++) {
@@ -197,6 +304,19 @@ export function primBox(p: Prim): Box {
   }
   if (p.k === 'circle') {
     return { minX: p.x - p.r, maxX: p.x + p.r, minY: p.y - p.r, maxY: p.y + p.r };
+  }
+  if (p.k === 'poly') {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i + 1 < p.pts.length; i += 2) {
+      minX = Math.min(minX, p.pts[i]!);
+      maxX = Math.max(maxX, p.pts[i]!);
+      minY = Math.min(minY, p.pts[i + 1]!);
+      maxY = Math.max(maxY, p.pts[i + 1]!);
+    }
+    return { minX, maxX, minY, maxY };
   }
 
   // 円弧は「円まるごと」ではなく実際に描かれる範囲で見る。
@@ -515,6 +635,11 @@ export function primsToShape(prims: Prim[], origin: Pt, w: number, h: number): D
       });
     } else if (p.k === 'circle') {
       entities.push({ t: 'c', x: r2(p.x - origin.x), y: r2(p.y - origin.y), r: r2(p.r) });
+    } else if (p.k === 'poly') {
+      entities.push({
+        t: 'p',
+        pts: p.pts.map((v, i) => r2(v - (i % 2 === 0 ? origin.x : origin.y))),
+      });
     } else {
       entities.push({
         t: 'a',
