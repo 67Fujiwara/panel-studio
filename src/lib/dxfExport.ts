@@ -4,6 +4,7 @@ import { FACES, FACE_LABEL, faceSize } from '../data/faces';
 import { autoLayout, computeRails } from './layout';
 import type { DeviceLookup, LayoutItem } from './layout';
 import { autoMachining, TAP_DRILL } from './machining';
+import { cutOutline, pilotDia, pilotPoints } from './holes';
 import { unfoldCells } from './unfold';
 import { rotatedSize } from '../types';
 import type { DeviceShape, FaceId, Machining, PanelSpec, PlacedDevice, Profile } from '../types';
@@ -186,20 +187,32 @@ function drawShape(
   }
 }
 
-/** 加工1件。丸穴・タップ・切り欠きをレイヤで分けて描く。 */
+/**
+ * 加工1件。丸穴・タップ・切り欠きをレイヤで分けて描く。
+ * 形の定義は holes.ts が持ち、弧は折れ線にせず ARC のまま出す
+ * （レーザー加工に渡す図なので、円弧は円弧で残す）。
+ */
 function drawMachining(w: DxfWriter, m: Machining, ox: number, oy: number) {
-  if (m.kind === 'notch') {
-    w.rect(LAYER.notch, ox + m.x - m.w / 2, oy + m.y - m.h / 2, m.w, m.h);
-    return;
-  }
-  if (m.tap) {
+  const cx = ox + m.x;
+  const cy = oy + m.y;
+
+  if (m.kind === 'hole' && m.tap) {
     // 二重丸。外が呼び径、内が下穴
     const outer = Number(m.tap.slice(1));
-    w.circle(LAYER.tap, ox + m.x, oy + m.y, outer / 2);
-    w.circle(LAYER.tap, ox + m.x, oy + m.y, (TAP_DRILL[m.tap] ?? m.dia) / 2);
+    w.circle(LAYER.tap, cx, cy, outer / 2);
+    w.circle(LAYER.tap, cx, cy, (TAP_DRILL[m.tap] ?? m.dia) / 2);
     return;
   }
-  w.circle(LAYER.hole, ox + m.x, oy + m.y, m.dia / 2);
+
+  const layer = m.kind === 'notch' ? LAYER.notch : LAYER.hole;
+  const { parts, circles } = cutOutline(m);
+  for (const c of circles) w.circle(layer, cx + c.x, cy + c.y, c.r);
+  for (const p of parts) {
+    if (p.t === 'line') w.line(layer, cx + p.x1, cy + p.y1, cx + p.x2, cy + p.y2);
+    else w.arc(layer, cx + p.cx, cy + p.cy, p.r, p.a0, p.a1);
+  }
+  const pd = pilotDia(m) / 2;
+  if (pd > 0) for (const p of pilotPoints(m)) w.circle(LAYER.hole, cx + p.x, cy + p.y, pd);
 }
 
 export type ExportInput = {

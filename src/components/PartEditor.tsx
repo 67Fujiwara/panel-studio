@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { extractShape, readDxfText } from '../lib/dxfImport';
+import { machiningLabel } from '../lib/machining';
+import { CutFields, HolePicker } from './HolePicker';
 import { ShapePreview } from './ShapeGeometry';
 import { useStore } from '../store';
-import type { CategoryDef, DeviceSpec, MountType } from '../types';
+import type { CategoryDef, DeviceSpec, MachiningDraft, MountType } from '../types';
 
 const MOUNTS: { id: MountType; label: string }[] = [
   { id: 'din', label: 'DINレール' },
@@ -61,6 +63,7 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
   const color = categories.find((c) => c.id === part.category)?.color ?? '#7d8894';
 
   const [shapeMsg, setShapeMsg] = useState('');
+  const [cutPickOpen, setCutPickOpen] = useState(false);
 
   const importShape = async (file: File | undefined) => {
     if (!file) return;
@@ -274,6 +277,59 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
             onChange={(h) => update(part.id, { panelCutout: { kind: 'notch', w: cut.w, h } })}
           />
         </div>
+      )}
+
+      <h4>追加加工（直付けのとき）</h4>
+      <p className="note">
+        メーカーのキャビスタと同じ穴種を部品に持たせられます。位置は<b>部品の中心からのずれ</b>で、
+        配置すると面の座標に展開されます（回転にも付いてきます）。
+        取付穴のピッチで足りない、ダルマ穴や D穴・キー溝が要る部品はここで登録します。
+      </p>
+      {(part.extraCuts ?? []).map((c, i) => (
+        <div key={i} className="cutedit">
+          <div className="cutedit-head">
+            <strong>{machiningLabel({ ...c, id: '', face: 'plate' })}</strong>
+            <button
+              className="cut-del"
+              aria-label="削除"
+              onClick={() =>
+                update(part.id, { extraCuts: (part.extraCuts ?? []).filter((_, j) => j !== i) })
+              }
+            >
+              ×
+            </button>
+          </div>
+          <div className="cutedit-body">
+            <CutFields
+              value={c}
+              tapOk={false}
+              tapNg="タップは中板の面でだけ使えます（部品側では通し穴で持たせてください）"
+              posLabel={['中心からX', '中心からY']}
+              onChange={(v) =>
+                update(part.id, {
+                  extraCuts: (part.extraCuts ?? []).map((q, j) => (j === i ? v : q)),
+                })
+              }
+            />
+          </div>
+        </div>
+      ))}
+      <div className="row-buttons">
+        <button
+          className={cutPickOpen ? 'on' : undefined}
+          onClick={() => setCutPickOpen((v) => !v)}
+        >
+          ＋ カタログから追加…
+        </button>
+      </div>
+      {cutPickOpen && (
+        <HolePicker
+          onPick={(make) => {
+            const draft: MachiningDraft = make(0, 0);
+            update(part.id, { extraCuts: [...(part.extraCuts ?? []), draft] });
+            setCutPickOpen(false);
+          }}
+        />
       )}
 
       <h4>メーカー指定の最小離隔・発熱</h4>

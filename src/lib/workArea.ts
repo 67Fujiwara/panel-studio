@@ -1,4 +1,5 @@
 import { faceSize } from '../data/faces';
+import { cutParts } from './holes';
 import type {
   AreaExclude,
   FaceId,
@@ -73,10 +74,16 @@ export function rectInArea(area: ResolvedArea | null, r: Rect): boolean {
   return !area.excludes.some((e) => overlaps(e, r));
 }
 
-/** 加工1件が占める矩形。丸穴は外接する四角で見る。 */
-export function machiningRect(m: Machining): Rect {
-  if (m.kind === 'notch') return { x: m.x - m.w / 2, y: m.y - m.h / 2, w: m.w, h: m.h };
-  return { x: m.x - m.dia / 2, y: m.y - m.dia / 2, w: m.dia, h: m.dia };
+/**
+ * 加工1件が占める矩形の一覧。主穴もねじ下穴も外接する四角で見る。
+ * 形の分解は holes.ts が持つので、新しい穴種を足してもここは変わらない。
+ */
+export function machiningRects(m: Machining): Rect[] {
+  return cutParts(m).map((p) =>
+    p.t === 'c'
+      ? { x: m.x + p.x - p.r, y: m.y + p.y - p.r, w: p.r * 2, h: p.r * 2 }
+      : { x: m.x + p.x - p.w / 2, y: m.y + p.y - p.h / 2, w: p.w, h: p.h },
+  );
 }
 
 /**
@@ -95,7 +102,8 @@ export function areaViolations(
   if (!area) return [];
   const out: Violation[] = [];
   for (const m of cuts) {
-    if (rectInArea(area, machiningRect(m))) continue;
+    // ねじ下穴も1つずつ見る。主穴が収まっていても下穴が範囲の外なら開けられない
+    if (machiningRects(m).every((r) => rectInArea(area, r))) continue;
     out.push({
       uid: '',
       kind: 'out-of-area',

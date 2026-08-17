@@ -4,6 +4,7 @@ import { FACE_LABEL, faceSize } from '../data/faces';
 import { computeRails } from '../lib/layout';
 import { ShapeGeometry } from './ShapeGeometry';
 import { autoMachining } from '../lib/machining';
+import { cutOutline, outlinePolys, pilotDia, pilotPoints } from '../lib/holes';
 import { resolveArea } from '../lib/workArea';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
@@ -49,23 +50,39 @@ const toSvgY = (faceH: number, y: number, h: number) => faceH - y - h;
 const PAD = 70;
 
 /**
- * 加工1件の図形。
+ * 加工1件の図形。形の定義は holes.ts が持ち、ここは SVG に写すだけ。
  * タップ穴は二重丸（外側が呼び径、内側が下穴）で、丸穴と見分けられるようにする。
- * 切り欠きは中心座標で持っているので、左下に直して描く。
+ * 面の座標は Y 上向き・SVG は Y 下向きなので、点ごとに反転して写す。
  */
 function cutShape(m: Machining, faceH: number) {
-  if (m.kind === 'notch') {
+  const cy = toSvgY(faceH, m.y, 0);
+
+  // タップの二重丸だけは記法なのでここで描く
+  if (m.kind === 'hole' && m.tap) {
+    const outer = TAP_OUTER[m.tap] / 2;
     return (
-      <rect x={m.x - m.w / 2} y={toSvgY(faceH, m.y, 0) - m.h / 2} width={m.w} height={m.h} />
+      <>
+        <circle cx={m.x} cy={cy} r={outer} />
+        <circle cx={m.x} cy={cy} r={m.dia / 2} />
+      </>
     );
   }
-  const cy = toSvgY(faceH, m.y, 0);
-  if (!m.tap) return <circle cx={m.x} cy={cy} r={m.dia / 2} />;
-  const outer = TAP_OUTER[m.tap] / 2;
+
+  const { parts, circles } = cutOutline(m);
+  const polys = outlinePolys(parts);
+  const pd = pilotDia(m) / 2;
   return (
     <>
-      <circle cx={m.x} cy={cy} r={outer} />
-      <circle cx={m.x} cy={cy} r={m.dia / 2} />
+      {circles.map((c, i) => (
+        <circle key={`c${i}`} cx={m.x + c.x} cy={cy - c.y} r={c.r} />
+      ))}
+      {polys.map((pts, i) => (
+        <polyline key={`p${i}`} points={pts.map((p) => `${m.x + p.x},${cy - p.y}`).join(' ')} />
+      ))}
+      {pd > 0 &&
+        pilotPoints(m).map((p, i) => (
+          <circle key={`s${i}`} cx={m.x + p.x} cy={cy - p.y} r={pd} />
+        ))}
     </>
   );
 }

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { faceSize } from '../data/faces';
 import {
   TAP_DRILL,
-  TAP_SIZES,
   autoMachining,
   groupByDevice,
   machiningLabel,
@@ -14,7 +13,8 @@ import type { DeviceLookup } from '../lib/layout';
 import { areaViolations, resolveArea } from '../lib/workArea';
 import { rotatedSize } from '../types';
 import { useStore } from '../store';
-import type { LayoutResult, Machining, TapSize } from '../types';
+import { CutFields, HolePicker } from './HolePicker';
+import type { LayoutResult, Machining } from '../types';
 
 /**
  * 加工（穴あけ・切り欠き）の座標。
@@ -42,6 +42,7 @@ export function MachiningPanel({
 
   // 既定は畳んだ状態。開いたものだけ id を持つ
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [catalogOpen, setCatalogOpen] = useState(false);
 
   const size = faceSize(panel, face);
   const auto = autoMachining(face, layout, devices, profile);
@@ -122,7 +123,23 @@ export function MachiningPanel({
         <button onClick={() => addAndOpen({ kind: 'notch', ...center, w: 100, h: 100 })}>
           ＋ 切り欠き
         </button>
+        <button className={catalogOpen ? 'on' : undefined} onClick={() => setCatalogOpen((v) => !v)}>
+          ＋ カタログから…
+        </button>
       </div>
+      {catalogOpen && (
+        <>
+          <p className="note">
+            メーカーのキャビスタと同じ穴種です。押すと面の中央に入るので、座標と寸法を直してください。
+          </p>
+          <HolePicker
+            onPick={(make) => {
+              addAndOpen(make(center.x, center.y));
+              setCatalogOpen(false);
+            }}
+          />
+        </>
+      )}
 
       {mine.length > 0 && (
         <>
@@ -167,45 +184,12 @@ export function MachiningPanel({
 
                 {open && (
                   <div className="cutedit-body">
-                    {m.kind === 'hole' && (
-                      <label className="sel">
-                        <span>穴の種類</span>
-                        <select
-                          value={m.tap ?? 'through'}
-                          title={tapOk ? undefined : tapNg}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === 'through') updateMachining(m.id, { tap: undefined, dia: 22 });
-                            else
-                              updateMachining(m.id, {
-                                tap: v as TapSize,
-                                dia: TAP_DRILL[v as TapSize],
-                              });
-                          }}
-                        >
-                          <option value="through">丸穴（径を指定）</option>
-                          {/* 中板以外はタップに変えられない。既にタップの加工は選び直せる */}
-                          {TAP_SIZES.map((t) => (
-                            <option key={t} value={t} disabled={!tapOk && m.tap !== t}>
-                              {t} タップ（下穴 φ{TAP_DRILL[t]}）
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                    <div className="grid2">
-                      <Num label="X" value={m.x} onChange={(x) => updateMachining(m.id, { x })} />
-                      <Num label="Y" value={m.y} onChange={(y) => updateMachining(m.id, { y })} />
-                      {/* タップは呼びで決まるので下穴径は出さない */}
-                      {m.kind === 'hole' && !m.tap ? (
-                        <Num label="径 φ" value={m.dia} onChange={(dia) => updateMachining(m.id, { dia })} />
-                      ) : m.kind === 'notch' ? (
-                        <>
-                          <Num label="幅" value={m.w} onChange={(w) => updateMachining(m.id, { w })} />
-                          <Num label="高さ" value={m.h} onChange={(h) => updateMachining(m.id, { h })} />
-                        </>
-                      ) : null}
-                    </div>
+                    <CutFields
+                      value={m}
+                      tapOk={tapOk}
+                      tapNg={tapNg}
+                      onChange={(v) => updateMachining(m.id, v)}
+                    />
                   </div>
                 )}
               </div>
@@ -246,23 +230,6 @@ export function MachiningPanel({
         </ul>
       )}
     </div>
-  );
-}
-
-function Num({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <label className="num">
-      <span>{label}</span>
-      <input type="number" value={value} onChange={(e) => onChange(Number(e.target.value))} />
-    </label>
   );
 }
 

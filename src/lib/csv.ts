@@ -1,6 +1,5 @@
 import Encoding from 'encoding-japanese';
-import { FACE_LABEL } from '../data/faces';
-import type { BomColumnId, BomLine, BomSettings, Machining } from '../types';
+import type { BomColumnId, BomLine, BomSettings } from '../types';
 
 /**
  * CSV 書き出し。
@@ -44,42 +43,6 @@ export function bomToCsv(lines: BomLine[], s: BomSettings): string {
     );
   }
   // ERP 取込では CRLF を要求されることが多い
-  return rows.join('\r\n') + '\r\n';
-}
-
-/** 加工リスト。穴あけ・切り欠きの座標を面ごとに出す。 */
-export function machiningToCsv(items: Machining[], s: BomSettings): string {
-  const header = ['面', '種類', 'X', 'Y', '径/幅', '高さ', 'ねじ', '備考'];
-  const rows: string[] = [];
-  if (s.withHeader) rows.push(toRow(header, s.delimiter));
-  for (const m of items) {
-    rows.push(
-      toRow(
-        m.kind === 'hole'
-          ? [
-              FACE_LABEL(m.face),
-              m.tap ? 'タップ' : '穴あけ',
-              String(m.x),
-              String(m.y),
-              String(m.dia),
-              '',
-              m.tap ?? '',
-              m.note ?? '',
-            ]
-          : [
-              FACE_LABEL(m.face),
-              '切り欠き',
-              String(m.x),
-              String(m.y),
-              String(m.w),
-              String(m.h),
-              '',
-              m.note ?? '',
-            ],
-        s.delimiter,
-      ),
-    );
-  }
   return rows.join('\r\n') + '\r\n';
 }
 

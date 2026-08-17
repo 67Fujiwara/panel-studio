@@ -1,4 +1,5 @@
 import { FACE_BY_ID } from '../data/faces';
+import { cutParts } from './holes';
 import { rotatedSize } from '../types';
 import { computeRails } from './layout';
 import type { DeviceLookup, RailRun } from './layout';
@@ -21,8 +22,29 @@ export const TAP_SIZES: TapSize[] = ['M3', 'M4', 'M5', 'M6'];
 
 /** 加工1件の呼び名。タップは呼びで、丸穴は径で表す。 */
 export function machiningLabel(m: Machining): string {
-  if (m.kind === 'notch') return `${m.w}×${m.h} 切り欠き`;
-  return m.tap ? `${m.tap} タップ` : `φ${m.dia} 丸穴`;
+  const pilots =
+    (m.kind === 'hole' || m.kind === 'slot' || m.kind === 'notch') && m.pilots && m.pilots.n > 0
+      ? `＋ねじ下穴${m.pilots.n}`
+      : '';
+  switch (m.kind) {
+    case 'notch': {
+      const shape = (m.r ?? 0) > 0 ? 'R付角穴' : (m.c ?? 0) > 0 ? '変形角穴' : '角穴';
+      return `${m.w}×${m.h} ${shape}${pilots}`;
+    }
+    case 'slot':
+      return `${m.len}×φ${m.dia} 長丸穴${pilots}`;
+    case 'dcut':
+      return m.flats === 2 ? `φ${m.dia} ダブルD穴` : `φ${m.dia} D穴`;
+    case 'keyhole':
+      return `φ${m.dia}/φ${m.dia2} ダルマ穴`;
+    case 'keyway':
+      return `φ${m.dia} キー溝付丸穴`;
+    default:
+      if (m.tap) return `${m.tap} タップ`;
+      // 主穴なし（PCD の穴群だけ）の呼び方
+      if (m.dia <= 0 && m.pilots) return `φ${m.pilots.dia}×${m.pilots.n} PCD穴群`;
+      return `φ${m.dia} 丸穴${pilots}`;
+  }
 }
 
 /** 集計用の短い呼び名。 */
@@ -78,6 +100,31 @@ export function derivedMachining(placed: PlacedDevice[], devices: DeviceLookup):
       }
     }
 
+    // 部品に登録した追加加工（キャビスタ相当の穴種）。直付けのときだけ面に出る
+    if (spec.extraCuts && p.mount === 'direct') {
+      for (const [i, c] of spec.extraCuts.entries()) {
+        // 位置は機器の回転に付いてくる。形の向き（長丸穴の縦横・角穴の幅高さ）も
+        // 90/270° では入れ替える。キー溝と D穴の面の向きまでは回さない（そこまで
+        // 回して置く部品は実務ではまず無く、必要なら±の座標で作り直せる）
+        const rot = p.rot ?? 0;
+        const [dx, dy] =
+          rot === 90 ? [-c.y, c.x] : rot === 180 ? [-c.x, -c.y] : rot === 270 ? [c.y, -c.x] : [c.x, c.y];
+        let shape = { ...c };
+        if (rot === 90 || rot === 270) {
+          if (shape.kind === 'slot') shape = { ...shape, vert: !shape.vert };
+          else if (shape.kind === 'notch') shape = { ...shape, w: shape.h, h: shape.w };
+        }
+        out.push({
+          ...shape,
+          id: `xcut-${p.uid}-${i}`,
+          face: p.face,
+          x: round(cx + dx),
+          y: round(cy + dy),
+          note: `${spec.model} 追加加工`,
+        });
+      }
+    }
+
     // 直付けの取付穴。ピッチから1穴ずつ座標に展開する
     const holes = spec.mountHoles;
     if (holes && p.mount === 'direct') {
@@ -113,25 +160,36 @@ export function derivedMachining(placed: PlacedDevice[], devices: DeviceLookup):
  */
 const CUT_TOUCH = 1;
 
-/** 加工1件の当たり判定用の形。 */
+/**
+ * 加工1件の当たり判定。主穴とねじ下穴をぜんぶ形に分解して総当たりで見る
+ * （丸どうしは中心距離、それ以外は外接四角）。形の分解は holes.ts が持ち、
+ * 描画と同じ答えになる。
+ */
 function cutHit(a: Machining, b: Machining): boolean {
-  const rect = (m: Machining) =>
-    m.kind === 'notch'
-      ? { x0: m.x - m.w / 2, x1: m.x + m.w / 2, y0: m.y - m.h / 2, y1: m.y + m.h / 2 }
-      : { x0: m.x - m.dia / 2, x1: m.x + m.dia / 2, y0: m.y - m.dia / 2, y1: m.y + m.dia / 2 };
-
-  if (a.kind === 'hole' && b.kind === 'hole') {
-    return Math.hypot(a.x - b.x, a.y - b.y) < (a.dia + b.dia) / 2 - CUT_TOUCH;
+  const partsOf = (m: Machining) =>
+    cutParts(m).map((p) => ({ ...p, x: p.x + m.x, y: p.y + m.y }));
+  for (const pa of partsOf(a)) {
+    for (const pb of partsOf(b)) {
+      if (pa.t === 'c' && pb.t === 'c') {
+        if (Math.hypot(pa.x - pb.x, pa.y - pb.y) < pa.r + pb.r - CUT_TOUCH) return true;
+        continue;
+      }
+      const box = (p: typeof pa) =>
+        p.t === 'c'
+          ? { x0: p.x - p.r, x1: p.x + p.r, y0: p.y - p.r, y1: p.y + p.r }
+          : { x0: p.x - p.w / 2, x1: p.x + p.w / 2, y0: p.y - p.h / 2, y1: p.y + p.h / 2 };
+      const ra = box(pa);
+      const rb = box(pb);
+      if (
+        ra.x0 < rb.x1 - CUT_TOUCH &&
+        rb.x0 < ra.x1 - CUT_TOUCH &&
+        ra.y0 < rb.y1 - CUT_TOUCH &&
+        rb.y0 < ra.y1 - CUT_TOUCH
+      )
+        return true;
+    }
   }
-  // 丸穴と切り欠き、切り欠き同士は外接四角どうしの重なりで見る
-  const ra = rect(a);
-  const rb = rect(b);
-  return (
-    ra.x0 < rb.x1 - CUT_TOUCH &&
-    rb.x0 < ra.x1 - CUT_TOUCH &&
-    ra.y0 < rb.y1 - CUT_TOUCH &&
-    rb.y0 < ra.y1 - CUT_TOUCH
-  );
+  return false;
 }
 
 /** かぶっている加工の組を違反として返す。自動導出ぶんと手動ぶんの両方を見る。 */
@@ -184,7 +242,10 @@ export function overlappingCutIds(items: Machining[]): Set<string> {
 
 /** 自動導出ぶんは編集できない。ID の接頭辞で見分ける。 */
 export const isDerived = (m: Machining) =>
-  m.id.startsWith('cut-') || m.id.startsWith('hole-') || m.id.startsWith('fix-');
+  m.id.startsWith('cut-') ||
+  m.id.startsWith('hole-') ||
+  m.id.startsWith('fix-') ||
+  m.id.startsWith('xcut-');
 
 /**
  * 1本の帯（ダクト・DINレール）を留める穴の位置を、端からの距離で割り出す。

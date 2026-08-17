@@ -679,6 +679,32 @@ table.projects tr.detail h4 {
   color: var(--accent);
   font-weight: 600;
 }
+/* 穴カタログ。キャビスタと同じ「タブ＋一覧」の並びにして、探す場所を揃える */
+.holepicker {
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.holepicker .tabs {
+  margin: 0 0 8px;
+}
+.holepicker .tabs.small button {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.hole-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px;
+}
+.hole-grid button {
+  padding: 6px 8px;
+  font-size: 11px;
+  text-align: left;
+  background: var(--surface);
+}
 button.primary {
   border-color: var(--accent);
   background: var(--accent);
@@ -1381,6 +1407,7 @@ body.dragging * {
 }
 
 .cutouts circle,
+.cutouts polyline,
 .cutouts rect {
   fill: none;
   stroke: #c0392b;
@@ -1390,11 +1417,13 @@ body.dragging * {
 }
 /* 手で足した加工は選べる */
 .cutouts .cut circle,
+.cutouts .cut polyline,
 .cutouts .cut rect {
   pointer-events: stroke;
   cursor: pointer;
 }
 .cutouts .cut.on circle,
+.cutouts .cut.on polyline,
 .cutouts .cut.on rect {
   stroke: #ff8f1f;
   stroke-width: 3;

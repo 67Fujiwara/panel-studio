@@ -7,6 +7,7 @@ import type { DeviceLookup } from '../lib/layout';
 import { DIN_RAIL_WIDTH } from '../data/enclosures';
 import { buildDxfSet, downloadDxfSet } from '../lib/dxfExport';
 import { autoMachining, derivedMachining } from '../lib/machining';
+import { cutParts } from '../lib/holes';
 import {
   NOT_PRICED,
   NO_PRICE,
@@ -190,12 +191,33 @@ function FaceArt({
  * 切り欠きは四角、と塗り方で見分けさせる。位置と数が分かればよい。
  */
 function CutShape({ m }: { m: Machining }) {
-  if (m.kind === 'notch') {
-    return (
-      <rect className="ufcut notch" x={m.x - m.w / 2} y={m.y - m.h / 2} width={m.w} height={m.h} />
-    );
-  }
-  return <circle className={`ufcut${m.tap ? ' tap' : ' hole'}`} cx={m.x} cy={m.y} r={m.dia / 2} />;
+  // この縮尺では細部は潰れるので、当たり判定と同じ近似形（丸と四角）で描く。
+  // ねじ下穴も同じ分解に入っているので、個数と位置は正しく伝わる
+  const tap = m.kind === 'hole' && m.tap;
+  return (
+    <>
+      {cutParts(m).map((p, i) =>
+        p.t === 'c' ? (
+          <circle
+            key={i}
+            className={`ufcut${tap ? ' tap' : ' hole'}`}
+            cx={m.x + p.x}
+            cy={m.y + p.y}
+            r={p.r}
+          />
+        ) : (
+          <rect
+            key={i}
+            className="ufcut notch"
+            x={m.x + p.x - p.w / 2}
+            y={m.y + p.y - p.h / 2}
+            width={p.w}
+            height={p.h}
+          />
+        ),
+      )}
+    </>
+  );
 }
 
 /**

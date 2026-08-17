@@ -88,6 +88,11 @@ export type DeviceSpec = {
   heatW?: number;
   /** 扉・側面などに取り付けるとき、面に開ける穴 */
   panelCutout?: { kind: 'hole'; dia: number } | { kind: 'notch'; w: number; h: number };
+  /**
+   * 直付けのときに面へ施す追加加工。キャビスタと同じ穴種が使える。
+   * x,y は**部品の中心からのずれ**(mm・Y上向き)。配置すると座標に展開される。
+   */
+  extraCuts?: MachiningDraft[];
 };
 
 /** 機器の向き。図の上でダブルクリックすると 90° ずつ回る。 */
@@ -124,15 +129,59 @@ export type PlacedDevice = {
 /** タップ（ねじ）穴の呼び。 */
 export type TapSize = 'M3' | 'M4' | 'M5' | 'M6';
 
+/** ねじ下穴の並べ方。丸穴系は PCD、角穴系は開口の縁からの持ち出しで決める。 */
+export type PilotArrange =
+  /** 主穴の中心を軸に、円周（PCD）上へ等配 */
+  | 'pcd'
+  /** 開口の左右 */
+  | 'lr'
+  /** 開口の上下の辺に沿って半分ずつ */
+  | 'tb'
+  /** 四隅 */
+  | 'corners'
+  /** 対角（左上と右下） */
+  | 'diag-tl'
+  /** 対角（右上と左下） */
+  | 'diag-tr'
+  /** 四隅＋残りを長い辺へ均等に（6個付・8個付・10個付） */
+  | 'even';
+
 /**
- * 面に施す加工の中身。穴あけと切り欠き。
- * 穴は「バカ穴（径指定）」と「タップ穴（呼び指定）」を切り替えられる。
- * タップのときの dia は下穴径。
+ * 主穴に付くねじ下穴。メーカーのキャビスタにある「ねじ下穴◯個付」を表す。
+ * 位置は座標で持たず、個数と並べ方から毎回計算する。開口の寸法を直せば付いてくる。
+ */
+export type Pilots = {
+  n: number;
+  /** 下穴径(mm) */
+  dia: number;
+  /** 並べ方。丸穴・長丸穴は pcd / lr、角穴はそれ以外も選べる */
+  arrange: PilotArrange;
+  /** arrange='pcd' のときの PCD（穴中心が乗る円の直径） */
+  pcd?: number;
+  /** 角穴系: 開口の縁から下穴中心までの持ち出し(mm) */
+  offset?: number;
+  /** arrange='pcd' のときの最初の穴の角度（度。右が 0、反時計回り） */
+  angle?: number;
+};
+
+/**
+ * 面に施す加工の中身。メーカーのキャビスタと同じ穴種を持つ。
+ * どれも x,y は**中心**座標。
+ * 丸穴は「バカ穴（径指定）」と「タップ穴（呼び指定）」を切り替えられる
+ * （タップのときの dia は下穴径）。dia 0 の丸穴は「ねじ下穴だけの群」に使う。
  */
 export type MachiningDraft =
-  | { kind: 'hole'; x: number; y: number; dia: number; tap?: TapSize; note?: string }
-  /** 切り欠きも x,y は「中心」座標 */
-  | { kind: 'notch'; x: number; y: number; w: number; h: number; note?: string };
+  | { kind: 'hole'; x: number; y: number; dia: number; tap?: TapSize; pilots?: Pilots; note?: string }
+  /** 長丸穴。len=全長・dia=幅。vert で縦向き */
+  | { kind: 'slot'; x: number; y: number; len: number; dia: number; vert?: boolean; pilots?: Pilots; note?: string }
+  /** 角穴。r=角R（R付角穴）、c=角落とし（変形角穴）。両方 0 ならただの四角 */
+  | { kind: 'notch'; x: number; y: number; w: number; h: number; r?: number; c?: number; pilots?: Pilots; note?: string }
+  /** D穴・ダブルD穴。across=二面幅（平らな面から反対側までの距離） */
+  | { kind: 'dcut'; x: number; y: number; dia: number; across: number; flats: 1 | 2; note?: string }
+  /** ダルマ穴。dia=大穴・dia2=小穴・pitch=中心距離（小穴は上） */
+  | { kind: 'keyhole'; x: number; y: number; dia: number; dia2: number; pitch: number; note?: string }
+  /** 直角キー溝付丸穴。kw=溝幅・kh=円の縁からの溝深さ */
+  | { kind: 'keyway'; x: number; y: number; dia: number; kw: number; kh: number; at: 'top' | 'bottom'; note?: string };
 
 /** 面に施す加工。 */
 export type Machining = MachiningDraft & { id: string; face: FaceId };
