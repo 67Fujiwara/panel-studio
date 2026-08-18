@@ -33,3 +33,33 @@ export function pickJson<T>(): Promise<T | null> {
     input.click();
   });
 }
+
+/** 選んだ1ファイルぶんの結果。data が null なら JSON として読めなかった。 */
+export type PickedJson = { name: string; data: unknown | null };
+
+/**
+ * ファイルをまとめて選んで JSON を読む。キャンセルなら null。
+ * どのファイルが読めなかったかを呼び出し側で知らせられるよう、名前つきで返す。
+ */
+export function pickJsonFiles(): Promise<PickedJson[] | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.multiple = true;
+    input.onchange = async () => {
+      const files = [...(input.files ?? [])];
+      if (files.length === 0) return resolve(null);
+      const out: PickedJson[] = [];
+      for (const f of files) {
+        try {
+          out.push({ name: f.name, data: JSON.parse(await f.text()) });
+        } catch {
+          out.push({ name: f.name, data: null });
+        }
+      }
+      resolve(out);
+    };
+    input.click();
+  });
+}
