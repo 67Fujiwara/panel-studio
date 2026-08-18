@@ -112,6 +112,11 @@ export type PlacedDevice = {
   specId: string;
   face: FaceId;
   mount: MountType;
+  /**
+   * この1台に重ねて付ける OP（DINレール取付アタッチメントなど）の specId。
+   * OP は独立した配置物ではないので、重なり判定に出ない・親と一緒に動く。
+   */
+  opts?: string[];
   /** 向き(0/90/180/270)。既定は 0 */
   rot?: Rotation;
   /** 機器の左下角の座標(mm) */

@@ -208,6 +208,10 @@ export type LayoutItem = {
   row?: number;
   /** 向き(0/90/180/270)。図の上でダブルクリックすると回る */
   rot?: Rotation;
+  /** この1台に重ねて付ける OP（DINレール取付アタッチメントなど）の specId */
+  opts?: string[];
+  /** DIN アタッチメントで取付方式を切り替える前の方式。OP を外したらここへ戻す */
+  mountBeforeOp?: MountType;
 };
 
 type Entry = { item: LayoutItem; spec: DeviceSpec };
@@ -555,6 +559,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
         specId: e.item.specId,
         face,
         mount: e.item.mount,
+        opts: e.item.opts,
         x,
         y: placeY(row, e.spec, e.item.mount, e.item.rot),
         rot: e.item.rot ?? 0,
@@ -660,6 +665,7 @@ function packEqual(
           specId: item.specId,
           face,
           mount: item.mount,
+          opts: item.opts,
           x: startX,
           y: placeY(rr, spec, item.mount, item.rot),
           rot: item.rot ?? 0,
@@ -792,12 +798,17 @@ function depthViolations(
     if (face === 'plate') {
       // 中板の機器は扉内面に当たらないか。内訳が未入力なら判定しない（当たり判定の根拠が無い）
       const limit = effectiveDepth(panel);
-      const projection = deviceProjection(spec, p.mount);
+      // OP（アタッチメント等）は機器の下に挟まるので、その厚みぶん突出が増える
+      const optD = (p.opts ?? []).reduce((sum, id) => sum + (devices.get(id)?.size.d ?? 0), 0);
+      const projection = deviceProjection(spec, p.mount) + optD;
       if (limit !== null && projection > limit) {
         out.push({
           uid: p.uid,
           kind: 'depth',
-          message: `${spec.model}: 突出 ${projection}mm が有効奥行き ${limit}mm を超えています`,
+          message:
+            `${spec.model}: 突出 ${projection}mm` +
+            (optD > 0 ? `（OP ${optD}mm 込み）` : '') +
+            ` が有効奥行き ${limit}mm を超えています`,
         });
       }
     } else if (face === 'door') {

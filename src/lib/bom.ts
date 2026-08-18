@@ -25,7 +25,11 @@ export function buildBom(
 
   // --- 機器本体（型式で集約） ---
   const counts = new Map<string, number>();
-  for (const p of placed) counts.set(p.specId, (counts.get(p.specId) ?? 0) + 1);
+  for (const p of placed) {
+    counts.set(p.specId, (counts.get(p.specId) ?? 0) + 1);
+    // OP（重ね付けした部品）も1台ぶんずつ数える。図では親の下に描かれるだけだが、買い物は別
+    for (const o of p.opts ?? []) counts.set(o, (counts.get(o) ?? 0) + 1);
+  }
   for (const [specId, qty] of counts) {
     const spec = devices.get(specId);
     if (!spec) continue;

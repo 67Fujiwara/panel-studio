@@ -603,6 +603,34 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                 <rect x={p.x} y={toSvgY(faceH, p.y, size.h)} width={size.w} height={size.h} />
               </clipPath>
               {/*
+                OP（重ね付けした部品）。機器の下に挟まるものなので、本体より先に
+                破線で描く。本体からはみ出すぶん（アタッチメントの耳など）だけが見える。
+                独立した配置物ではないため、重なり判定・加工の対象にならない
+              */}
+              {(p.opts ?? []).map((id, oi) => {
+                const opt = devices.get(id);
+                if (!opt) return null;
+                const os = rotatedSize(opt.size, p.rot);
+                const ox = cx - os.w / 2;
+                const oy = cy - os.h / 2;
+                return (
+                  <g key={`op${oi}`} className="opdev">
+                    <rect x={ox} y={oy} width={os.w} height={os.h} />
+                    {opt.shape && (
+                      <g transform={`rotate(${-(p.rot ?? 0)} ${cx} ${cy})`}>
+                        <g
+                          transform={`translate(${cx - opt.size.w / 2} ${cy + opt.size.h / 2}) scale(${
+                            opt.size.w / (opt.shape.w || 1)
+                          } ${-opt.size.h / (opt.shape.h || 1)})`}
+                        >
+                          <ShapeGeometry shape={opt.shape} color="currentColor" />
+                        </g>
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+              {/*
                 CAD の外形線がある機器は、外形線そのものが機器の姿。
                 四角の枠と塗りは出さない。枠があると外形線との間が「隙間」に見えて、
                 隣の機器との間隔を読み違えるため（当たり判定用に透明なまま残す）。

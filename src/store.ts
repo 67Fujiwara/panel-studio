@@ -310,6 +310,8 @@ type State = {
   addDevice: (specId: string, qty: number) => void;
   removeDevice: (specId: string) => void;
   setMount: (specId: string, mount: MountType) => void;
+  /** その1台の OP（重ね付け部品）を入れ替える。DIN アタッチメントなら取付方式も切り替わる */
+  setItemOpts: (uid: string, opts: string[]) => void;
   /** その面のその型式を何段目に置くか。undefined で自動 */
   setItemRow: (specId: string, row: number | undefined) => void;
   /** 選択中の機器またはダクトを消す（Delete キー用） */
@@ -882,6 +884,36 @@ export const useStore = create<State>((set) => ({
       items: s.items.map((i) => (i.specId === specId && i.face === s.face ? { ...i, mount } : i)),
       pinned: s.pinned.filter((p) => !(p.specId === specId && p.face === s.face)),
     })),
+
+  setItemOpts: (uid, opts) =>
+    set((s) => {
+      const item = s.items.find((i) => i.uid === uid);
+      if (!item) return s;
+      const lookup = deviceLookup(s.devices, s.myDevices);
+      const spec = lookup.get(item.specId);
+      /*
+       * OP に DINレール取付品（アタッチメント）が入ったら、その1台は DIN 取付として
+       * 扱う — レールに座り、取付穴のケガキも出なくなる。直付け機器を DIN 化する
+       * アタッチメントの用途そのもの。全部外したら部品本来の取付方式へ戻す。
+       */
+      const optDin = opts.some((id) => lookup.get(id)?.mount.includes('din'));
+      let mount: MountType = item.mount;
+      let mountBeforeOp = item.mountBeforeOp;
+      if (optDin && item.mount !== 'din') {
+        // 切り替える前の方式を覚えておく。外したときに元へ戻すため
+        mountBeforeOp = item.mount;
+        mount = 'din';
+      } else if (!optDin) {
+        if (mountBeforeOp && spec?.mount.includes(mountBeforeOp)) mount = mountBeforeOp;
+        else if (spec && !spec.mount.includes(mount)) mount = spec.mount[0] ?? mount;
+        mountBeforeOp = undefined;
+      }
+      const norm = opts.length > 0 ? opts : undefined;
+      return {
+        items: s.items.map((i) => (i.uid === uid ? { ...i, opts: norm, mount, mountBeforeOp } : i)),
+        pinned: s.pinned.map((p) => (p.uid === uid ? { ...p, opts: norm, mount } : p)),
+      };
+    }),
 
   setItemRow: (specId, row) =>
     set((s) => ({
