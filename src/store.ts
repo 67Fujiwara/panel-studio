@@ -95,44 +95,6 @@ function saveProjects(projects: Project[]) {
 }
 
 /**
- * 設定（部品表・盤マスタ・ダクト・単価）と My部品もブラウザに残す。
- *
- * これまで残していたのは完了案件だけだったので、ブラウザを開き直すたびに
- * 部品表が既定値へ戻り、「設定が読み出せない（消えた）」ように見えていた。
- * バックアップフォルダは控えであって、ふだんの永続化はここで行う。
- */
-const CONFIG_KEY = 'panel-studio.config';
-const MY_KEY = 'panel-studio.my';
-
-function loadConfigLS(): ConfigFile | null {
-  try {
-    const raw = localStorage.getItem(CONFIG_KEY);
-    const data = raw ? (JSON.parse(raw) as ConfigFile) : null;
-    return data?.schemaVersion === 1 ? data : null;
-  } catch {
-    return null;
-  }
-}
-
-function loadMyLS(): MyConfigFile | null {
-  try {
-    const raw = localStorage.getItem(MY_KEY);
-    const data = raw ? (JSON.parse(raw) as MyConfigFile) : null;
-    return data?.schemaVersion === 1 ? data : null;
-  } catch {
-    return null;
-  }
-}
-
-/** ブラウザ内に保存済みの設定があるか。バックアップからの自動復元の判断に使う。 */
-export function hasSavedConfig(): boolean {
-  return loadConfigLS() !== null;
-}
-export function hasSavedMy(): boolean {
-  return loadMyLS() !== null;
-}
-
-/**
  * AI の接続先はブラウザにだけ置く。
  * 設定 JSON に混ぜると、共有フォルダ経由で API キーが配られてしまう。
  */
@@ -376,22 +338,19 @@ export type AiReview = {
   results?: { face: FaceId; ok: boolean; text: string }[];
 };
 
-const savedConfig = loadConfigLS();
-const savedMy = loadMyLS();
-
 export const useStore = create<State>((set) => ({
   screen: 'start',
   face: 'plate',
   panel: structuredClone(BLANK_PANEL),
-  profile: savedConfig?.profile ?? DEFAULT_PROFILE,
+  profile: DEFAULT_PROFILE,
 
-  categories: savedConfig?.categories ?? DEFAULT_CATEGORIES,
-  devices: savedConfig?.devices ?? DEFAULT_DEVICES,
-  owners: savedMy?.owners ?? [],
-  myDevices: savedMy?.devices ?? [],
-  enclosures: savedConfig?.enclosures ?? SAMPLE_ENCLOSURES,
-  ducts: savedConfig?.ducts ?? SAMPLE_DUCTS,
-  prices: savedConfig?.prices ?? {},
+  categories: DEFAULT_CATEGORIES,
+  devices: DEFAULT_DEVICES,
+  owners: [],
+  myDevices: [],
+  enclosures: SAMPLE_ENCLOSURES,
+  ducts: SAMPLE_DUCTS,
+  prices: {},
   projects: loadProjects(),
   ai: loadAi(),
 
@@ -1019,61 +978,6 @@ export const useStore = create<State>((set) => ({
 
   resetLayout: () => set((s) => ({ pinned: s.pinned.filter((p) => p.face !== s.face) })),
 }));
-
-/**
- * 設定・My部品の変更をブラウザへ書き戻す。
- * 部品表は 1MB 級になるので、打鍵のたびではなく手が止まってから書く。
- * 閉じる直前にも書いて取りこぼしを防ぐ（localStorage は同期なので間に合う）。
- */
-{
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const dirty = { config: false, my: false };
-  const flushLS = () => {
-    const s = useStore.getState();
-    if (dirty.config) {
-      dirty.config = false;
-      try {
-        const f: ConfigFile = {
-          schemaVersion: 1,
-          categories: s.categories,
-          devices: s.devices,
-          profile: s.profile,
-          enclosures: s.enclosures,
-          ducts: s.ducts,
-          prices: s.prices,
-        };
-        localStorage.setItem(CONFIG_KEY, JSON.stringify(f));
-      } catch {
-        /* 保存できない環境（容量超過・file:// 等）ではバックアップフォルダ頼み */
-      }
-    }
-    if (dirty.my) {
-      dirty.my = false;
-      try {
-        const f: MyConfigFile = { schemaVersion: 1, owners: s.owners, devices: s.myDevices };
-        localStorage.setItem(MY_KEY, JSON.stringify(f));
-      } catch {
-        /* 同上 */
-      }
-    }
-  };
-  useStore.subscribe((now, before) => {
-    if (
-      now.categories !== before.categories ||
-      now.devices !== before.devices ||
-      now.profile !== before.profile ||
-      now.enclosures !== before.enclosures ||
-      now.ducts !== before.ducts ||
-      now.prices !== before.prices
-    )
-      dirty.config = true;
-    if (now.owners !== before.owners || now.myDevices !== before.myDevices) dirty.my = true;
-    if (!dirty.config && !dirty.my) return;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(flushLS, 300);
-  });
-  if (typeof window !== 'undefined') window.addEventListener('pagehide', flushLS);
-}
 
 /** 共通の部品表と My部品をまとめた検索用 Map。 */
 export function deviceLookup(devices: DeviceSpec[], myDevices: DeviceSpec[]) {

@@ -12,7 +12,7 @@ import {
   type MyConfigFile,
   type ProjectFile,
 } from '../store';
-import { downloadJson, pickJsonFiles } from '../lib/jsonFile';
+import { downloadJson, pickJson } from '../lib/jsonFile';
 
 /**
  * ConfigFile 画面。共通の部品表（分類と部品）を編集する。
@@ -53,68 +53,25 @@ export function ConfigScreen() {
     };
     downloadJson(file, 'panel-studio-settings.json');
   };
+  const importConfig = async () => {
+    const data = await pickJson<ConfigFile>();
+    if (data?.schemaVersion === 1) loadConfig(data);
+  };
   const exportMy = () => {
     const file: MyConfigFile = { schemaVersion: 1, owners, devices: myDevices };
     downloadJson(file, 'panel-studio-myparts.json');
+  };
+  const importMy = async () => {
+    const data = await pickJson<MyConfigFile>();
+    if (data?.schemaVersion === 1) loadMyConfig(data);
   };
   const exportProjects = () => {
     const file: ProjectFile = { schemaVersion: 1, projects };
     downloadJson(file, 'panel-studio-projects.json');
   };
-  /** 3ファイルまとめて書き出す（ダウンロード）。 */
-  const exportAll = () => {
-    exportConfig();
-    exportMy();
-    if (projects.length > 0) exportProjects();
-  };
-
-  /**
-   * ファイルの中身から種類を見分ける。
-   * ファイル名は見ない — 改名されたファイル（例: panelstudiosettings.json）や
-   * 旧版が書き出したファイルでも、中身が合っていれば読めるようにする。
-   */
-  const detectKind = (data: unknown): 'config' | 'my' | 'projects' | null => {
-    const d = data as Record<string, unknown> | null;
-    if (!d || d.schemaVersion !== 1) return null;
-    if (Array.isArray(d.projects)) return 'projects';
-    if (Array.isArray(d.owners)) return 'my';
-    if (Array.isArray(d.categories) && Array.isArray(d.devices)) return 'config';
-    return null;
-  };
-  const KIND_LABEL = {
-    config: '設定・盤マスタ・ダクト・部品表',
-    my: 'My部品',
-    projects: '完了案件',
-  } as const;
-
-  /**
-   * まとめて読み込む。複数ファイルを一度に選べて、種類は中身で自動判別する。
-   * 個別の「読み込み」ボタンも同じ入口 — どの行のボタンからでも正しい場所へ入る。
-   */
-  const importAny = async () => {
-    const picked = await pickJsonFiles();
-    if (!picked) return; // キャンセル
-    const loaded: string[] = [];
-    const failed: string[] = [];
-    for (const f of picked) {
-      const kind = detectKind(f.data);
-      if (kind === 'config') loadConfig(f.data as ConfigFile);
-      else if (kind === 'my') loadMyConfig(f.data as MyConfigFile);
-      else if (kind === 'projects') loadProjectFile(f.data as ProjectFile);
-      if (kind) loaded.push(`${f.name} → ${KIND_LABEL[kind]}`);
-      else
-        failed.push(
-          f.data === null
-            ? `${f.name}（JSON として読めません）`
-            : `${f.name}（このアプリのファイルではありません）`,
-        );
-    }
-    // 何が起きたかを必ず知らせる。黙って何も起きないのが一番わかりにくい
-    const lines = [
-      ...(loaded.length ? [`読み込みました:`, ...loaded.map((s) => `・${s}`)] : []),
-      ...(failed.length ? [`読み込めませんでした:`, ...failed.map((s) => `・${s}`)] : []),
-    ];
-    if (lines.length) window.alert(lines.join('\n'));
+  const importProjects = async () => {
+    const data = await pickJson<ProjectFile>();
+    if (data?.schemaVersion === 1) loadProjectFile(data);
   };
 
   return (
@@ -132,17 +89,7 @@ export function ConfigScreen() {
         <b>ふだんは操作不要です。</b>画面上の帯でバックアップ先フォルダを決めておけば、
         設定・My部品・完了案件が<b>変わるたびに自動で書き出されます</b>
         （打っている最中は書かず、手が止まってから。動きがなくても一定時間ごとに書きます）。
-        開いたときにブラウザ側へデータが無ければ、フォルダから<b>自動で読み込みます</b>
-        （新しい PC やブラウザのデータを消した直後がこれにあたります）。
         以前は3つの画面に分かれていた書き出し・読み込みは、ここにまとめました。
-      </p>
-      <div className="row-buttons">
-        <button onClick={exportAll}>一括書き出し（3ファイル）</button>
-        <button onClick={() => void importAny()}>一括読み込み（まとめて選択）</button>
-      </div>
-      <p className="note">
-        読み込みはファイル名でなく<b>中身で種類を判別</b>します。ファイル名が変わっていても、
-        複数まとめて選んでも、それぞれ正しい場所へ入ります。
       </p>
       <table className="backup-io">
         <thead>
@@ -158,7 +105,7 @@ export function ConfigScreen() {
             <td>panel-studio-settings.json</td>
             <td className="cand-actions">
               <button onClick={exportConfig}>書き出し</button>
-              <button onClick={() => void importAny()}>読み込み</button>
+              <button onClick={() => void importConfig()}>読み込み</button>
             </td>
           </tr>
           <tr>
@@ -166,7 +113,7 @@ export function ConfigScreen() {
             <td>panel-studio-myparts.json</td>
             <td className="cand-actions">
               <button onClick={exportMy}>書き出し</button>
-              <button onClick={() => void importAny()}>読み込み</button>
+              <button onClick={() => void importMy()}>読み込み</button>
             </td>
           </tr>
           <tr>
@@ -176,7 +123,7 @@ export function ConfigScreen() {
               <button onClick={exportProjects} disabled={projects.length === 0}>
                 書き出し
               </button>
-              <button onClick={() => void importAny()}>読み込み</button>
+              <button onClick={() => void importProjects()}>読み込み</button>
             </td>
           </tr>
         </tbody>

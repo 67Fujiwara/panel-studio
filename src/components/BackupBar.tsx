@@ -10,14 +10,7 @@ import {
   type BackupKind,
   type BackupState,
 } from '../lib/backup';
-import {
-  hasSavedConfig,
-  hasSavedMy,
-  useStore,
-  type ConfigFile,
-  type MyConfigFile,
-  type ProjectFile,
-} from '../store';
+import { useStore, type ConfigFile, type MyConfigFile, type ProjectFile } from '../store';
 
 /**
  * バックアップ先の帯。
@@ -72,12 +65,8 @@ export function BackupBar() {
       dirRef.current = dir;
       // 再読み込み直後は許可が「保留」になることがある。ここでは聞かず、名前だけ出す
       setState((v) => ({ ...v, dirName: dir.name }));
-      if (await ensurePermission(dir, false)) {
-        // 書く前に読む。新しい PC などブラウザ側が空のときは、
-        // フォルダの中身を先に取り込まないと、空の状態で上書きしてしまう
-        await restoreMissing(dir);
-        writer.setDir(dir);
-      } else
+      if (await ensurePermission(dir, false)) writer.setDir(dir);
+      else
         setState((v) => ({
           ...v,
           error: '書き込みの許可を確かめてください（「許可し直す」を押す）',
@@ -117,11 +106,10 @@ export function BackupBar() {
     try {
       const dir = await pickDir();
       dirRef.current = dir;
-      // フォルダに既にファイルがあれば、そちらを取り込むか聞く。
-      // 書き出し係を動かすのは取り込みが済んでから。先に動かすと、確認に
-      // 時間をかけているあいだに空の状態でフォルダを上書きしてしまう
-      await offerRestore(dir);
       writerRef.current?.setDir(dir);
+      // フォルダに既にファイルがあれば、そちらを取り込むか聞く。
+      // 新しい PC で開いたときに、書き出したものを拾い直せるようにするため
+      await offerRestore(dir);
     } catch (e) {
       // 選ぶのをやめただけなら黙って戻る
       if (e instanceof DOMException && e.name === 'AbortError') return;
@@ -137,8 +125,6 @@ export function BackupBar() {
     setBusy(true);
     try {
       if (await ensurePermission(dir, true)) {
-        // ここでも書く前に読む。ブラウザ側が空のままフォルダを上書きしない
-        await restoreMissing(dir);
         writerRef.current?.setDir(dir);
         setState((v) => ({ ...v, error: null }));
       }
@@ -200,43 +186,6 @@ export function BackupBar() {
       </button>
     </div>
   );
-}
-
-/**
- * ブラウザ側に無いものだけ、バックアップ先から黙って取り込む。
- *
- * 起動時・許可し直し時に呼ぶ。新しい PC やブラウザのデータを消した直後は
- * ブラウザ側が空なので、フォルダの中身が正になる。すでにブラウザ側に
- * データがあるときは何もしない（どちらが新しいか機械では決められないため。
- * 明示的に取り込みたいときは設定画面の一括読み込みを使う）。
- */
-async function restoreMissing(dir: FileSystemDirectoryHandle) {
-  const s = useStore.getState();
-  try {
-    if (!hasSavedConfig()) {
-      const text = await readFile(dir, BACKUP_FILES.config);
-      if (text) {
-        const f = JSON.parse(text) as ConfigFile;
-        if (f.schemaVersion === 1) s.loadConfig(f);
-      }
-    }
-    if (!hasSavedMy()) {
-      const text = await readFile(dir, BACKUP_FILES.my);
-      if (text) {
-        const f = JSON.parse(text) as MyConfigFile;
-        if (f.schemaVersion === 1) s.loadMyConfig(f);
-      }
-    }
-    if (s.projects.length === 0) {
-      const text = await readFile(dir, BACKUP_FILES.projects);
-      if (text) {
-        const f = JSON.parse(text) as ProjectFile;
-        if (f.schemaVersion === 1) s.loadProjectFile(f);
-      }
-    }
-  } catch {
-    // 壊れたファイルはここでは黙って飛ばす（手動の読み込みでエラーを出す）
-  }
 }
 
 /**
