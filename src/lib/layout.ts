@@ -783,6 +783,45 @@ function detectOverlaps(placed: PlacedDevice[], devices: DeviceLookup): Violatio
   return out;
 }
 
+/**
+ * 機器とダクトの干渉。
+ *
+ * 段割りに乗っている機器は構造上ダクトに重ならないが、
+ * - 段の高さ equal モードで段を名指しされた背の高い機器（AI の段指定を含む）
+ * - Shift ドラッグで手動固定した機器
+ * はダクトへ食い込める。物理的にダクトの上に機器は付かないので、必ず知らせる。
+ */
+function ductOverlaps(placed: PlacedDevice[], ducts: Duct[], devices: DeviceLookup): Violation[] {
+  const out: Violation[] = [];
+  const pen = 0.5; // 接している程度は見逃す
+  for (const p of placed) {
+    const spec = devices.get(p.specId);
+    if (!spec) continue;
+    const s = rotatedSize(spec.size, p.rot);
+    for (const d of ducts) {
+      if (d.removed) continue;
+      const hit =
+        p.x < d.x + d.w - pen &&
+        d.x < p.x + s.w - pen &&
+        p.y < d.y + d.h - pen &&
+        d.y < p.y + s.h - pen;
+      if (!hit) continue;
+      const vert = d.h > d.w;
+      out.push({
+        uid: p.uid,
+        kind: 'overlap',
+        message:
+          `${spec.model}: ${vert ? '縦' : '横'}ダクトに重なっています（${vert ? '左右' : '上下'}方向の干渉）` +
+          (p.pinned
+            ? '。手で置いた位置がダクトに掛かっています'
+            : `。高さ ${s.h}mm が段に入っていません（段の高さを「自動」にするか、段数・盤サイズを見直してください）`),
+      });
+      break; // 1台につき1件で十分
+    }
+  }
+  return out;
+}
+
 /** 面ごとの奥行きチェック。面によって当たる相手が違う。 */
 function depthViolations(
   panel: PanelSpec,
@@ -865,14 +904,17 @@ export function autoLayout(
 
   // 消したダクトは配列から外さず印を付けて残す。図の上に薄く出して押し戻せるようにする
   const gone = new Set(removedDucts);
+  // 干渉判定は removed の印が付いたあとの並びで行う。消した場所は機器が使ってよい
+  const ducts = result.ducts.map((d) => (gone.has(d.id) ? { ...d, removed: true } : d));
   return {
     rows: result.rows,
-    ducts: result.ducts.map((d) => (gone.has(d.id) ? { ...d, removed: true } : d)),
+    ducts,
     placed,
     violations: [
       ...result.violations,
       ...depthViolations(panel, face, placed, devices),
       ...detectOverlaps(placed, devices),
+      ...ductOverlaps(placed, ducts, devices),
     ],
   };
 }

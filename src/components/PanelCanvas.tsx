@@ -256,6 +256,38 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     select(null);
   };
 
+  /**
+   * 手動配置（Shift ドラッグ）でダクトの上に落とさないよう、近い側へ避ける。
+   * 物理的にダクトの上へ機器は付かないので、重ねて置きたい人はいない。
+   * 横ダクトは上下へ、縦ダクトは左右へ、近いほうへ押し出す。
+   * 押し出した先が別のダクトに掛かる（段の隙間が機器より狭い）ときは
+   * あきらめてそのまま置き、チェック（ダクト干渉）に任せる。
+   */
+  const dodgeDucts = (x: number, y: number, size: { w: number; h: number }) => {
+    const live = layout.ducts.filter((dd) => !dd.removed);
+    let nx = x;
+    let ny = y;
+    // 押し出しで別のダクトに掛かることがあるので、数回まで追いかける
+    for (let pass = 0; pass < 3; pass++) {
+      const hit = live.find(
+        (dd) => nx < dd.x + dd.w && dd.x < nx + size.w && ny < dd.y + dd.h && dd.y < ny + size.h,
+      );
+      if (!hit) return { x: nx, y: ny };
+      if (hit.w >= hit.h) {
+        // 横ダクト: 中心が上寄りなら上へ、下寄りなら下へ
+        ny = ny + size.h / 2 > hit.y + hit.h / 2 ? hit.y + hit.h : hit.y - size.h;
+        ny = Math.max(0, Math.min(faceH - size.h, ny));
+      } else {
+        nx = nx + size.w / 2 > hit.x + hit.w / 2 ? hit.x + hit.w : hit.x - size.w;
+        nx = Math.max(0, Math.min(faceW - size.w, nx));
+      }
+    }
+    const still = live.some(
+      (dd) => nx < dd.x + dd.w && dd.x < nx + size.w && ny < dd.y + dd.h && dd.y < ny + size.h,
+    );
+    return still ? { x, y } : { x: nx, y: ny };
+  };
+
   const onPointerMove = (e: React.PointerEvent) => {
     const k = mmPerPx();
     if (dragRef.current) {
@@ -271,11 +303,10 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         const nx = Math.round((d.ox + dx) / SNAP) * SNAP;
         // SVG は Y 下向きなので、面の座標では符号が反転する
         const ny = Math.round((d.oy - dy) / SNAP) * SNAP;
-        pin({
-          ...placed,
-          x: Math.max(0, Math.min(faceW - size.w, nx)),
-          y: Math.max(0, Math.min(faceH - size.h, ny)),
-        });
+        const cl = Math.max(0, Math.min(faceW - size.w, nx));
+        const cb = Math.max(0, Math.min(faceH - size.h, ny));
+        const dodged = dodgeDucts(cl, cb, size);
+        pin({ ...placed, x: dodged.x, y: dodged.y });
         return;
       }
       // 既定: 他の機器の間へ入れ込む。並び順が変わると配置がその場で組み直される。
