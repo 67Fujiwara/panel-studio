@@ -220,6 +220,17 @@ type Entry = { item: LayoutItem; spec: DeviceSpec };
 const sizeOf = (e: Entry) => rotatedSize(e.spec.size, e.item.rot);
 
 /**
+ * その1台が段の中で縦に占める高さ。
+ * DIN 取付は「中央合わせ＋dinOffset」で置くので、ずらしたぶん段の外へ出ないよう、
+ * オフセットの絶対値の2倍を上乗せして確保する（中央基準のずらしのため両側に要る）。
+ * これを段の高さ計算に使わないと、オフセット付きの機器が上下のダクトへ食い込む。
+ */
+function vertNeed(spec: DeviceSpec, mount: MountType, rot?: Rotation): number {
+  const off = mount === 'din' ? Math.abs(spec.dinOffset ?? 0) : 0;
+  return rotatedSize(spec.size, rot).h + off * 2;
+}
+
+/**
  * その段の使える X 範囲（余白と端クリアランスの大きいほうを採る）。
  * 段ごとに左右の余白を変えられるので、段番号で変わる。
  */
@@ -438,7 +449,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   };
 
   const place = (e: Entry, forceLast: boolean) => {
-    const { w, h } = sizeOf(e);
+    const { w } = sizeOf(e);
     const forced = e.item.row;
     // 段の指定がない機器は「いま使っている一番下の段」から探す。
     // あとから足した機器が1段目の空きに入ってしまうと、増やすたびに上へ潜り込んで見える
@@ -501,7 +512,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
     hit.slot.cursor = hit.x + w;
     hit.slot.prevRight = eff.right;
     hit.slot.used = true;
-    b.h = Math.max(b.h, h + eff.top + eff.bottom);
+    b.h = Math.max(b.h, vertNeed(e.spec, e.item.mount, e.item.rot) + eff.top + eff.bottom);
   };
 
   for (const e of main) place(e, false);
@@ -652,7 +663,7 @@ function packEqual(
       const rr = rows[r]!;
       const { xMin, xMax } = span[r] ?? usableX(panel, face, profile, r);
       const eff = effectiveClearance(spec, c, rowGap(profile, r));
-      if (size.h + eff.top + eff.bottom > rr.h && candidates.length > 1) {
+      if (vertNeed(spec, item.mount, item.rot) + eff.top + eff.bottom > rr.h && candidates.length > 1) {
         tooShort = true;
         continue;
       }
@@ -807,6 +818,7 @@ function ductOverlaps(placed: PlacedDevice[], ducts: Duct[], devices: DeviceLook
         d.y < p.y + s.h - pen;
       if (!hit) continue;
       const vert = d.h > d.w;
+      const off = p.mount === 'din' ? Math.abs(spec.dinOffset ?? 0) : 0;
       out.push({
         uid: p.uid,
         kind: 'overlap',
@@ -814,7 +826,8 @@ function ductOverlaps(placed: PlacedDevice[], ducts: Duct[], devices: DeviceLook
           `${spec.model}: ${vert ? '縦' : '横'}ダクトに重なっています（${vert ? '左右' : '上下'}方向の干渉）` +
           (p.pinned
             ? '。手で置いた位置がダクトに掛かっています'
-            : `。高さ ${s.h}mm が段に入っていません（段の高さを「自動」にするか、段数・盤サイズを見直してください）`),
+            : `。高さ ${s.h}mm${off > 0 ? `＋DINオフセット ${off}mm×2` : ''} が段に入っていません` +
+              '（段の高さを「自動」にするか、段数・盤サイズを見直してください）'),
       });
       break; // 1台につき1件で十分
     }
