@@ -12,7 +12,16 @@ import {
   type MyConfigFile,
   type ProjectFile,
 } from '../store';
-import { downloadJson, pickJson } from '../lib/jsonFile';
+import { downloadJson, pickJson, pickJsonFiles } from '../lib/jsonFile';
+
+/** 一括書き出しの1ファイル。3種のファイルをそのまま入れ子にする（個別読み込みとの互換のため） */
+type BackupBundle = {
+  schemaVersion: 1;
+  kind: 'bundle';
+  config: ConfigFile;
+  my: MyConfigFile;
+  projects: ProjectFile;
+};
 
 /**
  * ConfigFile 画面。共通の部品表（分類と部品）を編集する。
@@ -74,6 +83,76 @@ export function ConfigScreen() {
     if (data?.schemaVersion === 1) loadProjectFile(data);
   };
 
+  /**
+   * 一括書き出しは**1ファイル**にまとめる。
+   * 3ファイルを連続ダウンロードする方式は、ブラウザが2つ目以降をブロックして
+   * 「1つしか落ちてこない」になりがち（複数ダウンロードは既定で要許可）。
+   * 1ファイルなら確実に全部入りで渡せて、読み込みも1回で済む。
+   */
+  const exportAll = () => {
+    const bundle: BackupBundle = {
+      schemaVersion: 1,
+      kind: 'bundle',
+      config: { schemaVersion: 1, categories, devices, profile, enclosures, ducts, prices },
+      my: { schemaVersion: 1, owners, devices: myDevices },
+      projects: { schemaVersion: 1, projects },
+    };
+    downloadJson(bundle, 'panel-studio-backup.json');
+  };
+
+  /**
+   * ファイルの中身から種類を見分ける。ファイル名は見ない —
+   * 改名されたファイルや全部入りの1ファイルでも、中身が合っていれば読めるようにする。
+   */
+  const detectKind = (data: unknown): 'bundle' | 'config' | 'my' | 'projects' | null => {
+    const d = data as Record<string, unknown> | null;
+    if (!d || d.schemaVersion !== 1) return null;
+    if (d.kind === 'bundle' && d.config && d.my) return 'bundle';
+    if (Array.isArray(d.projects)) return 'projects';
+    if (Array.isArray(d.owners)) return 'my';
+    if (Array.isArray(d.categories) && Array.isArray(d.devices)) return 'config';
+    return null;
+  };
+  const KIND_LABEL = {
+    bundle: '一括バックアップ（設定＋My部品＋完了案件）',
+    config: '設定・盤マスタ・ダクト・部品表',
+    my: 'My部品',
+    projects: '完了案件',
+  } as const;
+
+  /** まとめて読み込む。複数ファイルも全部入りの1ファイルも、中身で見分けて正しい場所へ。 */
+  const importAny = async () => {
+    const picked = await pickJsonFiles();
+    if (!picked) return; // キャンセル
+    const loaded: string[] = [];
+    const failed: string[] = [];
+    for (const f of picked) {
+      const kind = detectKind(f.data);
+      if (kind === 'bundle') {
+        const b = f.data as BackupBundle;
+        loadConfig(b.config);
+        loadMyConfig(b.my);
+        // 空の完了案件で既存を消さない（設定だけ渡したい相手に配ったファイルのため）
+        if (b.projects.projects.length > 0) loadProjectFile(b.projects);
+      } else if (kind === 'config') loadConfig(f.data as ConfigFile);
+      else if (kind === 'my') loadMyConfig(f.data as MyConfigFile);
+      else if (kind === 'projects') loadProjectFile(f.data as ProjectFile);
+      if (kind) loaded.push(`${f.name} → ${KIND_LABEL[kind]}`);
+      else
+        failed.push(
+          f.data === null
+            ? `${f.name}（JSON として読めません）`
+            : `${f.name}（このアプリのファイルではありません）`,
+        );
+    }
+    // 何が起きたかを必ず知らせる。黙って何も起きないのが一番わかりにくい
+    const lines = [
+      ...(loaded.length ? ['読み込みました:', ...loaded.map((x) => `・${x}`)] : []),
+      ...(failed.length ? ['読み込めませんでした:', ...failed.map((x) => `・${x}`)] : []),
+    ];
+    if (lines.length) window.alert(lines.join('\n'));
+  };
+
   return (
     <div className="screen">
       <div className="screen-head">
@@ -90,6 +169,16 @@ export function ConfigScreen() {
         設定・My部品・完了案件が<b>変わるたびに自動で書き出されます</b>
         （打っている最中は書かず、手が止まってから。動きがなくても一定時間ごとに書きます）。
         以前は3つの画面に分かれていた書き出し・読み込みは、ここにまとめました。
+      </p>
+      <div className="row-buttons">
+        <button onClick={exportAll}>一括書き出し（1ファイルに全部）</button>
+        <button onClick={() => void importAny()}>一括読み込み</button>
+      </div>
+      <p className="note">
+        一括書き出しは<b>全部入りの1ファイル</b>（panel-studio-backup.json）を作ります。
+        別の PC へはこれ1つ持っていけば足ります。読み込みはファイル名でなく
+        <b>中身で種類を判別</b>するので、全部入りでも下の個別ファイルでも、名前が変わっていても、
+        複数まとめて選んでも、それぞれ正しい場所へ入ります。
       </p>
       <table className="backup-io">
         <thead>
