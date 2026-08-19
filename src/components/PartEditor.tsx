@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { extractShape, readDxfText } from '../lib/dxfImport';
 import { machiningLabel } from '../lib/machining';
+import { PartFigure } from './PartFigure';
 import { CutFields, HolePicker } from './HolePicker';
 import { ShapePreview } from './ShapeGeometry';
 import { useStore } from '../store';
@@ -187,6 +188,9 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
         />
       </div>
 
+      {/* 加工まわりは2列にして、右に実寸比のプレビューを常に出す */}
+      <div className="machcols">
+        <div className="machform">
       <h4>取付穴（ピッチとサイズ）</h4>
       <p className="note">
         直付けのときの<b>ケガキ座標</b>と取付ネジ本数に使います。中心からピッチで展開します。
@@ -331,6 +335,10 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
           }}
         />
       )}
+
+        </div>
+        <PartFigure part={part} color={color} />
+      </div>
 
       <h4>メーカー指定の最小離隔・発熱</h4>
       <div className="grid2">

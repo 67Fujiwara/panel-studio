@@ -983,3 +983,45 @@ export const useStore = create<State>((set) => ({
 export function deviceLookup(devices: DeviceSpec[], myDevices: DeviceSpec[]) {
   return new Map([...devices, ...myDevices].map((d) => [d.id, d]));
 }
+
+/**
+ * バックアップの全部入り1ファイル。3種のファイルをそのまま入れ子にする。
+ * 自動バックアップも一括書き出しもこれ1つ — ファイルが3つも4つもあると、
+ * どれを持っていけばいいのか分からなくなる。
+ */
+export type BackupBundle = {
+  schemaVersion: 1;
+  kind: 'bundle';
+  config: ConfigFile;
+  my: MyConfigFile;
+  projects: ProjectFile;
+};
+
+/** いまのストアの中身から全部入りバックアップを作る。 */
+export function makeBundle(): BackupBundle {
+  const s = useStore.getState();
+  return {
+    schemaVersion: 1,
+    kind: 'bundle',
+    config: {
+      schemaVersion: 1,
+      categories: s.categories,
+      devices: s.devices,
+      profile: s.profile,
+      enclosures: s.enclosures,
+      ducts: s.ducts,
+      prices: s.prices,
+    },
+    my: { schemaVersion: 1, owners: s.owners, devices: s.myDevices },
+    projects: { schemaVersion: 1, projects: s.projects },
+  };
+}
+
+/** 全部入りバックアップをストアへ読み込む。完了案件が空なら既存を消さない。 */
+export function loadBundle(b: BackupBundle): void {
+  const s = useStore.getState();
+  // 手で編集された・壊れたファイルでも、読める部分だけは読む
+  if (b.config) s.loadConfig(b.config);
+  if (b.my) s.loadMyConfig(b.my);
+  if (b.projects && b.projects.projects.length > 0) s.loadProjectFile(b.projects);
+}

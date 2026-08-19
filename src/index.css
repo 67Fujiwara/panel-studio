@@ -1906,3 +1906,71 @@ ul.oplist.pick button.linkish {
 ul.oplist.pick button.linkish:hover {
   background: var(--accent-soft);
 }
+
+/*
+  部品編集の加工まわり。左に入力、右に実寸比のプレビュー。
+  数字だけではピッチの向きや PCD の大きさを取り違えるので、打った瞬間に図で見せる。
+*/
+.machcols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1000px) {
+  .machcols {
+    grid-template-columns: 1fr;
+  }
+}
+.cutfig {
+  position: sticky;
+  top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.cutfig h4 {
+  margin: 0 0 6px;
+}
+.cutfig svg {
+  display: block;
+  width: 100%;
+  max-height: 340px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.cutfig .body {
+  fill: var(--bg);
+  stroke: var(--muted);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+.cutfig .bodyshape {
+  color: var(--muted);
+}
+.cutfig .bodyshape polyline,
+.cutfig .bodyshape polygon,
+.cutfig .bodyshape circle {
+  fill: none;
+  stroke-width: 0.8;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.6;
+}
+.cutfig .axis {
+  stroke: var(--muted);
+  stroke-width: 0.8;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+.cutfig .cut {
+  fill: none;
+  stroke: var(--bad);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+.cutfig .note {
+  margin: 6px 0 0;
+  font-size: 11px;
+}

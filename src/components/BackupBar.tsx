@@ -1,16 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  BACKUP_FILES,
+  BACKUP_FILE,
   BackupWriter,
   ensurePermission,
   fsAccessSupported,
+  LEGACY_BACKUP_FILES,
   loadDir,
   pickDir,
   readFile,
   type BackupKind,
   type BackupState,
 } from '../lib/backup';
-import { useStore, type ConfigFile, type MyConfigFile, type ProjectFile } from '../store';
+import {
+  loadBundle,
+  makeBundle,
+  useStore,
+  type BackupBundle,
+  type ConfigFile,
+  type MyConfigFile,
+  type ProjectFile,
+} from '../store';
 
 /**
  * バックアップ先の帯。
@@ -31,28 +40,9 @@ export function BackupBar() {
   const writerRef = useRef<BackupWriter | null>(null);
   const dirRef = useRef<FileSystemDirectoryHandle | null>(null);
 
-  // 書き出す中身はストアから直に取る。React の描画とは切り離しておきたいので getState を使う
-  const snapshot = (kind: BackupKind): unknown => {
-    const s = useStore.getState();
-    if (kind === 'config') {
-      const f: ConfigFile = {
-        schemaVersion: 1,
-        categories: s.categories,
-        devices: s.devices,
-        profile: s.profile,
-        enclosures: s.enclosures,
-        ducts: s.ducts,
-        prices: s.prices,
-      };
-      return f;
-    }
-    if (kind === 'my') {
-      const f: MyConfigFile = { schemaVersion: 1, owners: s.owners, devices: s.myDevices };
-      return f;
-    }
-    const f: ProjectFile = { schemaVersion: 1, projects: s.projects };
-    return f;
-  };
+  // 書き出す中身はストアから直に取る。React の描画とは切り離しておきたいので getState を使う。
+  // 書くのは常に全部入りの1ファイル（panel-studio-backup.json）
+  const snapshot = (): unknown => makeBundle();
 
   // 書き出し係を1つだけ作る。中身の変化を見張って、止まったところでまとめて書く
   useEffect(() => {
@@ -196,10 +186,16 @@ export function BackupBar() {
  */
 async function offerRestore(dir: FileSystemDirectoryHandle) {
   const s = useStore.getState();
+
+  // いまの形式（全部入りの1ファイル）を先に見る
+  const bundleText = await readFile(dir, BACKUP_FILE);
+  // 旧版の3ファイルは読み込み（復元）だけ対応する。書くのはもうしない
+  const config = bundleText ? null : await readFile(dir, LEGACY_BACKUP_FILES.config);
+  const my = bundleText ? null : await readFile(dir, LEGACY_BACKUP_FILES.my);
+  const projects = bundleText ? null : await readFile(dir, LEGACY_BACKUP_FILES.projects);
+
   const found: string[] = [];
-  const config = await readFile(dir, BACKUP_FILES.config);
-  const my = await readFile(dir, BACKUP_FILES.my);
-  const projects = await readFile(dir, BACKUP_FILES.projects);
+  if (bundleText) found.push('全部入りバックアップ');
   if (config) found.push('設定・部品表');
   if (my) found.push('My部品');
   if (projects) found.push('完了案件');
@@ -213,6 +209,11 @@ async function offerRestore(dir: FileSystemDirectoryHandle) {
   if (!window.confirm(msg)) return;
 
   try {
+    if (bundleText) {
+      const b = JSON.parse(bundleText) as BackupBundle;
+      if (b.schemaVersion === 1 && b.kind === 'bundle') loadBundle(b);
+      return;
+    }
     if (config) {
       const f = JSON.parse(config) as ConfigFile;
       if (f.schemaVersion === 1) s.loadConfig(f);

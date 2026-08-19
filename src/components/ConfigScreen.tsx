@@ -7,21 +7,15 @@ import { WorkAreaEditor } from './WorkAreaEditor';
 import { PriceBookPanel } from './PriceBookPanel';
 import { AiSettingsPanel } from './AiSettingsPanel';
 import {
+  loadBundle,
+  makeBundle,
   useStore,
+  type BackupBundle,
   type ConfigFile,
   type MyConfigFile,
   type ProjectFile,
 } from '../store';
 import { downloadJson, pickJson, pickJsonFiles } from '../lib/jsonFile';
-
-/** 一括書き出しの1ファイル。3種のファイルをそのまま入れ子にする（個別読み込みとの互換のため） */
-type BackupBundle = {
-  schemaVersion: 1;
-  kind: 'bundle';
-  config: ConfigFile;
-  my: MyConfigFile;
-  projects: ProjectFile;
-};
 
 /**
  * ConfigFile 画面。共通の部品表（分類と部品）を編集する。
@@ -89,16 +83,7 @@ export function ConfigScreen() {
    * 「1つしか落ちてこない」になりがち（複数ダウンロードは既定で要許可）。
    * 1ファイルなら確実に全部入りで渡せて、読み込みも1回で済む。
    */
-  const exportAll = () => {
-    const bundle: BackupBundle = {
-      schemaVersion: 1,
-      kind: 'bundle',
-      config: { schemaVersion: 1, categories, devices, profile, enclosures, ducts, prices },
-      my: { schemaVersion: 1, owners, devices: myDevices },
-      projects: { schemaVersion: 1, projects },
-    };
-    downloadJson(bundle, 'panel-studio-backup.json');
-  };
+  const exportAll = () => downloadJson(makeBundle(), 'panel-studio-backup.json');
 
   /**
    * ファイルの中身から種類を見分ける。ファイル名は見ない —
@@ -129,11 +114,8 @@ export function ConfigScreen() {
     for (const f of picked) {
       const kind = detectKind(f.data);
       if (kind === 'bundle') {
-        const b = f.data as BackupBundle;
-        loadConfig(b.config);
-        loadMyConfig(b.my);
-        // 空の完了案件で既存を消さない（設定だけ渡したい相手に配ったファイルのため）
-        if (b.projects.projects.length > 0) loadProjectFile(b.projects);
+        // 空の完了案件で既存を消さない処理は loadBundle 側にある
+        loadBundle(f.data as BackupBundle);
       } else if (kind === 'config') loadConfig(f.data as ConfigFile);
       else if (kind === 'my') loadMyConfig(f.data as MyConfigFile);
       else if (kind === 'projects') loadProjectFile(f.data as ProjectFile);
@@ -168,7 +150,8 @@ export function ConfigScreen() {
         <b>ふだんは操作不要です。</b>画面上の帯でバックアップ先フォルダを決めておけば、
         設定・My部品・完了案件が<b>変わるたびに自動で書き出されます</b>
         （打っている最中は書かず、手が止まってから。動きがなくても一定時間ごとに書きます）。
-        以前は3つの画面に分かれていた書き出し・読み込みは、ここにまとめました。
+        書き出されるのは<b>全部入りの1ファイル（panel-studio-backup.json）だけ</b>です。
+        旧版が書いた3ファイル（settings / myparts / projects）は読み込みだけ対応しています。
       </p>
       <div className="row-buttons">
         <button onClick={exportAll}>一括書き出し（1ファイルに全部）</button>

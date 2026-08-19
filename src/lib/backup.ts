@@ -12,14 +12,20 @@
  * ⚠ API キーはここでも書き出さない。共有フォルダに置いたファイルからキーが漏れる。
  */
 
-/** 書き出すファイル名。中身ごとに分けて、片方が壊れても片方は読めるようにする。 */
-export const BACKUP_FILES = {
+/**
+ * 書き出すファイルは**全部入りの1つ**。以前は中身ごとに3ファイルへ分けていたが、
+ * 「フォルダに何個もあって、どれを持っていけばいいのか分からない」ため1つにした。
+ */
+export const BACKUP_FILE = 'panel-studio-backup.json';
+
+/** 旧版が書いていたファイル名。読み込み（復元）のときだけ使う。書くのはもうしない */
+export const LEGACY_BACKUP_FILES = {
   config: 'panel-studio-settings.json',
   my: 'panel-studio-myparts.json',
   projects: 'panel-studio-projects.json',
 } as const;
 
-export type BackupKind = keyof typeof BACKUP_FILES;
+export type BackupKind = keyof typeof LEGACY_BACKUP_FILES;
 
 /** バックアップの状態。画面の帯に出す。 */
 export type BackupState = {
@@ -149,8 +155,8 @@ export class BackupWriter {
   private busy = false;
 
   constructor(
-    /** 書き出す中身を取り出す。呼ばれた時点の最新を返すこと */
-    private readonly snapshot: (kind: BackupKind) => unknown,
+    /** 書き出す中身（全部入りの1ファイルぶん）を取り出す。呼ばれた時点の最新を返すこと */
+    private readonly snapshot: () => unknown,
     /** 状態が変わったら知らせる（画面の帯の更新用） */
     private readonly onChange: (patch: Partial<BackupState>) => void,
     /** 変更が止まってから書くまでの待ち時間(ms) */
@@ -194,9 +200,9 @@ export class BackupWriter {
         // 再読み込み後などで許可が切れている。人がボタンを押すまで待つ
         throw new Error('フォルダへの書き込み許可が切れています。選び直してください。');
       }
-      for (const k of kinds) {
-        await writeFile(this.dir, BACKUP_FILES[k], JSON.stringify(this.snapshot(k), null, 2));
-      }
+      // どこが変わっていても書くのは全部入りの1ファイル。kinds は「書く必要があるか」の印
+      void kinds;
+      await writeFile(this.dir, BACKUP_FILE, JSON.stringify(this.snapshot(), null, 2));
       this.onChange({ lastAt: Date.now(), error: null, pending: false });
     } catch (e) {
       // 失敗したぶんは次にもう一度書く
