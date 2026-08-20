@@ -80,7 +80,7 @@ function PilotFields({
   const p: Pilots =
     value ??
     (kind === 'hole'
-      ? { n: 0, dia: 4.5, arrange: 'pcd', pcd: 36, angle: 90 }
+      ? { n: 0, dia: 4.5, arrange: 'pcd', pcd: 36, angle: 0 }
       : kind === 'slot'
         ? { n: 0, dia: 4.5, arrange: 'lr', offset: 8 }
         : { n: 0, dia: 4.5, arrange: 'corners', offset: 6 });
@@ -120,7 +120,12 @@ function PilotFields({
           {p.arrange === 'pcd' ? (
             <>
               <Num label="PCD" value={p.pcd ?? 36} onChange={(pcd) => set({ pcd })} />
-              <Num label="開始角°" value={p.angle ?? 90} step={15} onChange={(angle) => set({ angle })} />
+              <Num
+                label="開始角°（0=真上・時計回り）"
+                value={p.angle ?? 0}
+                step={15}
+                onChange={(angle) => set({ angle })}
+              />
             </>
           ) : (
             <Num label="縁からの持ち出し" value={p.offset ?? 6} onChange={(offset) => set({ offset })} />

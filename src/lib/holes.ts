@@ -31,12 +31,14 @@ export function pilotPoints(m: MachiningDraft): Pt[] {
   if (!p || p.n <= 0 || p.dia <= 0) return [];
   const n = Math.max(1, Math.round(p.n));
 
-  // 丸穴系: PCD の円周に等配
+  // 丸穴系: PCD の円周に等配。
+  // 開始角は**0°=真上・時計回り**（時計の文字盤と同じ）。図面や現場の指示は
+  // この読み方がほとんどで、数学の「右が0・反時計回り」にすると実物と合わない。
   if (p.arrange === 'pcd' || m.kind === 'hole') {
     const r = (p.pcd ?? 0) / 2;
-    const a0 = (((p.angle ?? 90) * Math.PI) / 180);
+    const a0 = ((90 - (p.angle ?? 0)) * Math.PI) / 180;
     return Array.from({ length: n }, (_, i) => {
-      const a = a0 + (TAU * i) / n;
+      const a = a0 - (TAU * i) / n;
       return { x: r * Math.cos(a), y: r * Math.sin(a) };
     });
   }
@@ -319,7 +321,7 @@ export type HolePreset = {
   make: (x: number, y: number) => MachiningDraft;
 };
 
-const pcd = (n: number, dia: number, pcdDia: number, angle = 90): Pilots => ({
+const pcd = (n: number, dia: number, pcdDia: number, angle = 0): Pilots => ({
   n,
   dia,
   arrange: 'pcd',
@@ -343,7 +345,7 @@ export const HOLE_CATALOG: { group: string; items: HolePreset[] }[] = [
     items: [
       { id: 'hole', label: '丸穴', make: (x, y) => ({ kind: 'hole', x, y, dia: 22 }) },
       { id: 'slot', label: '長丸穴', make: (x, y) => ({ kind: 'slot', x, y, len: 40, dia: 12 }) },
-      { id: 'hole-p2', label: '丸穴 ねじ下穴2個付', make: (x, y) => ({ kind: 'hole', x, y, dia: 22, pilots: pcd(2, 4.5, 36, 0) }) },
+      { id: 'hole-p2', label: '丸穴 ねじ下穴2個付', make: (x, y) => ({ kind: 'hole', x, y, dia: 22, pilots: pcd(2, 4.5, 36, 90) }) },
       { id: 'hole-p3', label: '丸穴 ねじ下穴3個付（PCD）', make: (x, y) => ({ kind: 'hole', x, y, dia: 22, pilots: pcd(3, 4.5, 36) }) },
       { id: 'hole-p4', label: '丸穴 ねじ下穴4個付', make: (x, y) => ({ kind: 'hole', x, y, dia: 22, pilots: pcd(4, 4.5, 36, 45) }) },
       { id: 'slot-p2', label: '長丸穴 ねじ下穴2個付', make: (x, y) => ({ kind: 'slot', x, y, len: 40, dia: 12, pilots: { n: 2, dia: 4.5, arrange: 'lr', offset: 8 } }) },
