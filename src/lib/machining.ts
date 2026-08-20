@@ -312,11 +312,12 @@ export function fixingMachining(
     }
   }
 
-  for (const r of rails) {
+  // ゾーン分割では同じ段にレールが2本になるので、id は段番号でなく通し番号で振る
+  for (const [ri, r] of rails.entries()) {
     const f = profile.rail.fixing;
     for (const [i, at] of fixingOffsets(r.length, f).entries()) {
       out.push({
-        id: `fix-rail${r.row}-${i}`,
+        id: `fix-rail${ri}-${i}`,
         face,
         kind: 'hole',
         x: round(r.x + at),

@@ -301,7 +301,11 @@ type State = {
     beforeUid: string | null,
     row?: number,
     currentRows?: Map<string, number>,
+    /** ゾーン分割のときの区画指定（0=左）。渡されたときだけ付け替える */
+    zone?: number,
   ) => void;
+  /** 座標取付をやめて段割りへ戻す（pinned から外す） */
+  unpin: (uid: string) => void;
 
   addMachining: (m: MachiningDraft) => void;
   updateMachining: (id: string, patch: Partial<Machining>) => void;
@@ -929,7 +933,7 @@ export const useStore = create<State>((set) => ({
       pinned: s.pinned.filter((p) => p.uid !== uid),
     })),
 
-  moveItem: (uid, beforeUid, row, currentRows) =>
+  moveItem: (uid, beforeUid, row, currentRows, zone) =>
     set((s) => {
       const from = s.items.findIndex((i) => i.uid === uid);
       if (from < 0) return s;
@@ -946,8 +950,13 @@ export const useStore = create<State>((set) => ({
       };
 
       const rest = s.items.filter((i) => i.uid !== uid).map(freeze);
-      // 上下に動かしたときだけ段を指定し直す。左右に動かしただけなら「自動」のまま残す
-      const item = row === undefined ? moved : { ...moved, row };
+      // 上下に動かしたときだけ段を指定し直す。左右に動かしただけなら「自動」のまま残す。
+      // ゾーン分割では、区画をまたいだときにその区画を覚える（分類の既定より優先される）
+      const item = {
+        ...moved,
+        ...(row !== undefined ? { row } : {}),
+        ...(zone !== undefined ? { zone } : {}),
+      };
       const to = beforeUid ? rest.findIndex((i) => i.uid === beforeUid) : -1;
       const next = [...rest];
       next.splice(to < 0 ? next.length : to, 0, item);
@@ -962,6 +971,8 @@ export const useStore = create<State>((set) => ({
       machining: s.machining.map((m) => (m.id === id ? ({ ...m, ...patch } as Machining) : m)),
     })),
   removeMachining: (id) => set((s) => ({ machining: s.machining.filter((m) => m.id !== id) })),
+
+  unpin: (uid) => set((s) => ({ pinned: s.pinned.filter((p) => p.uid !== uid) })),
 
   pin: (placed) =>
     set((s) => ({

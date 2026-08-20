@@ -202,7 +202,21 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
       const w = spec ? rotatedSize(spec.size, p.rot).w : 0;
       return p.row > targetRow || (p.row === targetRow && at.x < p.x + w / 2);
     });
-    return { row: targetRow, before: before?.uid ?? null };
+    /*
+      ゾーン分割では、マウスがどの区画（縦ダクトの左右）にあるかも見る。
+      区画は既定で分類（動力=左・制御=右）から決まるため、これを渡さないと
+      右の列へドラッグしても元の列へ戻ってしまい、マウスでは移せない。
+    */
+    let zone: number | undefined;
+    if (profile.duct.layout === 'zoned') {
+      const vducts = layout.ducts
+        .filter((dd) => !dd.removed && dd.h > dd.w)
+        .sort((a, b) => a.x - b.x);
+      if (vducts.length > 0) {
+        zone = vducts.filter((dd) => dd.x + dd.w / 2 < at.x).length;
+      }
+    }
+    return { row: targetRow, before: before?.uid ?? null, zone };
   };
 
   /** 画面上の px を mm に変換する係数 */
@@ -242,6 +256,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     rowsAtGrab: Map<string, number>;
     lastBefore: string | null | undefined;
     lastRow: number | undefined;
+    lastZone: number | undefined;
   } | null>(null);
 
   /** ドラッグ中は文字が選択されないようにする。図の外へ出ても効くよう body に付ける。 */
@@ -311,13 +326,14 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
       }
       // 既定: 他の機器の間へ入れ込む。並び順が変わると配置がその場で組み直される。
       // 上下に動かしたときは段の指定も付け替える（並び順だけでは段は変わらないため）
-      const { row, before } = dropTarget(e.clientX, e.clientY, d.uid);
+      const { row, before, zone } = dropTarget(e.clientX, e.clientY, d.uid);
       const movedRow = row !== d.fromRow ? row : undefined;
-      if (before !== d.lastBefore || movedRow !== d.lastRow) {
+      if (before !== d.lastBefore || movedRow !== d.lastRow || zone !== d.lastZone) {
         d.lastBefore = before;
         d.lastRow = movedRow;
+        d.lastZone = zone;
         // つかむ前の段割りを渡して、動かした1台以外は今の段にとどめる
-        moveItem(d.uid, before, movedRow, d.rowsAtGrab);
+        moveItem(d.uid, before, movedRow, d.rowsAtGrab, zone);
       }
       return;
     }
@@ -621,6 +637,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                   rowsAtGrab: new Map(layout.placed.map((q) => [q.uid, q.row])),
                   lastBefore: undefined,
                   lastRow: undefined,
+                  lastZone: undefined,
                 };
                 (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
               }}

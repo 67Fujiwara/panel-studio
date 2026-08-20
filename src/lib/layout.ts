@@ -212,6 +212,11 @@ export type LayoutItem = {
   opts?: string[];
   /** DIN アタッチメントで取付方式を切り替える前の方式。OP を外したらここへ戻す */
   mountBeforeOp?: MountType;
+  /**
+   * ゾーン分割のときにどの区画へ置くか（0=左）。未指定なら分類で決める
+   * （動力系は左・制御系は右）。図の上でドラッグして区画をまたぐと入る。
+   */
+  zone?: number;
 };
 
 type Entry = { item: LayoutItem; spec: DeviceSpec };
@@ -432,9 +437,13 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   };
   let flow = 0;
 
-  /** ゾーン分割のとき、その機器が入るべき区画。動力は左、制御は右 */
+  /**
+   * ゾーン分割のとき、その機器が入るべき区画。既定は動力が左・制御が右だが、
+   * 図の上でドラッグして区画をまたいだ機器は、その指定（item.zone）を優先する。
+   */
   const zoneOf = (e: Entry, slots: Slot[]) => {
     if (!rule.zoned || slots.length < 2) return 0;
+    if (e.item.zone !== undefined) return Math.max(0, Math.min(slots.length - 1, e.item.zone));
     return POWER_CATEGORIES.has(e.spec.category) ? 0 : slots.length - 1;
   };
 
@@ -736,33 +745,48 @@ export function computeRails(
       .filter((e): e is { p: PlacedDevice; spec: DeviceSpec } => Boolean(e.spec));
     if (inRow.length === 0) continue;
 
-    const devLeft = Math.min(...inRow.map((e) => e.p.x));
-    const devRight = Math.max(...inRow.map((e) => e.p.x + rotatedSize(e.spec.size, e.p.rot).w));
     // レールの中心は段の中心。機器はここから dinOffset ぶんだけずれて掛かる
     const y = row.y + row.h / 2;
 
     /*
-      余長を伸ばすとき、ダクトに食い込ませない。
+      レールをダクトに食い込ませない。
       実物はダクトが先に付いていてレールはその間に入るので、
       図の上で重なっていると切断長を間違える。
-      レールが通る高さ（帯 35mm）にかかるダクトだけを見て、そこで止める。
+      レールが通る高さ（帯 35mm）にかかるダクトだけを見る。
+
+      ゾーン分割や田の字では**縦ダクトが段の真ん中を横切る**。その場合は
+      1本で貫かず、切れ目（縦ダクト）の間ごとに機器をまとめて**別々のレール**を引く。
     */
     const band = { y0: y - DIN_RAIL_WIDTH / 2, y1: y + DIN_RAIL_WIDTH / 2 };
-    const blockers = layout.ducts.filter(
-      (d) => !d.removed && d.y < band.y1 && band.y0 < d.y + d.h,
-    );
-    const limitLeft = Math.max(
-      0,
-      ...blockers.filter((d) => d.x + d.w <= devLeft + 0.01).map((d) => d.x + d.w),
-    );
-    const limitRight = Math.min(
-      Infinity,
-      ...blockers.filter((d) => d.x >= devRight - 0.01).map((d) => d.x),
-    );
+    const cuts = layout.ducts
+      .filter((d) => !d.removed && d.y < band.y1 && band.y0 < d.y + d.h)
+      .map((d) => ({ x0: d.x, x1: d.x + d.w }))
+      .sort((a, b) => a.x0 - b.x0);
 
-    const left = Math.max(limitLeft, devLeft - endMargin);
-    const right = Math.min(limitRight, devRight + endMargin);
-    out.push({ row: row.index, x: left, y, length: Math.max(0, right - left) });
+    const sorted = [...inRow].sort((a, b) => a.p.x - b.p.x);
+    const groups: (typeof inRow)[] = [];
+    for (const e of sorted) {
+      const g = groups[groups.length - 1];
+      const gRight = g
+        ? Math.max(...g.map((q) => q.p.x + rotatedSize(q.spec.size, q.p.rot).w))
+        : 0;
+      const split = g && cuts.some((c) => c.x0 >= gRight - 0.01 && c.x1 <= e.p.x + 0.01);
+      if (!g || split) groups.push([e]);
+      else g.push(e);
+    }
+
+    for (const g of groups) {
+      const devLeft = Math.min(...g.map((e) => e.p.x));
+      const devRight = Math.max(...g.map((e) => e.p.x + rotatedSize(e.spec.size, e.p.rot).w));
+      const limitLeft = Math.max(0, ...cuts.filter((c) => c.x1 <= devLeft + 0.01).map((c) => c.x1));
+      const limitRight = Math.min(
+        Infinity,
+        ...cuts.filter((c) => c.x0 >= devRight - 0.01).map((c) => c.x0),
+      );
+      const left = Math.max(limitLeft, devLeft - endMargin);
+      const right = Math.min(limitRight, devRight + endMargin);
+      out.push({ row: row.index, x: left, y, length: Math.max(0, right - left) });
+    }
   }
   return out;
 }

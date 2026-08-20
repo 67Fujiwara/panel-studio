@@ -5,6 +5,7 @@ import { DevicePicker } from './components/DevicePicker';
 import { FacePicker } from './components/FacePicker';
 import { MachiningPanel } from './components/MachiningPanel';
 import { MyConfigScreen } from './components/MyConfigScreen';
+import { MountPosPanel } from './components/MountPosPanel';
 import { OptionPanel } from './components/OptionPanel';
 import { PanelCanvas } from './components/PanelCanvas';
 import { ProjectsScreen } from './components/ProjectsScreen';
@@ -120,6 +121,7 @@ export default function App() {
             )}
             <DevicePicker />
             {/* 検索欄が2つ縦に並ぶと紛らわしいので、OP はツリーの下に置く */}
+            {hasDucts && <MountPosPanel layout={layout} devices={lookup} />}
             <OptionPanel devices={lookup} />
           </aside>
           <PanelCanvas
