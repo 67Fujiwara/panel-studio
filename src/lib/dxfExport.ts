@@ -264,6 +264,8 @@ function drawFace(
   ox: number,
   oy: number,
   kind: ExportKind,
+  /** 型式などの文字を書くか。加工屋へ渡す図と中板は、文字が切断線に化けるので出さない */
+  withText: boolean,
 ) {
   const { panel, profile, items, pinned, machining, removedDucts, underlays, devices } = input;
   const size = faceSize(panel, face);
@@ -290,7 +292,9 @@ function drawFace(
         w.rect(LAYER.device, ox + p.x, oy + p.y, s.w, s.h);
       }
       // 型式は機器の左下に小さく。図面上で拾えるようにする
-      w.text(LAYER.deviceText, ox + p.x + 2, oy + p.y + 2, Math.min(8, s.h / 3), spec.model);
+      if (withText) {
+        w.text(LAYER.deviceText, ox + p.x + 2, oy + p.y + 2, Math.min(8, s.h / 3), spec.model);
+      }
     }
   }
 
@@ -302,11 +306,18 @@ function drawFace(
 /** キャビネット（中板以外の6面）を三面図の並びで1枚に書き出す。 */
 export function cabinetDxf(input: ExportInput, kind: ExportKind): string {
   const w = new DxfWriter();
-  const { cells } = unfoldCells(input.panel);
+  const { cells, h } = unfoldCells(input.panel);
   for (const c of cells) {
     if (c.id === 'plate') continue;
-    drawFace(w, input, c.id, c.x, c.y, kind);
-    w.text(LAYER.note, c.x, c.y - 14, 10, `${FACE_LABEL(c.id)} ${c.w}x${c.h}`);
+    /*
+     * unfoldCells は画面用（Y 下向き・上の面ほど y が小さい）。DXF は Y 上向きなので、
+     * そのまま使うと面の並びが上下鏡写しになり、上面と底面が入れ替わって出る。
+     * 面の中身は各面の座標（Y 上向き）で描くので、直すのは置き場所の変換だけ。
+     */
+    const oy = h - (c.y + c.h);
+    drawFace(w, input, c.id, c.x, oy, kind, kind === 'full');
+    // 面の名前は参考用。加工屋へ渡す穴だけの図には文字を出さない（切断線に化ける）
+    if (kind === 'full') w.text(LAYER.note, c.x, oy - 14, 10, `${FACE_LABEL(c.id)} ${c.w}x${c.h}`);
   }
   return w.finish();
 }
@@ -314,8 +325,8 @@ export function cabinetDxf(input: ExportInput, kind: ExportKind): string {
 /** 中板だけを1枚に書き出す。 */
 export function plateDxf(input: ExportInput, kind: ExportKind): string {
   const w = new DxfWriter();
-  drawFace(w, input, 'plate', 0, 0, kind);
-  w.text(LAYER.note, 0, -14, 10, `中板 ${input.panel.plate.w}x${input.panel.plate.h}`);
+  // 中板は文字なしで出す（型式・寸法の注記とも）。そのまま加工へ回る図のため
+  drawFace(w, input, 'plate', 0, 0, kind, false);
   return w.finish();
 }
 
