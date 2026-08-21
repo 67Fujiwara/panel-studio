@@ -99,6 +99,15 @@ export type DeviceSpec = {
 export type Rotation = 0 | 90 | 180 | 270;
 
 /**
+ * タップ穴加工（追加加工にタップ）を持つ部品か。
+ * タップは板の裏からナットを当てられない中板だから成り立つ加工なので、
+ * これを持つ部品は**中板専用**として扱う（他の面には足せない・置けば違反）。
+ */
+export function hasTapCuts(spec: DeviceSpec | undefined): boolean {
+  return spec?.extraCuts?.some((c) => c.kind === 'hole' && c.tap !== undefined) ?? false;
+}
+
+/**
  * 向きを踏まえた見かけの寸法。90/270 では幅と高さが入れ替わる。
  * 配置・作図・加工の座標がすべてこれを基準にする。
  */
@@ -492,7 +501,7 @@ export type DeviceRow = {
 
 export type Violation = {
   uid: string;
-  kind: 'overflow' | 'depth' | 'clearance' | 'overlap' | 'cut-overlap' | 'out-of-area';
+  kind: 'overflow' | 'depth' | 'clearance' | 'overlap' | 'cut-overlap' | 'out-of-area' | 'tap-face';
   message: string;
 };
 

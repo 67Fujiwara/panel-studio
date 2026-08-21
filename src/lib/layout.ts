@@ -1,5 +1,5 @@
 import { DIN_RAIL_HEIGHT, DIN_RAIL_WIDTH } from '../data/enclosures';
-import { ductWidthOf, rotatedSize, vertWidthOf } from '../types';
+import { ductWidthOf, hasTapCuts, rotatedSize, vertWidthOf } from '../types';
 import { FACE_BY_ID, faceSize } from '../data/faces';
 import type {
   ClearanceSettings,
@@ -952,6 +952,17 @@ export function autoLayout(
       ...depthViolations(panel, face, placed, devices),
       ...detectOverlaps(placed, devices),
       ...ductOverlaps(placed, ducts, devices),
+      // タップ穴加工付きの部品は中板専用。足す口は塞いであるが、
+      // AI の配置や古いデータで紛れ込んだときにここで知らせる
+      ...(face === 'plate'
+        ? []
+        : placed
+            .filter((p) => hasTapCuts(devices.get(p.specId)))
+            .map((p) => ({
+              uid: p.uid,
+              kind: 'tap-face' as const,
+              message: `${devices.get(p.specId)?.model ?? p.specId}: タップ穴加工付きの部品は中板にだけ取り付けられます`,
+            }))),
     ],
   };
 }

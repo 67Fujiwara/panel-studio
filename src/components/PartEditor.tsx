@@ -288,6 +288,8 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
         メーカーのキャビスタと同じ穴種を部品に持たせられます。位置は<b>部品の中心からのずれ</b>で、
         配置すると面の座標に展開されます（回転にも付いてきます）。
         取付穴のピッチで足りない、ダルマ穴や D穴・キー溝が要る部品はここで登録します。
+        <b>タップ穴を持たせた部品は中板にしか取り付けられなくなります</b>
+        （タップは板の裏からナットを当てられない中板だから成り立つ加工のため）。
       </p>
       {(part.extraCuts ?? []).map((c, i) => (
         <div key={i} className="cutedit">
@@ -306,8 +308,7 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
           <div className="cutedit-body">
             <CutFields
               value={c}
-              tapOk={false}
-              tapNg="タップは中板の面でだけ使えます（部品側では通し穴で持たせてください）"
+              tapOk={true}
               posLabel={['中心からX', '中心からY']}
               onChange={(v) =>
                 update(part.id, {

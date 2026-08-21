@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { FACE_BY_ID } from '../data/faces';
 import { useStore } from '../store';
+import { hasTapCuts } from '../types';
 import type { DeviceSpec, MountType } from '../types';
 
 const MOUNT_LABEL: Record<MountType, string> = { din: 'DIN', direct: '直付' };
@@ -58,6 +59,7 @@ export function DevicePicker() {
     const count = countOf(d.id);
     const mount = mountOf(d.id) ?? d.mount.find((m) => allowedMounts.includes(m));
     const selectable = d.mount.filter((m) => allowedMounts.includes(m));
+    const tapOnly = hasTapCuts(d);
     return (
       <li className={`dev${count > 0 ? ' on' : ''}`}>
         <div className="dev-main">
@@ -103,7 +105,17 @@ export function DevicePicker() {
             −
           </button>
           <b>{count}</b>
-          <button onClick={() => addDevice(d.id, 1)} aria-label="増やす">
+          <button
+            onClick={() => addDevice(d.id, 1)}
+            aria-label="増やす"
+            // タップ穴加工付きの部品は中板専用。裏からナットを当てられない加工のため
+            disabled={tapOnly && !hasDucts}
+            title={
+              tapOnly && !hasDucts
+                ? 'タップ穴加工付きの部品は中板にだけ取り付けられます'
+                : undefined
+            }
+          >
             ＋
           </button>
         </div>

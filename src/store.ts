@@ -33,7 +33,7 @@ import type {
   Rotation,
 } from './types';
 import type { LayoutItem } from './lib/layout';
-import { rotatedSize } from './types';
+import { rotatedSize, hasTapCuts } from './types';
 
 let seq = 0;
 const nextId = (p: string) => `${p}${Date.now().toString(36)}${++seq}`;
@@ -815,7 +815,14 @@ export const useStore = create<State>((set) => ({
       const spec = [...s.devices, ...s.myDevices].find((d) => d.id === specId);
       const allowed = FACE_BY_ID.get(s.face)?.mounts ?? [];
       if (!spec) return s;
-      const mount = spec.mount.find((m) => allowed.includes(m));
+      // タップ穴加工付きの部品は中板専用（ボタン側も灰色にしてあるが、二重に守る）
+      if (s.face !== 'plate' && hasTapCuts(spec)) return s;
+      // タップ付きの部品はネジ止め前提なので、両対応でも既定を直付けにする。
+      // DIN のままだと追加加工（直付けのとき）が出ず、「タップが出ない」に見える
+      const mount =
+        hasTapCuts(spec) && spec.mount.includes('direct') && allowed.includes('direct')
+          ? 'direct'
+          : spec.mount.find((m) => allowed.includes(m));
       if (!mount) return s;
       const added: LayoutItem[] = Array.from({ length: qty }, () => ({
         uid: nextId('d'),
