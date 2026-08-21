@@ -60,10 +60,19 @@ export function DevicePicker() {
     const mount = mountOf(d.id) ?? d.mount.find((m) => allowedMounts.includes(m));
     const selectable = d.mount.filter((m) => allowedMounts.includes(m));
     const tapOnly = hasTapCuts(d);
+    // タップ穴加工付き＝中板専用。他の面ではボタンだけでなく行ごと灰色にして、
+    // 「この部品はここに置けない」が一目で分かるようにする
+    const blocked = tapOnly && !hasDucts;
     return (
-      <li className={`dev${count > 0 ? ' on' : ''}`}>
+      <li
+        className={`dev${count > 0 ? ' on' : ''}${blocked ? ' plate-only' : ''}`}
+        title={blocked ? 'タップ穴加工付きの部品は中板にだけ取り付けられます' : undefined}
+      >
         <div className="dev-main">
-          <strong>{d.model}</strong>
+          <strong>
+            {d.model}
+            {tapOnly && <em className="dev-badge">中板専用</em>}
+          </strong>
           <span>
             {d.name} — {d.size.w}×{d.size.h}×{d.size.d}
           </span>

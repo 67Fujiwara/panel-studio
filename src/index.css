@@ -1974,3 +1974,27 @@ ul.oplist.pick button.linkish:hover {
   margin: 6px 0 0;
   font-size: 11px;
 }
+
+/*
+  タップ穴加工付き（中板専用）の部品。
+  中板以外の面では行ごと灰色にして「ここには置けない」を一目で伝える。
+  バッジ自体はどの面でも出して、どれが中板専用かを覚えなくて済むようにする。
+*/
+li.dev.plate-only {
+  opacity: 0.45;
+}
+li.dev .dev-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--accent);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 400;
+  white-space: nowrap;
+}
+li.dev.plate-only .dev-badge {
+  border-color: var(--muted);
+  color: var(--muted);
+}
