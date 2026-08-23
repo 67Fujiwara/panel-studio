@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DIN_RAIL_WIDTH } from '../data/enclosures';
 import { FACE_LABEL, faceSize } from '../data/faces';
 import { computeRails } from '../lib/layout';
+import { sideSilhouettes } from '../lib/sideView';
 import { ShapeGeometry } from './ShapeGeometry';
 import { autoMachining } from '../lib/machining';
 import { cutOutline, outlinePolys, pilotDia, pilotPoints } from '../lib/holes';
@@ -113,6 +114,20 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const rotateItem = useStore((s) => s.rotateItem);
   const setDuctSpecAt = useStore((s) => s.setDuctSpecAt);
   const ductMaster = useStore((s) => s.ducts);
+  const items = useStore((s) => s.items);
+  const pinnedAll = useStore((s) => s.pinned);
+  const removedDuctsAll = useStore((s) => s.removedDucts);
+  /*
+   * 側面図への投影（干渉確認用）。左右側面のときだけ、中板・扉の機器のうち
+   * 側面の外形線を登録したものを薄く写す。押せない・選べない・加工にも出ない。
+   */
+  const sideSils = useMemo(
+    () =>
+      face === 'left' || face === 'right'
+        ? sideSilhouettes(face, panel, profile, items, pinnedAll, devices, removedDuctsAll)
+        : [],
+    [face, panel, profile, items, pinnedAll, devices, removedDuctsAll],
+  );
   /** ダクトをダブルクリックしたときに出す型式の一覧。位置は canvas-wrap の中の座標 */
   const [ductPick, setDuctPick] = useState<{
     target: DuctTarget;
@@ -599,6 +614,25 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
             </title>
           </rect>
         ))}
+
+        {/*
+          中板・扉の機器の投影（左右側面のみ）。奥行き方向の当たりを目で確認する
+          ための下絵なので、薄く・触れないように描く。この面の機器より下に敷く
+        */}
+        {sideSils.map((s) => {
+          const bottom = toSvgY(faceH, s.y, 0);
+          return (
+            <g key={`sil-${s.uid}`} className="sidesil">
+              <g
+                transform={`translate(${s.x + (s.mirror ? s.w : 0)} ${bottom}) scale(${
+                  ((s.mirror ? -1 : 1) * s.w) / (s.shape.w || 1)
+                } ${-s.h / (s.shape.h || 1)})`}
+              >
+                <ShapeGeometry shape={s.shape} color="currentColor" />
+              </g>
+            </g>
+          );
+        })}
 
         {/* 機器 */}
         {layout.placed.map((p) => {

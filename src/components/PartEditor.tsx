@@ -64,6 +64,7 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
   const color = categories.find((c) => c.id === part.category)?.color ?? '#7d8894';
 
   const [shapeMsg, setShapeMsg] = useState('');
+  const [sideMsg, setSideMsg] = useState('');
   const [cutPickOpen, setCutPickOpen] = useState(false);
 
   const importShape = async (file: File | undefined) => {
@@ -80,6 +81,23 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
       setShapeMsg(`${file.name} — 線 ${shape.entities.length} 本 / ${shape.w}×${shape.h}`);
     } catch (e) {
       setShapeMsg(`読み込めませんでした: ${String(e)}`);
+    }
+  };
+
+  const importSideShape = async (file: File | undefined) => {
+    if (!file) return;
+    setSideMsg('');
+    try {
+      const shape = extractShape(await readDxfText(file));
+      if (!shape) {
+        setSideMsg('図形が見つかりませんでした。');
+        return;
+      }
+      // 側面図は表示時に 奥行き×高さ へ拡縮するので、外形サイズには触らない
+      update(part.id, { sideShape: shape });
+      setSideMsg(`${file.name} — 線 ${shape.entities.length} 本 / ${shape.w}×${shape.h}`);
+    } catch (e) {
+      setSideMsg(`読み込めませんでした: ${String(e)}`);
     }
   };
 
@@ -131,6 +149,30 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
           )}
         </div>
         {part.shape && <ShapePreview shape={part.shape} color={color} />}
+      </div>
+
+      <h4>側面の外形線（干渉確認用）</h4>
+      <p className="note">
+        側面から見た形の DXF を登録すると、左右側面の図に<b>薄く投影</b>されます。
+        奥行き方向の当たり（扉に届かないか等）を目で確認するためのもので、
+        配置や加工には使いません。<b>中板側を左・扉側を右</b>にした図で取り込んでください
+        （縮尺は問いません。表示時に 奥行き×高さ に合わせます）。
+      </p>
+      <div className="shaperow">
+        <div>
+          <input
+            type="file"
+            accept=".dxf"
+            onChange={(e) => void importSideShape(e.target.files?.[0] ?? undefined)}
+          />
+          {sideMsg && <p className="calc">{sideMsg}</p>}
+          {part.sideShape && (
+            <button onClick={() => update(part.id, { sideShape: undefined })}>
+              側面の形状を消す
+            </button>
+          )}
+        </div>
+        {part.sideShape && <ShapePreview shape={part.sideShape} color={color} />}
       </div>
 
       <h4>外形サイズ</h4>

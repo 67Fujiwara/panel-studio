@@ -1,4 +1,7 @@
 :root {
+  /* ダーク対応を自前で持っていることをブラウザへ伝える。
+     これが無いと Edge/Chrome の「自動ダーク」が上から色を反転し、二重にお化ける */
+  color-scheme: light;
   --bg: #f4f6f8;
   --surface: #ffffff;
   --line: #dfe4ea;
@@ -1391,6 +1394,13 @@ body.dragging * {
   opacity: 0.8;
   pointer-events: none;
 }
+
+/* 中板・扉の機器を側面図へ写した投影。干渉確認用の下絵なので、うんと薄く・触れない */
+.sidesil {
+  color: var(--muted);
+  opacity: 0.35;
+  pointer-events: none;
+}
 .canvas-overlay {
   position: absolute;
   right: 10px;
@@ -1410,7 +1420,7 @@ body.dragging * {
 .cutouts polyline,
 .cutouts rect {
   fill: none;
-  stroke: #c0392b;
+  stroke: var(--bad);
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
@@ -1476,36 +1486,6 @@ table.bom .qty em {
   font-size: 11px;
   line-height: 1.7;
 }
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #171a1f;
-    --surface: #1e2228;
-    --line: #2e343d;
-    --text: #e4e8ee;
-    --muted: #9aa4b2;
-    --accent: #6ba3ee;
-    --accent-soft: #21303f;
-    --duct: #39424e;
-    --plate: #262b33;
-  }
-  .canvas-wrap {
-    background: #12151a;
-  }
-  .grid line {
-    stroke: #2c323a;
-  }
-  .canvas-hint {
-    background: rgba(30, 34, 40, 0.85);
-  }
-  table.bom tr.derived {
-    background: #232830;
-  }
-  .calc.bad {
-    background: #3a2220;
-  }
-}
-
 
 /* --- バックアップ先の帯 --- */
 /*
@@ -1937,18 +1917,19 @@ ul.oplist.pick button.linkish:hover {
   display: block;
   width: 100%;
   max-height: 340px;
+  /* 図面用紙。テーマに追随させず白で固定する（中の線も明色向けの固定色） */
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 4px;
 }
 .cutfig .body {
-  fill: var(--bg);
-  stroke: var(--muted);
+  fill: #f4f6f8;
+  stroke: #6b7684;
   stroke-width: 1.2;
   vector-effect: non-scaling-stroke;
 }
 .cutfig .bodyshape {
-  color: var(--muted);
+  color: #6b7684;
 }
 .cutfig .bodyshape polyline,
 .cutfig .bodyshape polygon,
@@ -1959,14 +1940,14 @@ ul.oplist.pick button.linkish:hover {
   opacity: 0.6;
 }
 .cutfig .axis {
-  stroke: var(--muted);
+  stroke: #6b7684;
   stroke-width: 0.8;
   stroke-dasharray: 2 2;
   vector-effect: non-scaling-stroke;
 }
 .cutfig .cut {
   fill: none;
-  stroke: var(--bad);
+  stroke: #c0392b;
   stroke-width: 1.2;
   vector-effect: non-scaling-stroke;
 }
@@ -1997,4 +1978,66 @@ li.dev .dev-badge {
 li.dev.plate-only .dev-badge {
   border-color: var(--muted);
   color: var(--muted);
+}
+
+/*
+  ダークテーマの上書き。**必ずファイルの末尾に置く**こと。
+  ここより後に同じ詳細度のライト色の指定が来ると、メディア条件に関係なく
+  後勝ちで潰される（実際に .backupbar.warn と workarea の未登録行がそれで白に戻っていた）。
+*/
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #171a1f;
+    --surface: #1e2228;
+    --line: #2e343d;
+    --text: #e4e8ee;
+    --muted: #9aa4b2;
+    --accent: #6ba3ee;
+    --accent-soft: #21303f;
+    --duct: #39424e;
+    --plate: #262b33;
+    --bad: #e06455;
+    --ok: #4fc48f;
+  }
+  /* 黄色系の帯・注意書き。地の色ごと暗くしないと、薄文字が白地に浮いて読めない */
+  .backupbar.warn {
+    background: #3a2d12;
+    color: #e8c27a;
+  }
+  .note.warn {
+    background: #3a2d12;
+    color: #e8c27a;
+  }
+  .note.area {
+    background: #21303f;
+  }
+  /* 選択枠。ほぼ黒の #111 は暗い面の上で見えない */
+  .device.selected rect,
+  .device.shaped.selected rect {
+    stroke: #e4e8ee;
+  }
+  .pin {
+    fill: #1e2228;
+    stroke: #9aa4b2;
+  }
+  /* 未登録の行。ほぼ白の地は暗いテーマで反転して見えなくなる */
+  table.workarea tr.off td {
+    background: #1b2026;
+  }
+  .canvas-wrap {
+    background: #12151a;
+  }
+  .grid line {
+    stroke: #2c323a;
+  }
+  .canvas-hint {
+    background: rgba(30, 34, 40, 0.85);
+  }
+  table.bom tr.derived {
+    background: #232830;
+  }
+  .calc.bad {
+    background: #3a2220;
+  }
 }
