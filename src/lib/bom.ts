@@ -1,6 +1,6 @@
 import { computeRails } from './layout';
 import type { DeviceLookup } from './layout';
-import { ductSpecAt } from '../types';
+import { ductSpecAt, splitModels } from '../types';
 import type { BomLine, DuctSpec, LayoutResult, Profile } from '../types';
 
 /** 配線ダクト・DINレールの定尺(mm)。社内の調達に合わせて変更する。 */
@@ -30,15 +30,30 @@ export function buildBom(
     // OP（重ね付けした部品）も1台ぶんずつ数える。図では親の下に描かれるだけだが、買い物は別
     for (const o of p.opts ?? []) counts.set(o, (counts.get(o) ?? 0) + 1);
   }
+  /*
+   * 型式欄はカンマ区切りで複数書ける（端子台＋載せるリレーなど、
+   * 置くのは1個でも買い物は別型式のとき）。1台につき書かれた型式ぜんぶを
+   * 1個ずつ数え、型式ごとに独立した行にする。見積依頼CSV・単価引きも
+   * この行単位で回るので、それぞれの型番で値段が付く。
+   * 別々の部品が同じ型式を書いていれば（共通のソケット等）、数量は合算する。
+   */
+  const byDevModel = new Map<string, { maker: string; name: string; qty: number }>();
   for (const [specId, qty] of counts) {
     const spec = devices.get(specId);
     if (!spec) continue;
+    for (const model of splitModels(spec.model)) {
+      const cur = byDevModel.get(model);
+      if (cur) cur.qty += qty;
+      else byDevModel.set(model, { maker: spec.maker, name: spec.name, qty });
+    }
+  }
+  for (const [model, v] of byDevModel) {
     lines.push({
-      model: spec.model,
-      key: spec.model,
-      maker: spec.maker,
-      name: spec.name,
-      qty,
+      model,
+      key: model,
+      maker: v.maker,
+      name: v.name,
+      qty: v.qty,
       unit: '個',
       source: 'device',
     });

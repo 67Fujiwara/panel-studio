@@ -9,7 +9,7 @@ import { cutOutline, outlinePolys, pilotDia, pilotPoints } from '../lib/holes';
 import { resolveArea } from '../lib/workArea';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
-import { ductSpecAt, rotatedSize } from '../types';
+import { ductSpecAt, rotatedSize, splitModels } from '../types';
 import type {
   CategoryDef,
   Duct,
@@ -639,7 +639,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           const spec = devices.get(p.specId);
           if (!spec) return null;
           const bad = violatingUids.has(p.uid);
-          const label = spec.model.split(' ')[0] ?? '';
+          // カンマ区切りの型式（ソケット,リレー等）は、置かれている1個目だけをラベルに出す
+          const label = (splitModels(spec.model)[0] ?? '').split(' ')[0] ?? '';
           // 見かけの寸法。90/270 回すと幅と高さが入れ替わる
           const size = rotatedSize(spec.size, p.rot);
           const fontSize = Math.min(14, Math.max(size.w, size.h) / 5);

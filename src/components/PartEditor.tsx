@@ -5,6 +5,7 @@ import { PartFigure } from './PartFigure';
 import { CutFields, HolePicker } from './HolePicker';
 import { ShapePreview } from './ShapeGeometry';
 import { useStore } from '../store';
+import { splitModels } from '../types';
 import type { CategoryDef, DeviceSpec, MachiningDraft, MountType } from '../types';
 
 const MOUNTS: { id: MountType; label: string }[] = [
@@ -128,6 +129,17 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
           </select>
         </label>
       </div>
+      {part.model.includes(',') || part.model.includes('，') ? (
+        <p className="note">
+          型式が<b>カンマ区切り</b>なので、BOM・見積依頼にはそれぞれ別の行で載ります:{' '}
+          {splitModels(part.model).join(' ／ ')}
+        </p>
+      ) : (
+        <p className="note">
+          端子台に載せるリレーのように<b>置くのは1個でも買い物は複数型式</b>のときは、
+          型式を「ソケット,リレー」とカンマで並べると全部 BOM に載ります。
+        </p>
+      )}
 
       <h4>外形線（CAD から取り込む）</h4>
       <p className="note">
