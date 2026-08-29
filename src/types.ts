@@ -523,7 +523,21 @@ export type DeviceRow = {
   /** 行の下端 Y と高さ */
   y: number;
   h: number;
+  /**
+   * 段の基準線（DINレールの中心）の、**段の下端からの高さ**。
+   * 省略時は段の中心（h/2）。
+   *
+   * DINオフセット付きの機器は基準線からずれて掛かるので、基準線を段の中心に
+   * 固定すると、ずらした逆側に同じだけの余りが出る。基準線を段の中で動かせる
+   * ようにして、必要な側だけを確保する。
+   */
+  axis?: number;
 };
+
+/** その段の基準線（レール中心）の絶対 Y。指定が無ければ段の中心。 */
+export function rowAxisY(row: DeviceRow): number {
+  return row.y + (row.axis ?? row.h / 2);
+}
 
 export type Violation = {
   uid: string;

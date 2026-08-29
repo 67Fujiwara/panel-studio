@@ -1,5 +1,5 @@
 import { DIN_RAIL_HEIGHT, DIN_RAIL_WIDTH } from '../data/enclosures';
-import { ductWidthOf, hasTapCuts, rotatedSize, vertWidthOf } from '../types';
+import { ductWidthOf, hasTapCuts, rotatedSize, rowAxisY, vertWidthOf } from '../types';
 import { FACE_BY_ID, faceSize } from '../data/faces';
 import type {
   ClearanceSettings,
@@ -225,14 +225,38 @@ type Entry = { item: LayoutItem; spec: DeviceSpec };
 const sizeOf = (e: Entry) => rotatedSize(e.spec.size, e.item.rot);
 
 /**
- * その1台が段の中で縦に占める高さ。
- * DIN 取付は「中央合わせ＋dinOffset」で置くので、ずらしたぶん段の外へ出ないよう、
- * オフセットの絶対値の2倍を上乗せして確保する（中央基準のずらしのため両側に要る）。
- * これを段の高さ計算に使わないと、オフセット付きの機器が上下のダクトへ食い込む。
+ * その1台が段の中で縦に占める高さ。**段の高さが固定のとき（equal モード）専用。**
+ *
+ * equal では基準線が段の中心に固定されるので、dinOffset でずらしても段からはみ出さない
+ * には、オフセットの絶対値の2倍ぶん段が高くなければ成り立たない（中央基準のずらしのため
+ * 両側に要る）。auto モードは基準線を動かせるので vertSpan を使う。
  */
 function vertNeed(spec: DeviceSpec, mount: MountType, rot?: Rotation): number {
   const off = mount === 'din' ? Math.abs(spec.dinOffset ?? 0) : 0;
   return rotatedSize(spec.size, rot).h + off * 2;
+}
+
+/**
+ * その1台が**基準線（レール中心）の上下それぞれに**要求する高さ。
+ *
+ * 段の高さを中身から決める auto モードで使う。基準線を段の中心に固定すると、
+ * dinOffset でずらした逆側に同じだけの余りが出てしまう（オフセット19mm の機器で
+ * 38mm の空きになる）ので、**上下を別々に積んで必要な側だけ確保する**。
+ * 離隔も同じ考え方で、指定された側にだけ積む。
+ */
+function vertSpan(spec: DeviceSpec, mount: MountType, rot: Rotation | undefined, eff: Sides) {
+  const off = mount === 'din' ? (spec.dinOffset ?? 0) : 0;
+  const half = rotatedSize(spec.size, rot).h / 2;
+  /*
+   * ずらした逆側は詰めるが、**レール自身は段の中に収まっていないといけない**。
+   * レールは幅 35mm の帯として基準線に跨って乗っているので、オフセットで
+   * 詰めきると帯がダクト側へ出てしまう。詰める側だけ帯の半分を下限にする
+   * （オフセット 0 の機器は今までどおり。段の高さは変わらない）。
+   */
+  const railHalf = DIN_RAIL_WIDTH / 2;
+  const up = Math.max(0, half + off + eff.top, off < 0 ? railHalf : 0);
+  const down = Math.max(0, half - off + eff.bottom, off > 0 ? railHalf : 0);
+  return { up, down };
 }
 
 /**
@@ -373,12 +397,13 @@ function horizontalGap(prevRight: number, eff: Sides, c: ClearanceSettings) {
 }
 
 /**
- * 段の中での上下位置。中央合わせを基準に、DINレール取付なら
- * 部品ごとのオフセットぶんだけずらす。
+ * 段の中での上下位置。**段の基準線（レール中心）に中心を合わせ**、
+ * DINレール取付なら部品ごとのオフセットぶんだけずらす。
+ * 基準線の指定が無い段（equal モード）では段の中心が基準線になる。
  */
 function placeY(row: DeviceRow, spec: DeviceSpec, mount: MountType, rot?: Rotation) {
   const offset = mount === 'din' ? (spec.dinOffset ?? 0) : 0;
-  return row.y + (row.h - rotatedSize(spec.size, rot).h) / 2 + offset;
+  return rowAxisY(row) - rotatedSize(spec.size, rot).h / 2 + offset;
 }
 
 /**
@@ -418,11 +443,13 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
   type Placed = { e: Entry; x: number; eff: Sides };
   /** 段の中の区画。縦ダクトで分断されたそれぞれを別に詰める */
   type Slot = Segment & { cursor: number; prevRight: number; used: boolean };
-  type Bucket = { entries: Placed[]; h: number; slots: Slot[] };
+  /** up/down は基準線（レール中心）から上下それぞれに要る高さ。段の高さはその和 */
+  type Bucket = { entries: Placed[]; up: number; down: number; slots: Slot[] };
 
   const newBucket = (i: number): Bucket => ({
     entries: [],
-    h: 0,
+    up: 0,
+    down: 0,
     slots: rowSegments(panel, face, profile, i, bands).map((s) => ({
       ...s,
       cursor: s.x0,
@@ -521,7 +548,10 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
     hit.slot.cursor = hit.x + w;
     hit.slot.prevRight = eff.right;
     hit.slot.used = true;
-    b.h = Math.max(b.h, vertNeed(e.spec, e.item.mount, e.item.rot) + eff.top + eff.bottom);
+    // 基準線の上下を別々に積む。オフセットも離隔も、要る側にだけ効かせる
+    const need = vertSpan(e.spec, e.item.mount, e.item.rot, eff);
+    b.up = Math.max(b.up, need.up);
+    b.down = Math.max(b.down, need.down);
   };
 
   for (const e of main) place(e, false);
@@ -538,8 +568,10 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
 
   const availableH = size.h - profile.duct.margin.top - profile.duct.margin.bottom;
   const bandW = (i: number) => (dw > 0 ? ductWidth(profile, i) : 0);
+  /** 段の高さ＝基準線の上下に積んだ高さの和 */
+  const bucketH = (b: { up: number; down: number }) => b.up + b.down;
   const requiredH =
-    used.reduce((s, b) => s + b.h, 0) +
+    used.reduce((s, b) => s + bucketH(b), 0) +
     (rule.horizontals && dw > 0
       ? Array.from({ length: used.length + 1 }, (_, i) => bandW(i)).reduce((a, b) => a + b, 0)
       : rowSpacing * Math.max(0, used.length - 1));
@@ -570,8 +602,9 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
     } else if (index > 0) {
       y -= rowSpacing;
     }
-    y -= b.h;
-    const row: DeviceRow = { index, y, h: b.h };
+    y -= bucketH(b);
+    // 基準線は段の中心ではなく「下に要る高さ」の位置。オフセットした逆側を詰める
+    const row: DeviceRow = { index, y, h: bucketH(b), axis: b.down };
     rows.push(row);
     for (const { e, x } of b.entries) {
       placed.push({
@@ -745,8 +778,9 @@ export function computeRails(
       .filter((e): e is { p: PlacedDevice; spec: DeviceSpec } => Boolean(e.spec));
     if (inRow.length === 0) continue;
 
-    // レールの中心は段の中心。機器はここから dinOffset ぶんだけずれて掛かる
-    const y = row.y + row.h / 2;
+    // レールの中心は段の基準線。機器はここから dinOffset ぶんだけずれて掛かる
+    // （基準線はオフセットのぶん段の中心からずれていることがある）
+    const y = rowAxisY(row);
 
     /*
       レールをダクトに食い込ませない。
@@ -842,7 +876,7 @@ function ductOverlaps(placed: PlacedDevice[], ducts: Duct[], devices: DeviceLook
         d.y < p.y + s.h - pen;
       if (!hit) continue;
       const vert = d.h > d.w;
-      const off = p.mount === 'din' ? Math.abs(spec.dinOffset ?? 0) : 0;
+      const off = p.mount === 'din' ? (spec.dinOffset ?? 0) : 0;
       out.push({
         uid: p.uid,
         kind: 'overlap',
@@ -850,7 +884,7 @@ function ductOverlaps(placed: PlacedDevice[], ducts: Duct[], devices: DeviceLook
           `${spec.model}: ${vert ? '縦' : '横'}ダクトに重なっています（${vert ? '左右' : '上下'}方向の干渉）` +
           (p.pinned
             ? '。手で置いた位置がダクトに掛かっています'
-            : `。高さ ${s.h}mm${off > 0 ? `＋DINオフセット ${off}mm×2` : ''} が段に入っていません` +
+            : `。高さ ${s.h}mm${off !== 0 ? `＋DINオフセット ${Math.abs(off)}mm（${off > 0 ? '上' : '下'}へ）` : ''} が段に入っていません` +
               '（段の高さを「自動」にするか、段数・盤サイズを見直してください）'),
       });
       break; // 1台につき1件で十分
