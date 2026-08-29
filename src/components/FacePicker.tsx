@@ -381,10 +381,10 @@ export function FacePicker() {
   const cutsByFace = useMemo(
     () =>
       FACES.map((f, i) => [
-        ...autoMachining(f.id, layouts[i]!, lookup, profile),
+        ...autoMachining(f.id, layouts[i]!, lookup, profile, ducts),
         ...machining.filter((m) => m.face === f.id),
       ]),
-    [layouts, lookup, profile, machining],
+    [layouts, lookup, profile, machining, ducts],
   );
   // 書き出したファイルは案件番号で探すので、入っていればそれを頭に付ける
   const base = asciiFileName(jobNo || panel.model, 'panel');
@@ -642,7 +642,7 @@ export function FacePicker() {
               if (withDxf) {
                 downloadDxfSet(
                   buildDxfSet(
-                    { panel, profile, items, pinned, machining, removedDucts, underlays, devices: lookup },
+                    { panel, profile, items, pinned, machining, removedDucts, underlays, devices: lookup, ducts },
                     base,
                   ),
                   base,

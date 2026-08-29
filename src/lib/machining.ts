@@ -1,10 +1,11 @@
 import { FACE_BY_ID } from '../data/faces';
 import { cutParts } from './holes';
-import { rotatedSize } from '../types';
+import { ductSpecAt, rotatedSize } from '../types';
 import { computeRails } from './layout';
 import type { DeviceLookup, RailRun } from './layout';
 import type {
   Duct,
+  DuctSpec,
   FaceId,
   FixingSettings,
   LayoutResult,
@@ -283,19 +284,24 @@ export function fixingOffsets(length: number, f: FixingSettings): number[] {
  *
  * 帯1本ごとに「何か所・どのタップで」を設定から決めて座標に展開する。
  * 実際の加工では機器の取付穴と同じ図面に出るものなので、同じ仕組みで持たせている。
+ *
+ * ダクトは**型式に固定穴の設定があればそちらを優先**する（底の穴位置が型式で
+ * 違うため）。無い型式は共通の「ダクトの固定穴」で割り付ける。
  */
 export function fixingMachining(
   face: FaceId,
   ducts: Duct[],
   rails: RailRun[],
   profile: Profile,
+  ductMaster: DuctSpec[] = [],
 ): Machining[] {
   const out: Machining[] = [];
   if (!FACE_BY_ID.get(face)?.ducts) return out;
 
   for (const d of ducts) {
     if (d.removed) continue;
-    const f = profile.duct.fixing;
+    const spec = ductSpecAt(profile, ductMaster, d.vert === undefined ? d.id : { vert: d.vert });
+    const f = spec.fixing ?? profile.duct.fixing;
     const vertical = d.h > d.w;
     const len = vertical ? d.h : d.w;
     for (const [i, at] of fixingOffsets(len, f).entries()) {
@@ -372,9 +378,16 @@ export function autoMachining(
   layout: LayoutResult,
   devices: DeviceLookup,
   profile: Profile,
+  ductMaster: DuctSpec[] = [],
 ): Machining[] {
   return [
     ...derivedMachining(layout.placed, devices),
-    ...fixingMachining(face, layout.ducts, computeRails(layout, devices, profile.rail.endMargin), profile),
+    ...fixingMachining(
+      face,
+      layout.ducts,
+      computeRails(layout, devices, profile.rail.endMargin),
+      profile,
+      ductMaster,
+    ),
   ];
 }

@@ -177,7 +177,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
 
   const colorOf = (cat: string) => categories.find((c) => c.id === cat)?.color ?? '#7d8894';
   const violatingUids = new Set(layout.violations.map((v) => v.uid));
-  const autoCuts = autoMachining(face, layout, devices, profile);
+  const autoCuts = autoMachining(face, layout, devices, profile, ductMaster);
   const manualCuts = manual.filter((m) => m.face === face);
   const rails = computeRails(layout, devices, profile.rail.endMargin);
   // 加工有効範囲。登録が無い面は null（面いっぱい使える扱い）

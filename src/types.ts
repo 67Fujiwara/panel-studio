@@ -340,6 +340,11 @@ export type DuctSpec = {
   height: number;
   /** 定尺(mm)。必要本数の計算に使う */
   stock: number;
+  /**
+   * この型式だけの固定穴の設定。**未設定なら共通の「ダクトの固定穴」を使う。**
+   * 底の穴位置が型式で違う（ピッチや端からの距離が合わない）ときに、型式側で持たせる。
+   */
+  fixing?: FixingSettings;
 };
 
 export type DuctSettings = {

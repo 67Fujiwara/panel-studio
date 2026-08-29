@@ -640,6 +640,25 @@ table.encl tr.on > td {
   color: var(--accent);
   white-space: nowrap;
 }
+/* ダクトマスタの、型式ごとの固定穴設定を広げた行 */
+table.encl tr.fixrow > td {
+  background: var(--surface);
+  padding: 8px 12px 10px;
+}
+.fixrow-body {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.fixrow-body .grid4 {
+  flex: 1 1 auto;
+  margin: 0;
+}
+.fixrow-body > button {
+  flex: 0 0 auto;
+  margin-bottom: 2px;
+  white-space: nowrap;
+}
 /* 完了案件 */
 table.projects td button.linky {
   display: flex;

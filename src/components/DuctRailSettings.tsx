@@ -31,8 +31,8 @@ function Num({
   );
 }
 
-/** ダクト・DINレールの固定穴。中身が同じなので使い回す。 */
-function FixingFields({
+/** ダクト・DINレールの固定穴。中身が同じなので使い回す（ダクトマスタの個別設定でも使う）。 */
+export function FixingFields({
   value,
   onChange,
 }: {
@@ -91,6 +91,8 @@ export function DuctRailSettings() {
       <p className="note">
         ダクト1本あたりの固定か所とタップです。穴の座標はレイアウト画面の<b>加工</b>に出ます。
         ピッチを 0 にすると、両端の余白を除いた残りを<b>等分</b>します。
+        底の穴位置が型式で違うときは、<b>ダクトマスタの行の「固定穴」</b>で型式ごとに
+        変えられます。ここの値は個別設定の無い型式に効きます。
       </p>
       <FixingFields
         value={profile.duct.fixing}

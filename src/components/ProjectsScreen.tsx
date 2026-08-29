@@ -148,6 +148,7 @@ export function ProjectsScreen() {
                                     removedDucts: p.removedDucts,
                                     underlays: p.underlays,
                                     devices: lookup,
+                                    ducts,
                                   },
                                   base,
                                 ),

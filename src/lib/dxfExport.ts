@@ -7,7 +7,7 @@ import { autoMachining, TAP_DRILL } from './machining';
 import { cutOutline, pilotDia, pilotPoints } from './holes';
 import { unfoldCells } from './unfold';
 import { rotatedSize } from '../types';
-import type { DeviceShape, FaceId, Machining, PanelSpec, PlacedDevice, Profile } from '../types';
+import type { DeviceShape, DuctSpec, FaceId, Machining, PanelSpec, PlacedDevice, Profile } from '../types';
 
 /**
  * DXF 書き出し。
@@ -225,6 +225,8 @@ export type ExportInput = {
   /** 盤サイズ画面で取り込んだ盤の図。これを下地にして機器と加工を足す */
   underlays: Partial<Record<FaceId, DeviceShape>>;
   devices: DeviceLookup;
+  /** ダクトマスタ。型式ごとの固定穴の設定を引くのに使う */
+  ducts: DuctSpec[];
 };
 
 /**
@@ -299,7 +301,7 @@ function drawFace(
   }
 
   // 加工は full / holes のどちらにも出す。これが書き出しの主目的
-  for (const m of autoMachining(face, layout, devices, profile)) drawMachining(w, m, ox, oy);
+  for (const m of autoMachining(face, layout, devices, profile, input.ducts)) drawMachining(w, m, ox, oy);
   for (const m of machining.filter((q) => q.face === face)) drawMachining(w, m, ox, oy);
 }
 
@@ -494,7 +496,7 @@ export function exportSummary(input: ExportInput) {
       input.devices,
       input.removedDucts[f.id] ?? [],
     );
-    cuts += autoMachining(f.id, layout, input.devices, input.profile).length;
+    cuts += autoMachining(f.id, layout, input.devices, input.profile, input.ducts).length;
   }
   cuts += input.machining.length;
   return { devices: input.items.length, cuts };

@@ -39,13 +39,14 @@ export function MachiningPanel({
   const selectCut = useStore((s) => s.selectCut);
   const selectedUid = useStore((s) => s.selectedUid);
   const selectedCut = useStore((s) => s.selectedCut);
+  const ductMaster = useStore((s) => s.ducts);
 
   // 既定は畳んだ状態。開いたものだけ id を持つ
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [catalogOpen, setCatalogOpen] = useState(false);
 
   const size = faceSize(panel, face);
-  const auto = autoMachining(face, layout, devices, profile);
+  const auto = autoMachining(face, layout, devices, profile, ductMaster);
   const mine = manual.filter((m) => m.face === face);
   const summary = summarizeMachining([...auto, ...mine]);
   const groups = groupByDevice(auto, layout.placed, devices);
