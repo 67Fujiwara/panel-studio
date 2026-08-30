@@ -31,17 +31,28 @@ export function MountPosPanel({ layout, devices }: { layout: LayoutResult; devic
   const isFree = pinned.some((p) => p.uid === item.uid);
   const cx = Math.round((placed.x + size.w / 2) * 10) / 10;
   const cy = Math.round((placed.y + size.h / 2) * 10) / 10;
+  const solo = item.mount === 'din-solo';
 
   return (
     <div className="opbox">
       <h2>
         置き方 <span className="dim">{spec.model} の選択中の1台</span>
       </h2>
+      {solo && (
+        <p className="note">
+          <b>独立DINレール</b>の機器です。レールは<b>この1台に付いてくる</b>ので、段に並べても
+          座標で置いてもレールごと動きます（レールの固定穴は両端の2点）。
+        </p>
+      )}
       <div className="row-buttons">
         <button
           className={isFree ? undefined : 'on primary'}
           onClick={() => unpin(item.uid)}
-          title="DINレールの機器と同じ段に自動で並べます"
+          title={
+            solo
+              ? '他の機器と同じ段に自動で並べます（レールも一緒に動きます）'
+              : 'DINレールの機器と同じ段に自動で並べます'
+          }
         >
           段に並べる（自動）
         </button>

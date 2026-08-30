@@ -8,9 +8,14 @@ import { useStore } from '../store';
 import { splitModels } from '../types';
 import type { CategoryDef, DeviceSpec, MachiningDraft, MountType } from '../types';
 
-const MOUNTS: { id: MountType; label: string }[] = [
-  { id: 'din', label: 'DINレール' },
-  { id: 'direct', label: '直付け' },
+const MOUNTS: { id: MountType; label: string; hint: string }[] = [
+  { id: 'din', label: 'DINレール', hint: '段の共通レールに掛ける（同じ段の機器と1本を分け合う）' },
+  { id: 'direct', label: '直付け', hint: '面に直接ネジ留めする' },
+  {
+    id: 'din-solo',
+    label: '独立DINレール',
+    hint: 'その機器だけの短いレールに掛ける。レールは中板に2点で留める',
+  },
 ];
 
 function Num({
@@ -212,7 +217,7 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
       <h4>取付方式</h4>
       <div className="mountpick">
         {MOUNTS.map((m) => (
-          <label key={m.id} className="check">
+          <label key={m.id} className="check" title={m.hint}>
             <input
               type="checkbox"
               checked={part.mount.includes(m.id)}
@@ -227,6 +232,12 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
           </label>
         ))}
       </div>
+      <p className="note">
+        <b>独立DINレール</b>は、その機器だけの短いレールに掛ける取付です。段の共通レールには
+        乗らないので、<b>段に並べても座標で置いてもレールが機器に付いてきます</b>
+        （置き方はレイアウト画面の「置き方」で切り替えます）。レールは機器幅＋両端の余長で
+        切り出し、<b>中板には両端の2点</b>で留めます。中板だけで使えます。
+      </p>
 
       <h4>DINレールからのオフセット</h4>
       <p className="note">

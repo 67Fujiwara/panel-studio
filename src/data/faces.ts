@@ -22,7 +22,14 @@ export const FACES: FaceDef[] = [
   { id: 'right', label: '右側面', ducts: false, mounts: ['direct'], hint: '換気ファン・ルーバー' },
   { id: 'back', label: '背面', ducts: false, mounts: ['direct'], hint: '取付足・引込口' },
   { id: 'bottom', label: '底面', ducts: false, mounts: ['direct'], hint: 'ケーブルグランド' },
-  { id: 'plate', label: '中板', ducts: true, mounts: ['din', 'direct'], hint: '盤内機器・自動配置' },
+  {
+    id: 'plate',
+    label: '中板',
+    ducts: true,
+    // 独立レール（din-solo）は中板だけ。他の面はレールを敷かない
+    mounts: ['din', 'direct', 'din-solo'],
+    hint: '盤内機器・自動配置',
+  },
 ];
 
 export const FACE_BY_ID = new Map(FACES.map((f) => [f.id, f]));

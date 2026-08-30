@@ -1,5 +1,5 @@
 import { DIN_RAIL_HEIGHT, DIN_RAIL_WIDTH } from '../data/enclosures';
-import { ductWidthOf, hasTapCuts, rotatedSize, rowAxisY, vertWidthOf } from '../types';
+import { ductWidthOf, hasTapCuts, isRailMount, rotatedSize, rowAxisY, vertWidthOf } from '../types';
 import { FACE_BY_ID, faceSize } from '../data/faces';
 import type {
   ClearanceSettings,
@@ -113,7 +113,7 @@ export function effectiveDepth(panel: PanelSpec): number | null {
 
 /** 取付方式込みの機器の突出量。 */
 export function deviceProjection(spec: DeviceSpec, mount: MountType): number {
-  return spec.size.d + (mount === 'din' ? DIN_RAIL_HEIGHT : 0);
+  return spec.size.d + (isRailMount(mount) ? DIN_RAIL_HEIGHT : 0);
 }
 
 /**
@@ -232,8 +232,11 @@ const sizeOf = (e: Entry) => rotatedSize(e.spec.size, e.item.rot);
  * 両側に要る）。auto モードは基準線を動かせるので vertSpan を使う。
  */
 function vertNeed(spec: DeviceSpec, mount: MountType, rot?: Rotation): number {
-  const off = mount === 'din' ? Math.abs(spec.dinOffset ?? 0) : 0;
-  return rotatedSize(spec.size, rot).h + off * 2;
+  const h = rotatedSize(spec.size, rot).h;
+  const off = Math.abs(spec.dinOffset ?? 0);
+  // 独立レールは機器と一緒に動くので段の高さを押し上げない。ただしレール帯そのものは段に入る
+  if (mount === 'din-solo') return Math.max(h, (off + DIN_RAIL_WIDTH / 2) * 2);
+  return h + (mount === 'din' ? off * 2 : 0);
 }
 
 /**
@@ -245,8 +248,21 @@ function vertNeed(spec: DeviceSpec, mount: MountType, rot?: Rotation): number {
  * 離隔も同じ考え方で、指定された側にだけ積む。
  */
 function vertSpan(spec: DeviceSpec, mount: MountType, rot: Rotation | undefined, eff: Sides) {
-  const off = mount === 'din' ? (spec.dinOffset ?? 0) : 0;
   const half = rotatedSize(spec.size, rot).h / 2;
+  if (mount === 'din-solo') {
+    /*
+     * 独立レールは機器の下に一緒に付いてくるので、機器は基準線に中心を合わせる。
+     * レール帯（35mm）はオフセットのぶん機器の中心からずれた位置に来るので、
+     * その帯が段に収まるところまでを要求する。
+     */
+    const off = spec.dinOffset ?? 0;
+    const railHalf = DIN_RAIL_WIDTH / 2;
+    return {
+      up: Math.max(half + eff.top, railHalf - off),
+      down: Math.max(half + eff.bottom, railHalf + off),
+    };
+  }
+  const off = mount === 'din' ? (spec.dinOffset ?? 0) : 0;
   /*
    * ずらした逆側は詰めるが、**レール自身は段の中に収まっていないといけない**。
    * レールは幅 35mm の帯として基準線に跨って乗っているので、オフセットで
@@ -756,7 +772,14 @@ function packEqual(
 /** DINレールの両端に確保する余長(mm)の既定値。エンドストッパの分。 */
 export const RAIL_END_MARGIN = 20;
 
-export type RailRun = { row: number; x: number; y: number; length: number };
+export type RailRun = {
+  row: number;
+  x: number;
+  y: number;
+  length: number;
+  /** 独立レール（din-solo）のとき、その1台の uid。共通レールでは undefined */
+  soloUid?: string;
+};
 
 /**
  * 段ごとの DINレール。BOM と作図の両方がここを使う。
@@ -771,6 +794,19 @@ export function computeRails(
   endMargin: number = RAIL_END_MARGIN,
 ): RailRun[] {
   const out: RailRun[] = [];
+
+  /** 独立レールを持つ機器。共通レールはこれを避けて（切って）引く */
+  const soloDevices = layout.placed
+    .filter((p) => p.mount === 'din-solo')
+    .map((p) => ({ p, spec: devices.get(p.specId) }))
+    .filter((e): e is { p: PlacedDevice; spec: DeviceSpec } => Boolean(e.spec))
+    .map((e) => {
+      const s = rotatedSize(e.spec.size, e.p.rot);
+      return { p: e.p, w: s.w, y: e.p.y + s.h / 2 - (e.spec.dinOffset ?? 0) };
+    });
+  /** 帯（35mm）が重なる高さか。重なるレールどうしは同じ場所に置けない */
+  const sameBand = (y1: number, y2: number) => Math.abs(y1 - y2) < DIN_RAIL_WIDTH;
+
   for (const row of layout.rows) {
     const inRow = layout.placed
       .filter((p) => p.row === row.index && p.mount === 'din')
@@ -792,10 +828,19 @@ export function computeRails(
       1本で貫かず、切れ目（縦ダクト）の間ごとに機器をまとめて**別々のレール**を引く。
     */
     const band = { y0: y - DIN_RAIL_WIDTH / 2, y1: y + DIN_RAIL_WIDTH / 2 };
-    const cuts = layout.ducts
-      .filter((d) => !d.removed && d.y < band.y1 && band.y0 < d.y + d.h)
-      .map((d) => ({ x0: d.x, x1: d.x + d.w }))
-      .sort((a, b) => a.x0 - b.x0);
+    const cuts = [
+      ...layout.ducts
+        .filter((d) => !d.removed && d.y < band.y1 && band.y0 < d.y + d.h)
+        .map((d) => ({ x0: d.x, x1: d.x + d.w })),
+      /*
+        独立レールの機器も切れ目にする。同じ高さに共通レールが通ると、レールの上に
+        レールが乗ることになって実物では組めない。共通レールの側が譲る
+        （独立レールは1台ぶんしか無いので、動かせるのは共通レールのほう）。
+      */
+      ...soloDevices
+        .filter((q) => sameBand(q.y, y))
+        .map((q) => ({ x0: q.p.x, x1: q.p.x + q.w })),
+    ].sort((a, b) => a.x0 - b.x0);
 
     const sorted = [...inRow].sort((a, b) => a.p.x - b.p.x);
     const groups: (typeof inRow)[] = [];
@@ -821,6 +866,31 @@ export function computeRails(
       const right = Math.min(limitRight, devRight + endMargin);
       out.push({ row: row.index, x: left, y, length: Math.max(0, right - left) });
     }
+  }
+
+  /*
+   * 独立レール（din-solo）。段の共通レールには乗らず、その1台の下に短いレールが入る。
+   * 段に並べていても座標で置いていても、機器と一緒に動く。
+   * レールの中心は「機器の中心 − dinOffset」。オフセットは機器がレールから
+   * どれだけずれて掛かるかなので、独立レールでは機器ではなくレールの側がずれる。
+   */
+  for (const { p, w, y } of soloDevices) {
+    const band = { y0: y - DIN_RAIL_WIDTH / 2, y1: y + DIN_RAIL_WIDTH / 2 };
+    const blocks = [
+      ...layout.ducts
+        .filter((d) => !d.removed && d.y < band.y1 && band.y0 < d.y + d.h)
+        .map((d) => ({ x0: d.x, x1: d.x + d.w })),
+      // 同じ高さの他のレール（共通レール・先に引いた独立レール）にも乗り上げない
+      ...out.filter((r) => sameBand(r.y, y)).map((r) => ({ x0: r.x, x1: r.x + r.length })),
+    ];
+    const limitLeft = Math.max(0, ...blocks.filter((c) => c.x1 <= p.x + 0.01).map((c) => c.x1));
+    const limitRight = Math.min(
+      Infinity,
+      ...blocks.filter((c) => c.x0 >= p.x + w - 0.01).map((c) => c.x0),
+    );
+    const left = Math.max(limitLeft, p.x - endMargin);
+    const right = Math.min(limitRight, p.x + w + endMargin);
+    out.push({ row: p.row, x: left, y, length: Math.max(0, right - left), soloUid: p.uid });
   }
   return out;
 }

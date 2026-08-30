@@ -4,7 +4,11 @@ import { useStore } from '../store';
 import { hasTapCuts } from '../types';
 import type { DeviceSpec, MountType } from '../types';
 
-const MOUNT_LABEL: Record<MountType, string> = { din: 'DIN', direct: '直付' };
+const MOUNT_LABEL: Record<MountType, string> = {
+  din: 'DIN',
+  direct: '直付',
+  'din-solo': '独立DIN',
+};
 
 /**
  * 機器の選択。種類が増えても縦に伸び続けないよう、折りたためるツリーにしてある。

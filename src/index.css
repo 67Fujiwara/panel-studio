@@ -1309,6 +1309,14 @@ body.dragging * {
   stroke-width: 1;
   pointer-events: none;
 }
+/*
+  独立DINレール。段の共通レールと同じ帯だと「1本を分け合っている」と読めてしまうので、
+  枠を破線にして「この1台だけの短いレール」と分かるようにする
+*/
+.rail.solo {
+  stroke-dasharray: 6 3;
+  stroke: #7d8894;
+}
 /* 消したダクトの跡。押すとそこへ戻せる */
 .duct-slot {
   cursor: pointer;

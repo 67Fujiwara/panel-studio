@@ -2,8 +2,19 @@
 // 盤内レイアウトと BOM が共有する唯一の型定義。
 // 各面の座標系は「面の左下を原点、X 右、Y 上、単位 mm」で統一する。
 
-/** 取付方式。direct は面に直接ネジ留めすること。 */
-export type MountType = 'din' | 'direct';
+/**
+ * 取付方式。
+ * - din: 段の共通レールに掛ける（同じ段の機器と1本のレールを分け合う）
+ * - direct: 面に直接ネジ留めする
+ * - din-solo: **その機器だけの独立したレール**に掛ける。段の共通レールには乗らず、
+ *   機器の下に短いレールが1本入る。レールは中板に2点で留める。
+ */
+export type MountType = 'din' | 'direct' | 'din-solo';
+
+/** レールに掛ける取付方式か（共通レール・独立レールのどちらでも）。 */
+export function isRailMount(mount: MountType): boolean {
+  return mount === 'din' || mount === 'din-solo';
+}
 
 /** 制御盤の面。中板だけが配線ダクトを持ち、他の面は直付けのみ。 */
 export type FaceId = 'plate' | 'door' | 'back' | 'left' | 'right' | 'top' | 'bottom';

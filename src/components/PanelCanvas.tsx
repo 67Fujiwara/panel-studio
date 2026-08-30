@@ -599,18 +599,23 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           );
         })}
 
-        {/* DINレール。両端の余長は設定で決まる。機器の下に敷く */}
-        {rails.map((r) => (
+        {/*
+          DINレール。両端の余長は設定で決まる。機器の下に敷く。
+          段の共通レールのほかに、独立レール（din-solo）の1台ぶんも混ざる。
+          ゾーン分割では1段に複数本になるので、key は段番号でなく通し番号で振る
+        */}
+        {rails.map((r, ri) => (
           <rect
-            key={`rail${r.row}`}
+            key={`rail${ri}`}
             x={r.x}
             y={toSvgY(faceH, r.y + DIN_RAIL_WIDTH / 2, 0)}
             width={r.length}
             height={DIN_RAIL_WIDTH}
-            className="rail"
+            className={`rail${r.soloUid ? ' solo' : ''}`}
           >
             <title>
-              DINレール {r.row + 1} 段目 — 切断長 {Math.round(r.length)}mm
+              {r.soloUid ? '独立DINレール' : `DINレール ${r.row + 1} 段目`} — 切断長{' '}
+              {Math.round(r.length)}mm
             </title>
           </rect>
         ))}
