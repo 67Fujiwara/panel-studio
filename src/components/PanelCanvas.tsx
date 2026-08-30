@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DIN_RAIL_WIDTH } from '../data/enclosures';
 import { FACE_LABEL, faceSize } from '../data/faces';
-import { computeRails } from '../lib/layout';
+import { computeRails, SOLO_RAIL_MARGIN } from '../lib/layout';
 import { sideSilhouettes } from '../lib/sideView';
 import { ShapeGeometry } from './ShapeGeometry';
 import { autoMachining } from '../lib/machining';
@@ -22,6 +22,8 @@ import type {
 
 /** 手動配置時のスナップ間隔(mm) */
 const SNAP = 5;
+/** 独立DINレールの隣へ吸い付く距離(mm)。これより離れていれば普通に動く */
+const SNAP_RAIL = 25;
 /**
  * 目盛りは 10mm 刻みが基準。
  * ただし縮小すると数字も線も潰れるので、画面上の間隔を見て段階的に間引く。
@@ -318,6 +320,51 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     return still ? { x, y } : { x: nx, y: ny };
   };
 
+  /**
+   * 独立DINレールの機器の隣へ持っていったら、その並びに吸い付かせる。
+   *
+   * 独立レールは両端をエンドストッパで挟むので、隣に置く機器は
+   * **レールの高さに揃えて、ストッパのぶんだけ空けて**並べたい。
+   * 目分量で 1mm ずつ寄せる作業になるのを避けるための吸着。
+   *
+   * - 縦: レールの中心が揃う位置へ（掛かり方＝dinOffset は機器ごとに違うので考慮する）
+   * - 横: レールの端に、自分のレールの余長ぶんだけ空けて付ける
+   * どちらも近づいたときだけ効く。離れているあいだは普通に動く。
+   */
+  const snapToSoloRails = (
+    x: number,
+    y: number,
+    size: { w: number; h: number },
+    self: { uid: string; mount: string; dinOffset: number },
+  ) => {
+    const targets = rails.filter((r) => r.soloUid && r.soloUid !== self.uid && r.length > 0);
+    if (targets.length === 0) return { x, y };
+    // 自分のレール中心（レールに乗らない機器は機器の中心）
+    const myRailY = y + size.h / 2 - self.dinOffset;
+    const myMargin = self.mount === 'din-solo' ? SOLO_RAIL_MARGIN : 0;
+
+    let best: { d: number; x: number; y: number } | null = null;
+    for (const r of targets) {
+      if (Math.abs(r.y - myRailY) > SNAP_RAIL) continue;
+      const ny = r.y - size.h / 2 + self.dinOffset;
+      // レールの右隣・左隣のうち、いま近いほう
+      for (const nx of [r.x + r.length + myMargin, r.x - myMargin - size.w]) {
+        const d = Math.abs(nx - x);
+        if (d > SNAP_RAIL) continue;
+        if (!best || d < best.d) best = { d, x: nx, y: ny };
+      }
+    }
+    if (!best) return { x, y };
+    const cx = Math.max(0, Math.min(faceW - size.w, best.x));
+    const cy = Math.max(0, Math.min(faceH - size.h, best.y));
+    // 吸い付いた先がダクトに掛かるなら、吸着はあきらめて元の位置のまま
+    const onDuct = layout.ducts.some(
+      (dd) =>
+        !dd.removed && cx < dd.x + dd.w && dd.x < cx + size.w && cy < dd.y + dd.h && dd.y < cy + size.h,
+    );
+    return onDuct ? { x, y } : { x: cx, y: cy };
+  };
+
   const onPointerMove = (e: React.PointerEvent) => {
     const k = mmPerPx();
     if (dragRef.current) {
@@ -336,7 +383,13 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         const cl = Math.max(0, Math.min(faceW - size.w, nx));
         const cb = Math.max(0, Math.min(faceH - size.h, ny));
         const dodged = dodgeDucts(cl, cb, size);
-        pin({ ...placed, x: dodged.x, y: dodged.y });
+        // 独立レールの隣に持っていったら、その並びへ吸い付かせる
+        const snapped = snapToSoloRails(dodged.x, dodged.y, size, {
+          uid: placed.uid,
+          mount: placed.mount,
+          dinOffset: placed.mount === 'direct' ? 0 : (spec.dinOffset ?? 0),
+        });
+        pin({ ...placed, x: snapped.x, y: snapped.y });
         return;
       }
       // 既定: 他の機器の間へ入れ込む。並び順が変わると配置がその場で組み直される。

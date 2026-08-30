@@ -772,6 +772,15 @@ function packEqual(
 /** DINレールの両端に確保する余長(mm)の既定値。エンドストッパの分。 */
 export const RAIL_END_MARGIN = 20;
 
+/**
+ * 独立DINレール（din-solo）の左右の余長(mm)。
+ *
+ * 共通レールの余長（あとから機器を足せるよう長めに切る習慣）とは意味が違い、
+ * こちらは**その1台をエンドストッパで挟むぶん**。長く出しても使い道がないので、
+ * 段の設定とは分けて固定値にしてある。
+ */
+export const SOLO_RAIL_MARGIN = 5;
+
 export type RailRun = {
   row: number;
   x: number;
@@ -807,6 +816,35 @@ export function computeRails(
   /** 帯（35mm）が重なる高さか。重なるレールどうしは同じ場所に置けない */
   const sameBand = (y1: number, y2: number) => Math.abs(y1 - y2) < DIN_RAIL_WIDTH;
 
+  /*
+   * 独立レール（din-solo）を先に決める。段の共通レールには乗らず、その1台の下に
+   * 短いレールが入る。段に並べていても座標で置いていても、機器と一緒に動く。
+   * レールの中心は「機器の中心 − dinOffset」。オフセットは機器がレールから
+   * どれだけずれて掛かるかなので、独立レールでは機器ではなくレールの側がずれる。
+   *
+   * 長さは機器幅＋左右 5mm（エンドストッパのぶん）。この 5mm は削れない場所なので、
+   * 共通レールより先に取ってしまう。
+   */
+  const solo: RailRun[] = [];
+  for (const { p, w, y } of soloDevices) {
+    const band = { y0: y - DIN_RAIL_WIDTH / 2, y1: y + DIN_RAIL_WIDTH / 2 };
+    const blocks = [
+      ...layout.ducts
+        .filter((d) => !d.removed && d.y < band.y1 && band.y0 < d.y + d.h)
+        .map((d) => ({ x0: d.x, x1: d.x + d.w })),
+      // 先に引いた独立レールにも乗り上げない
+      ...solo.filter((r) => sameBand(r.y, y)).map((r) => ({ x0: r.x, x1: r.x + r.length })),
+    ];
+    const limitLeft = Math.max(0, ...blocks.filter((c) => c.x1 <= p.x + 0.01).map((c) => c.x1));
+    const limitRight = Math.min(
+      Infinity,
+      ...blocks.filter((c) => c.x0 >= p.x + w - 0.01).map((c) => c.x0),
+    );
+    const left = Math.max(limitLeft, p.x - SOLO_RAIL_MARGIN);
+    const right = Math.min(limitRight, p.x + w + SOLO_RAIL_MARGIN);
+    solo.push({ row: p.row, x: left, y, length: Math.max(0, right - left), soloUid: p.uid });
+  }
+
   for (const row of layout.rows) {
     const inRow = layout.placed
       .filter((p) => p.row === row.index && p.mount === 'din')
@@ -833,13 +871,11 @@ export function computeRails(
         .filter((d) => !d.removed && d.y < band.y1 && band.y0 < d.y + d.h)
         .map((d) => ({ x0: d.x, x1: d.x + d.w })),
       /*
-        独立レールの機器も切れ目にする。同じ高さに共通レールが通ると、レールの上に
-        レールが乗ることになって実物では組めない。共通レールの側が譲る
-        （独立レールは1台ぶんしか無いので、動かせるのは共通レールのほう）。
+        独立レールも切れ目にする。同じ高さに共通レールが通ると、レールの上にレールが
+        乗ることになって実物では組めない。共通レールの側が譲る（独立レールは1台ぶんしか
+        無いので、動かせるのは共通レールのほう）。
       */
-      ...soloDevices
-        .filter((q) => sameBand(q.y, y))
-        .map((q) => ({ x0: q.p.x, x1: q.p.x + q.w })),
+      ...solo.filter((r) => sameBand(r.y, y)).map((r) => ({ x0: r.x, x1: r.x + r.length })),
     ].sort((a, b) => a.x0 - b.x0);
 
     const sorted = [...inRow].sort((a, b) => a.p.x - b.p.x);
@@ -864,35 +900,41 @@ export function computeRails(
       );
       const left = Math.max(limitLeft, devLeft - endMargin);
       const right = Math.min(limitRight, devRight + endMargin);
-      out.push({ row: row.index, x: left, y, length: Math.max(0, right - left) });
+      /*
+        機器のあいだに独立レールが挟まっているときは、切れ目で分けきれないことがある
+        （余長どうしが噛み合って「間に収まる」と読めない場合）。最後に差し引いて、
+        レールの上にレールが乗った図が残らないようにする。
+      */
+      const pieces = subtractSpans(
+        { x0: left, x1: right },
+        solo.filter((r) => sameBand(r.y, y)).map((r) => ({ x0: r.x, x1: r.x + r.length })),
+      );
+      for (const q of pieces) out.push({ row: row.index, x: q.x0, y, length: q.x1 - q.x0 });
     }
   }
 
-  /*
-   * 独立レール（din-solo）。段の共通レールには乗らず、その1台の下に短いレールが入る。
-   * 段に並べていても座標で置いていても、機器と一緒に動く。
-   * レールの中心は「機器の中心 − dinOffset」。オフセットは機器がレールから
-   * どれだけずれて掛かるかなので、独立レールでは機器ではなくレールの側がずれる。
-   */
-  for (const { p, w, y } of soloDevices) {
-    const band = { y0: y - DIN_RAIL_WIDTH / 2, y1: y + DIN_RAIL_WIDTH / 2 };
-    const blocks = [
-      ...layout.ducts
-        .filter((d) => !d.removed && d.y < band.y1 && band.y0 < d.y + d.h)
-        .map((d) => ({ x0: d.x, x1: d.x + d.w })),
-      // 同じ高さの他のレール（共通レール・先に引いた独立レール）にも乗り上げない
-      ...out.filter((r) => sameBand(r.y, y)).map((r) => ({ x0: r.x, x1: r.x + r.length })),
-    ];
-    const limitLeft = Math.max(0, ...blocks.filter((c) => c.x1 <= p.x + 0.01).map((c) => c.x1));
-    const limitRight = Math.min(
-      Infinity,
-      ...blocks.filter((c) => c.x0 >= p.x + w - 0.01).map((c) => c.x0),
-    );
-    const left = Math.max(limitLeft, p.x - endMargin);
-    const right = Math.min(limitRight, p.x + w + endMargin);
-    out.push({ row: p.row, x: left, y, length: Math.max(0, right - left), soloUid: p.uid });
+  return [...out, ...solo];
+}
+
+/** 区間から区間を差し引く。残った断片を左から返す。 */
+function subtractSpans(
+  span: { x0: number; x1: number },
+  cut: { x0: number; x1: number }[],
+): { x0: number; x1: number }[] {
+  let pieces = [span];
+  for (const c of cut) {
+    const next: { x0: number; x1: number }[] = [];
+    for (const p of pieces) {
+      if (c.x1 <= p.x0 || c.x0 >= p.x1) {
+        next.push(p);
+        continue;
+      }
+      if (c.x0 > p.x0) next.push({ x0: p.x0, x1: c.x0 });
+      if (c.x1 < p.x1) next.push({ x0: c.x1, x1: p.x1 });
+    }
+    pieces = next;
   }
-  return out;
+  return pieces.filter((p) => p.x1 - p.x0 > 0.01);
 }
 
 /** 機器同士が実際に重なっていないか。手動配置で干渉させたときに気づけるようにする。 */
