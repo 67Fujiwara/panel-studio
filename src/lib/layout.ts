@@ -786,16 +786,69 @@ export type RailRun = {
   x: number;
   y: number;
   length: number;
-  /** 独立レール（din-solo）のとき、その1台の uid。共通レールでは undefined */
-  soloUid?: string;
+  /** 独立レール（段の共通レールではない1本）か */
+  solo?: boolean;
 };
 
 /**
- * 段ごとの DINレール。BOM と作図の両方がここを使う。
+ * 独立レール（段の共通レールではない1本）。
+ *
+ * 対象は **独立DINレール取付の機器**と、**段から外して座標で置いた機器**。
+ * どちらも段の流れから外れていて、レールは機器と一緒に動く。
+ * レールの中心は「機器の中心 − dinOffset」。オフセットは機器がレールからどれだけ
+ * ずれて掛かるかなので、独立レールでは機器ではなくレールの側がずれる。
+ *
+ * 長さは機器幅＋左右 5mm（エンドストッパのぶん）。並べて接したものは1本につなげる。
+ *
+ * `exceptUid` を渡すと、その1台を無かったことにして計算する。ドラッグ中に
+ * 「吸い付く先」を出すのに使う（自分のレールに吸い付こうとして暴れるのを防ぐ）。
+ */
+export function independentRails(
+  layout: LayoutResult,
+  devices: DeviceLookup,
+  exceptUid?: string,
+): RailRun[] {
+  const runs: RailRun[] = [];
+  for (const p of layout.placed) {
+    if (p.uid === exceptUid) continue;
+    if (!isRailMount(p.mount)) continue;
+    if (p.mount !== 'din-solo' && !p.pinned) continue;
+    const spec = devices.get(p.specId);
+    if (!spec) continue;
+    const s = rotatedSize(spec.size, p.rot);
+    const y = p.y + s.h / 2 - (spec.dinOffset ?? 0);
+    const band = { y0: y - DIN_RAIL_WIDTH / 2, y1: y + DIN_RAIL_WIDTH / 2 };
+    const blocks = layout.ducts
+      .filter((d) => !d.removed && d.y < band.y1 && band.y0 < d.y + d.h)
+      .map((d) => ({ x0: d.x, x1: d.x + d.w }));
+    const limitLeft = Math.max(0, ...blocks.filter((c) => c.x1 <= p.x + 0.01).map((c) => c.x1));
+    const limitRight = Math.min(
+      Infinity,
+      ...blocks.filter((c) => c.x0 >= p.x + s.w - 0.01).map((c) => c.x0),
+    );
+    const left = Math.max(limitLeft, p.x - SOLO_RAIL_MARGIN);
+    const right = Math.min(limitRight, p.x + s.w + SOLO_RAIL_MARGIN);
+    runs.push({ row: p.row, x: left, y, length: Math.max(0, right - left), solo: true });
+  }
+  /*
+   * 同じ高さで接している独立レールは1本につなげる。並べた機器はどう見ても
+   * 1本のレールに乗っているので、レールが2本・エンドストッパが4個と数えられては困る。
+   */
+  mergeTouching(runs);
+  return runs;
+}
+
+/**
+ * DINレール。BOM と作図の両方がここを使う。
  * 正面視ではレールは高さ 35mm の帯として見えるので、機器の下端に合わせて描く。
  *
- * 両端の余長は設定で変えられる。エンドストッパの厚みや、あとから機器を足せるよう
- * 長めに切る現場の習慣に合わせるため。
+ * レールは2種類ある。
+ * - **段の共通レール**: 段に流し込まれた DIN 機器が分け合う1本。両端の余長は設定で変えられる
+ * - **独立レール**: 独立DINレール取付の機器と、**段から外して座標で置いた機器**の1本。
+ *   機器と一緒に動き、両端 5mm（エンドストッパのぶん）で切る
+ *
+ * 座標で置いた機器を共通レールに数えないのが要点。数えると、段から遠くへ置くたびに
+ * 共通レールがそこまで引き伸ばされる（実物では1本のレールがそんな形で伸びることはない）。
  */
 export function computeRails(
   layout: LayoutResult,
@@ -804,52 +857,28 @@ export function computeRails(
 ): RailRun[] {
   const out: RailRun[] = [];
 
-  /** 独立レールを持つ機器。共通レールはこれを避けて（切って）引く */
-  const soloDevices = layout.placed
-    .filter((p) => p.mount === 'din-solo')
+  const railDevices = layout.placed
     .map((p) => ({ p, spec: devices.get(p.specId) }))
-    .filter((e): e is { p: PlacedDevice; spec: DeviceSpec } => Boolean(e.spec))
-    .map((e) => {
-      const s = rotatedSize(e.spec.size, e.p.rot);
-      return { p: e.p, w: s.w, y: e.p.y + s.h / 2 - (e.spec.dinOffset ?? 0) };
-    });
+    .filter((e): e is { p: PlacedDevice; spec: DeviceSpec } => Boolean(e.spec) && isRailMount(e.p.mount));
+
   /** 帯（35mm）が重なる高さか。重なるレールどうしは同じ場所に置けない */
   const sameBand = (y1: number, y2: number) => Math.abs(y1 - y2) < DIN_RAIL_WIDTH;
 
   /*
-   * 独立レール（din-solo）を先に決める。段の共通レールには乗らず、その1台の下に
-   * 短いレールが入る。段に並べていても座標で置いていても、機器と一緒に動く。
-   * レールの中心は「機器の中心 − dinOffset」。オフセットは機器がレールから
-   * どれだけずれて掛かるかなので、独立レールでは機器ではなくレールの側がずれる。
+   * 独立レールを先に決める。段の共通レールには乗らないので、機器と一緒に動く。
+   * レールの中心は「機器の中心 − dinOffset」。オフセットは機器がレールからどれだけ
+   * ずれて掛かるかなので、独立レールでは機器ではなくレールの側がずれる。
    *
    * 長さは機器幅＋左右 5mm（エンドストッパのぶん）。この 5mm は削れない場所なので、
    * 共通レールより先に取ってしまう。
    */
-  const solo: RailRun[] = [];
-  for (const { p, w, y } of soloDevices) {
-    const band = { y0: y - DIN_RAIL_WIDTH / 2, y1: y + DIN_RAIL_WIDTH / 2 };
-    const blocks = [
-      ...layout.ducts
-        .filter((d) => !d.removed && d.y < band.y1 && band.y0 < d.y + d.h)
-        .map((d) => ({ x0: d.x, x1: d.x + d.w })),
-      // 先に引いた独立レールにも乗り上げない
-      ...solo.filter((r) => sameBand(r.y, y)).map((r) => ({ x0: r.x, x1: r.x + r.length })),
-    ];
-    const limitLeft = Math.max(0, ...blocks.filter((c) => c.x1 <= p.x + 0.01).map((c) => c.x1));
-    const limitRight = Math.min(
-      Infinity,
-      ...blocks.filter((c) => c.x0 >= p.x + w - 0.01).map((c) => c.x0),
-    );
-    const left = Math.max(limitLeft, p.x - SOLO_RAIL_MARGIN);
-    const right = Math.min(limitRight, p.x + w + SOLO_RAIL_MARGIN);
-    solo.push({ row: p.row, x: left, y, length: Math.max(0, right - left), soloUid: p.uid });
-  }
+  const solo = independentRails(layout, devices);
 
   for (const row of layout.rows) {
-    const inRow = layout.placed
-      .filter((p) => p.row === row.index && p.mount === 'din')
-      .map((p) => ({ p, spec: devices.get(p.specId) }))
-      .filter((e): e is { p: PlacedDevice; spec: DeviceSpec } => Boolean(e.spec));
+    // 座標で置いた機器は段の流れから外れているので、共通レールにも数えない
+    const inRow = railDevices.filter(
+      (e) => e.p.row === row.index && e.p.mount === 'din' && !e.p.pinned,
+    );
     if (inRow.length === 0) continue;
 
     // レールの中心は段の基準線。機器はここから dinOffset ぶんだけずれて掛かる
@@ -914,6 +943,26 @@ export function computeRails(
   }
 
   return [...out, ...solo];
+}
+
+/**
+ * 同じ高さで接している・重なっているレールを1本にまとめる（配列をその場で書き換える）。
+ * 並べて置いた機器は1本のレールに乗るので、切断長も固定穴もエンドストッパも1本ぶん。
+ */
+function mergeTouching(runs: RailRun[]): void {
+  runs.sort((a, b) => a.y - b.y || a.x - b.x);
+  for (let i = 0; i < runs.length - 1; ) {
+    const a = runs[i]!;
+    const b = runs[i + 1]!;
+    // 接している（端どうしがぴったり）ぶんまで含めたいので、わずかな隙間は許す
+    if (Math.abs(a.y - b.y) < 0.01 && b.x <= a.x + a.length + 0.01) {
+      const right = Math.max(a.x + a.length, b.x + b.length);
+      a.length = right - a.x;
+      runs.splice(i + 1, 1);
+      continue;
+    }
+    i++;
+  }
 }
 
 /** 区間から区間を差し引く。残った断片を左から返す。 */

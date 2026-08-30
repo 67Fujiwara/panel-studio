@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DIN_RAIL_WIDTH } from '../data/enclosures';
 import { FACE_LABEL, faceSize } from '../data/faces';
-import { computeRails, SOLO_RAIL_MARGIN } from '../lib/layout';
+import { computeRails, independentRails, SOLO_RAIL_MARGIN } from '../lib/layout';
 import { sideSilhouettes } from '../lib/sideView';
 import { ShapeGeometry } from './ShapeGeometry';
 import { autoMachining } from '../lib/machining';
@@ -9,7 +9,7 @@ import { cutOutline, outlinePolys, pilotDia, pilotPoints } from '../lib/holes';
 import { resolveArea } from '../lib/workArea';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
-import { ductSpecAt, rotatedSize, splitModels } from '../types';
+import { ductSpecAt, isRailMount, rotatedSize, splitModels } from '../types';
 import type {
   CategoryDef,
   Duct,
@@ -104,6 +104,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const selectedUid = useStore((s) => s.selectedUid);
   const select = useStore((s) => s.select);
   const pin = useStore((s) => s.pin);
+  const unpin = useStore((s) => s.unpin);
   const manual = useStore((s) => s.machining);
   const underlay = useStore((s) => s.underlays[face]);
   const setUnderlay = useStore((s) => s.setUnderlay);
@@ -274,6 +275,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     lastBefore: string | null | undefined;
     lastRow: number | undefined;
     lastZone: number | undefined;
+    /** このドラッグで独立レールへ吸い付けたか。離れたら段の流れへ戻す */
+    snapped: boolean;
   } | null>(null);
 
   /** ドラッグ中は文字が選択されないようにする。図の外へ出ても効くよう body に付ける。 */
@@ -321,15 +324,18 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   };
 
   /**
-   * 独立DINレールの機器の隣へ持っていったら、その並びに吸い付かせる。
+   * 独立DINレールの上へ持っていったら、その並びに吸い付かせる。
    *
-   * 独立レールは両端をエンドストッパで挟むので、隣に置く機器は
-   * **レールの高さに揃えて、ストッパのぶんだけ空けて**並べたい。
+   * 独立レールは両端をエンドストッパで挟んで機器を並べるものなので、隣に置く機器は
+   * **レールの高さに揃えて、ストッパのぶんだけ空けて**付けたい。
    * 目分量で 1mm ずつ寄せる作業になるのを避けるための吸着。
    *
    * - 縦: レールの中心が揃う位置へ（掛かり方＝dinOffset は機器ごとに違うので考慮する）
    * - 横: レールの端に、自分のレールの余長ぶんだけ空けて付ける
    * どちらも近づいたときだけ効く。離れているあいだは普通に動く。
+   *
+   * 吸い付く先は**自分を抜いて**数え直す。自分のレールは吸い付いた相手と1本に
+   * つながるので、それを相手として見ると付いたり離れたりを繰り返してしまう。
    */
   const snapToSoloRails = (
     x: number,
@@ -337,11 +343,11 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     size: { w: number; h: number },
     self: { uid: string; mount: string; dinOffset: number },
   ) => {
-    const targets = rails.filter((r) => r.soloUid && r.soloUid !== self.uid && r.length > 0);
-    if (targets.length === 0) return { x, y };
+    const targets = independentRails(layout, devices, self.uid).filter((r) => r.length > 0);
+    if (targets.length === 0) return null;
     // 自分のレール中心（レールに乗らない機器は機器の中心）
     const myRailY = y + size.h / 2 - self.dinOffset;
-    const myMargin = self.mount === 'din-solo' ? SOLO_RAIL_MARGIN : 0;
+    const myMargin = SOLO_RAIL_MARGIN;
 
     let best: { d: number; x: number; y: number } | null = null;
     for (const r of targets) {
@@ -354,42 +360,71 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         if (!best || d < best.d) best = { d, x: nx, y: ny };
       }
     }
-    if (!best) return { x, y };
+    if (!best) return null;
     const cx = Math.max(0, Math.min(faceW - size.w, best.x));
     const cy = Math.max(0, Math.min(faceH - size.h, best.y));
-    // 吸い付いた先がダクトに掛かるなら、吸着はあきらめて元の位置のまま
+    // 吸い付いた先がダクトに掛かるなら、吸着はあきらめる
     const onDuct = layout.ducts.some(
       (dd) =>
         !dd.removed && cx < dd.x + dd.w && dd.x < cx + size.w && cy < dd.y + dd.h && dd.y < cy + size.h,
     );
-    return onDuct ? { x, y } : { x: cx, y: cy };
+    return onDuct ? null : { x: cx, y: cy };
+  };
+
+  /** ドラッグ中の1台の、いまのポインタ位置に対応する面の座標（左下角）。 */
+  const draggedPos = (e: React.PointerEvent, d: NonNullable<typeof dragRef.current>) => {
+    const k = mmPerPx();
+    const placed = layout.placed.find((p) => p.uid === d.uid);
+    const spec = placed && devices.get(placed.specId);
+    if (!placed || !spec) return null;
+    const size = rotatedSize(spec.size, placed.rot);
+    const nx = Math.round((d.ox + (e.clientX - d.startX) * k) / SNAP) * SNAP;
+    // SVG は Y 下向きなので、面の座標では符号が反転する
+    const ny = Math.round((d.oy - (e.clientY - d.startY) * k) / SNAP) * SNAP;
+    return {
+      placed,
+      size,
+      self: {
+        uid: placed.uid,
+        mount: placed.mount,
+        dinOffset: placed.mount === 'direct' ? 0 : (spec.dinOffset ?? 0),
+      },
+      x: Math.max(0, Math.min(faceW - size.w, nx)),
+      y: Math.max(0, Math.min(faceH - size.h, ny)),
+    };
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
     const k = mmPerPx();
     if (dragRef.current) {
       const d = dragRef.current;
+      const at = draggedPos(e, d);
       if (d.free) {
         // Shift 併用: 座標を自由に動かして固定する
-        const dx = (e.clientX - d.startX) * k;
-        const dy = (e.clientY - d.startY) * k;
-        const placed = layout.placed.find((p) => p.uid === d.uid);
-        const spec = placed && devices.get(placed.specId);
-        if (!placed || !spec) return;
-        const size = rotatedSize(spec.size, placed.rot);
-        const nx = Math.round((d.ox + dx) / SNAP) * SNAP;
-        // SVG は Y 下向きなので、面の座標では符号が反転する
-        const ny = Math.round((d.oy - dy) / SNAP) * SNAP;
-        const cl = Math.max(0, Math.min(faceW - size.w, nx));
-        const cb = Math.max(0, Math.min(faceH - size.h, ny));
-        const dodged = dodgeDucts(cl, cb, size);
+        if (!at) return;
+        const dodged = dodgeDucts(at.x, at.y, at.size);
         // 独立レールの隣に持っていったら、その並びへ吸い付かせる
-        const snapped = snapToSoloRails(dodged.x, dodged.y, size, {
-          uid: placed.uid,
-          mount: placed.mount,
-          dinOffset: placed.mount === 'direct' ? 0 : (spec.dinOffset ?? 0),
-        });
-        pin({ ...placed, x: snapped.x, y: snapped.y });
+        const snapped = snapToSoloRails(dodged.x, dodged.y, at.size, at.self) ?? dodged;
+        pin({ ...at.placed, x: snapped.x, y: snapped.y });
+        return;
+      }
+      /*
+       * ふつうのドラッグでも、独立レールの上へ持っていったら**そこに並べる**。
+       * 段への入れ込みのままだと、レールに乗せたつもりの機器が段に残り、
+       * 共通レールがその位置まで引き伸ばされてしまう。
+       */
+      if (at && isRailMount(at.self.mount)) {
+        const snapped = snapToSoloRails(at.x, at.y, at.size, at.self);
+        if (snapped) {
+          d.snapped = true;
+          pin({ ...at.placed, x: snapped.x, y: snapped.y });
+          return;
+        }
+      }
+      if (d.snapped) {
+        // レールから離れたら段の流れへ戻す
+        d.snapped = false;
+        unpin(d.uid);
         return;
       }
       // 既定: 他の機器の間へ入れ込む。並び順が変わると配置がその場で組み直される。
@@ -664,10 +699,10 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
             y={toSvgY(faceH, r.y + DIN_RAIL_WIDTH / 2, 0)}
             width={r.length}
             height={DIN_RAIL_WIDTH}
-            className={`rail${r.soloUid ? ' solo' : ''}`}
+            className={`rail${r.solo ? ' solo' : ''}`}
           >
             <title>
-              {r.soloUid ? '独立DINレール' : `DINレール ${r.row + 1} 段目`} — 切断長{' '}
+              {r.solo ? '独立DINレール' : `DINレール ${r.row + 1} 段目`} — 切断長{' '}
               {Math.round(r.length)}mm
             </title>
           </rect>
@@ -731,6 +766,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                   lastBefore: undefined,
                   lastRow: undefined,
                   lastZone: undefined,
+                  snapped: false,
                 };
                 (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
               }}

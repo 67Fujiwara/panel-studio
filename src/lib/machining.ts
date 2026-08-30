@@ -324,7 +324,7 @@ export function fixingMachining(
      * 独立レール（din-solo）は機器1台ぶんの短いレールなので、**留めるのは両端の2点**。
      * 共通レールと同じ「1本あたりの固定か所」を当てると、短いレールに穴が寄って並ぶ。
      */
-    const f = r.soloUid ? { ...profile.rail.fixing, points: 2 } : profile.rail.fixing;
+    const f = r.solo ? { ...profile.rail.fixing, points: 2 } : profile.rail.fixing;
     for (const [i, at] of fixingOffsets(r.length, f).entries()) {
       out.push({
         id: `fix-rail${ri}-${i}`,
@@ -334,7 +334,7 @@ export function fixingMachining(
         y: round(r.y),
         dia: TAP_DRILL[f.tap],
         tap: f.tap,
-        note: r.soloUid ? '独立DINレール 固定' : `DINレール ${r.row + 1} 段目 固定`,
+        note: r.solo ? '独立DINレール 固定' : `DINレール ${r.row + 1} 段目 固定`,
       });
     }
   }
