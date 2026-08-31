@@ -986,6 +986,84 @@ function subtractSpans(
   return pieces.filter((p) => p.x1 - p.x0 > 0.01);
 }
 
+/**
+ * 段の中身（DINレールとその段の機器）を、**上のダクトに当たる手前まで上へ詰める**。
+ *
+ * 段の高さは「いちばん背の高い機器＋その離隔」で決まるので、離隔のぶんだけ
+ * 中身が下がったまま置かれることがある。空きは下にまとめたい（配線を通すのは
+ * 下側）ので、当たらないなら上へ寄せる。
+ *
+ * - 動かすのは**段ごと（レールごと）**。DINレールの機器はレールから外せないので、
+ *   1台だけ上げることはできない。段の中身が丸ごと同じだけ上がる
+ * - 止まるのは**どれか1台がダクト（または上の段の機器）に当たる手前**。
+ *   1台でも当たるなら、その手前で段ぜんたいが止まる
+ * - 座標で置いた機器（pinned）は段の流れから外れているので動かさない
+ * - 段どうしの間隔（機器⇔機器 betweenRows）は詰めない。ダクトへは接するところまで
+ *   詰める（ダクトに当たらなければ詰めてよい、という指定のため）
+ *
+ * 段は上から順に処理する。上の段が先に上がれば、その下の段はさらに上がれる。
+ */
+function pushRowsUp(
+  rows: DeviceRow[],
+  ducts: Duct[],
+  placed: PlacedDevice[],
+  devices: DeviceLookup,
+  faceH: number,
+  betweenRows: number,
+): void {
+  const box = (p: PlacedDevice) => {
+    const spec = devices.get(p.specId);
+    if (!spec) return null;
+    const s = rotatedSize(spec.size, p.rot);
+    return { x0: p.x, x1: p.x + s.w, y0: p.y, y1: p.y + s.h };
+  };
+  const live = ducts.filter((d) => !d.removed);
+
+  for (const row of [...rows].sort((a, b) => b.y - a.y)) {
+    // その段を流れている機器だけ。座標で置いた1台は動かさない
+    const mine = placed.filter((p) => p.row === row.index && !p.pinned);
+    if (mine.length === 0) continue;
+    const others = placed.filter((p) => p.row !== row.index || p.pinned);
+
+    let shift = Infinity;
+    const limitBy = (b: { x0: number; x1: number; y1: number }) => {
+      // 面の上端
+      shift = Math.min(shift, faceH - b.y1);
+      for (const d of live) {
+        if (d.x + d.w <= b.x0 + 0.01 || b.x1 <= d.x + 0.01) continue;
+        if (d.y + 0.01 < b.y1) continue; // 上にあるものだけ
+        shift = Math.min(shift, d.y - b.y1);
+      }
+      for (const q of others) {
+        const o = box(q);
+        if (!o) continue;
+        if (o.x1 <= b.x0 + 0.01 || b.x1 <= o.x0 + 0.01) continue;
+        if (o.y0 + 0.01 < b.y1) continue;
+        shift = Math.min(shift, o.y0 - b.y1 - betweenRows);
+      }
+    };
+
+    for (const p of mine) {
+      const b = box(p);
+      if (b) limitBy(b);
+    }
+    // レールの帯もダクトへ食い込ませない
+    const railTop = rowAxisY(row) + DIN_RAIL_WIDTH / 2;
+    const xs = mine.map((p) => box(p)).filter((b): b is NonNullable<typeof b> => Boolean(b));
+    if (xs.length > 0) {
+      limitBy({
+        x0: Math.min(...xs.map((b) => b.x0)),
+        x1: Math.max(...xs.map((b) => b.x1)),
+        y1: railTop,
+      });
+    }
+
+    if (!Number.isFinite(shift) || shift <= 0.01) continue;
+    row.axis = (row.axis ?? row.h / 2) + shift;
+    for (const p of mine) p.y += shift;
+  }
+}
+
 /** 機器同士が実際に重なっていないか。手動配置で干渉させたときに気づけるようにする。 */
 function detectOverlaps(placed: PlacedDevice[], devices: DeviceLookup): Violation[] {
   const out: Violation[] = [];
@@ -1138,6 +1216,23 @@ export function autoLayout(
   const gone = new Set(removedDucts);
   // 干渉判定は removed の印が付いたあとの並びで行う。消した場所は機器が使ってよい
   const ducts = result.ducts.map((d) => (gone.has(d.id) ? { ...d, removed: true } : d));
+
+  /*
+   * 段の中身を上へ詰める。ダクトのある面（中板）だけ。
+   * ダクトの無い面は「上のダクトまで」という当たりが無く、面の天井まで
+   * 全部が寄ってしまうため、詰めない。
+   */
+  if (FACE_BY_ID.get(face)?.ducts) {
+    pushRowsUp(
+      result.rows,
+      ducts,
+      placed,
+      devices,
+      faceSize(panel, face).h,
+      profile.clearance.deviceToDevice.betweenRows,
+    );
+  }
+
   return {
     rows: result.rows,
     ducts,
