@@ -25,19 +25,30 @@ import type { BomLine, BomSettings, PriceBook, PriceEntry } from '../types';
 const priceable = (l: BomLine) => l.source !== 'derived';
 
 /**
+ * CSV の1セル。**必要なときだけ**ダブルクォートで括る（CSV の作法どおり）。
+ * 何でも括ると、括り文字を外さない相手に渡したときに値そのものが変わってしまう。
+ */
+const csvCell = (v: string, d: string) =>
+  v.includes(d) || v.includes('"') || v.includes('\n') ? `"${v.replace(/"/g, '""')}"` : v;
+
+/**
  * 見積依頼用の CSV。**ミスミの「型番一括入力」にそのまま入る書式**にする。
  *
  *   お客さま注文番号, 型番（必須）, メーカー名, 数量（必須）, 希望出荷日
  *
- * 画面側の既定（先頭行=タイトル行 / 区切り=カンマ / 括り文字=ダブルクォート）に
- * 合わせて、**全項目をダブルクォートで括り、CRLF で改行**する。
- * こちらで独自の列を作ると、上げるたびに人が並べ替える羽目になる。
+ * 区切り=カンマ / 先頭行=タイトル行 / CRLF 改行。
+ *
+ * **ダブルクォートで括らない。** 先方は括り文字を外さずそのまま取り込むので、
+ * 全項目を括ると型番が `"LS7_BWC"` という文字列になって「解決しない」と出るし、
+ * 数量も `"1"` になって「半角5ケタ以内で入力してください」で弾かれる。
+ * カンマや引用符を含むセルだけ、CSV の作法どおり最小限で括る
+ * （型番・数量にそんな文字は入らないので、実質すべて素の値で出る）。
  */
 export function quoteRequestCsv(
   lines: BomLine[],
   opts: { orderNo?: string; shipDate?: string } = {},
 ): string {
-  const q = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const q = (v: string) => csvCell(v, ',');
   const rows = [
     ['お客さま注文番号', '型番（必須）', 'メーカー名', '数量（必須）', '希望出荷日']
       .map(q)
@@ -61,9 +72,6 @@ export function quoteRequestCsv(
   }
   return rows.join('\r\n') + '\r\n';
 }
-
-const csvCell = (v: string, d: string) =>
-  v.includes(d) || v.includes('"') || v.includes('\n') ? `"${v.replace(/"/g, '""')}"` : v;
 
 /**
  * CSV を行×列に分解する。引用符とカンマ入りセルを扱えるだけの最小限。
