@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DIN_RAIL_WIDTH } from '../data/enclosures';
-import { FACE_LABEL, faceSize } from '../data/faces';
+import { FACE_BY_ID, FACE_LABEL, faceSize } from '../data/faces';
 import { computeRails, independentRails, SOLO_RAIL_MARGIN } from '../lib/layout';
 import { sideSilhouettes } from '../lib/sideView';
 import { ShapeGeometry } from './ShapeGeometry';
@@ -22,6 +22,15 @@ import type {
 
 /** 手動配置時のスナップ間隔(mm) */
 const SNAP = 5;
+/**
+ * ドラッグとみなすまでの遊び(px)。
+ *
+ * マウスのクリックは、押してから離すまでに1〜2px 動くのが普通。それを
+ * ドラッグとして扱うと、**選ぶつもりで押しただけ**なのに並べ替えが走り、
+ * 座標で置いた機器は座標を捨てて自動配置の位置へ戻ってしまう。
+ * ここを超えるまでは何もしない。
+ */
+const DRAG_SLOP = 3;
 /** 独立DINレールの隣へ吸い付く距離(mm)。これより離れていれば普通に動く */
 const SNAP_RAIL = 25;
 /**
@@ -95,6 +104,8 @@ const TAP_OUTER = { M3: 3, M4: 4, M5: 5, M6: 6 } as const;
 
 export function PanelCanvas({ panel, face, layout, devices, categories }: Props) {
   const { w: faceW, h: faceH } = faceSize(panel, face);
+  /** 段割り（ダクトで区切られた行）のある面か。扉・側面は座標で置く面 */
+  const hasRows = FACE_BY_ID.get(face)?.ducts ?? false;
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ViewBox>({ x: -PAD, y: -PAD, w: faceW + PAD * 2, h: faceH + PAD * 2 });
@@ -277,6 +288,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     lastZone: number | undefined;
     /** このドラッグで独立レールへ吸い付けたか。離れたら段の流れへ戻す */
     snapped: boolean;
+    /** 遊び（DRAG_SLOP）を超えて動いたか。超えるまでは配置に触らない */
+    moved: boolean;
   } | null>(null);
 
   /** ドラッグ中は文字が選択されないようにする。図の外へ出ても効くよう body に付ける。 */
@@ -398,6 +411,15 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     const k = mmPerPx();
     if (dragRef.current) {
       const d = dragRef.current;
+      // クリックの手ぶれでは動かさない。遊びを超えて初めてドラッグとして扱う
+      if (!d.moved) {
+        if (
+          Math.abs(e.clientX - d.startX) < DRAG_SLOP &&
+          Math.abs(e.clientY - d.startY) < DRAG_SLOP
+        )
+          return;
+        d.moved = true;
+      }
       const at = draggedPos(e, d);
       if (d.free) {
         // Shift 併用: 座標を自由に動かして固定する
@@ -760,13 +782,20 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                   startY: e.clientY,
                   ox: p.x,
                   oy: p.y,
-                  free: e.shiftKey,
+                  /*
+                   * 段の無い面（扉・側面）で座標に置いた機器は、ふつうのドラッグでも
+                   * 座標のまま動かす。ここで並べ替えに回すと、打ち込んだ座標を捨てて
+                   * 自動配置の位置へ戻してしまう（段が無いので戻す先も意味がない）。
+                   * 段へ戻すのは「置き方」の〈段に並べる（自動）〉で行う
+                   */
+                  free: e.shiftKey || (!hasRows && p.pinned),
                   fromRow: p.row,
                   rowsAtGrab: new Map(layout.placed.map((q) => [q.uid, q.row])),
                   lastBefore: undefined,
                   lastRow: undefined,
                   lastZone: undefined,
                   snapped: false,
+                  moved: false,
                 };
                 (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
               }}
