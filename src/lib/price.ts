@@ -43,6 +43,11 @@ const csvCell = (v: string, d: string) =>
  * 数量も `"1"` になって「半角5ケタ以内で入力してください」で弾かれる。
  * カンマや引用符を含むセルだけ、CSV の作法どおり最小限で括る
  * （型番・数量にそんな文字は入らないので、実質すべて素の値で出る）。
+ *
+ * **行はメーカーごとにまとめる。** BOM の並び（分類順）のままだと同じメーカーの
+ * 型番が離れて散らばり、届いた見積と突き合わせるときに行ったり来たりになる。
+ * メーカー名 → 型番の順に並べ、メーカー未記入のものは最後に寄せる。
+ * 区切りの空行や見出し行は入れない（先方の取込は1行1型番で、余計な行は弾かれる）。
  */
 export function quoteRequestCsv(
   lines: BomLine[],
@@ -54,20 +59,23 @@ export function quoteRequestCsv(
       .map(q)
       .join(','),
   ];
-  for (const l of lines) {
+  // メーカー名は任意。「—」は BOM の見た目用の記号なので送らない
+  const makerOf = (l: BomLine) => (l.maker && l.maker !== '—' ? l.maker.trim() : '');
+  const ordered = lines
     // DINレール・ダクト・ネジは載せない（型番で買うものではないので先方で弾かれる）
-    if (!priceable(l)) continue;
-    const key = l.key ?? l.model;
-    if (!key) continue;
+    .filter((l) => priceable(l) && (l.key ?? l.model))
+    .map((l, i) => ({ l, i, maker: makerOf(l), key: l.key ?? l.model }))
+    .sort((a, b) => {
+      // メーカー未記入は最後。あとは日本語の並びでメーカー → 型番
+      if (!a.maker !== !b.maker) return a.maker ? -1 : 1;
+      const m = a.maker.localeCompare(b.maker, 'ja');
+      if (m !== 0) return m;
+      const k = a.key.localeCompare(b.key, 'ja', { numeric: true });
+      return k !== 0 ? k : a.i - b.i;
+    });
+  for (const { l, maker, key } of ordered) {
     rows.push(
-      [
-        q(opts.orderNo ?? ''),
-        q(key),
-        // メーカー名は任意。「—」は BOM の見た目用の記号なので送らない
-        q(l.maker && l.maker !== '—' ? l.maker : ''),
-        q(String(l.qty)),
-        q(opts.shipDate ?? ''),
-      ].join(','),
+      [q(opts.orderNo ?? ''), q(key), q(maker), q(String(l.qty)), q(opts.shipDate ?? '')].join(','),
     );
   }
   return rows.join('\r\n') + '\r\n';
