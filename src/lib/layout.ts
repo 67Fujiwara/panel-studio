@@ -1007,8 +1007,9 @@ function subtractSpans(
  * - 止まるのは**どれか1台がダクト（または上の段の機器）に当たる手前**。
  *   1台でも当たるなら、その手前で段ぜんたいが止まる
  * - 座標で置いた機器（pinned）は段の流れから外れているので動かさない
- * - 段どうしの間隔（機器⇔機器 betweenRows）は詰めない。ダクトへは接するところまで
- *   詰める（ダクトに当たらなければ詰めてよい、という指定のため）
+ * - 段どうしの間隔（機器⇔機器 betweenRows）は詰めない。ダクトへは
+ *   **機器⇔ダクトの離隔の手前まで**詰める。ここを接するところまで詰めてしまうと、
+ *   上に取ってあった離隔がそのまま下の空きへ回り、「上に 0・下に 2倍」に見える
  *
  * 段は上から順に処理する。上の段が先に上がれば、その下の段はさらに上がれる。
  */
@@ -1018,8 +1019,9 @@ function pushRowsUp(
   placed: PlacedDevice[],
   devices: DeviceLookup,
   faceH: number,
-  betweenRows: number,
+  profile: Profile,
 ): void {
+  const betweenRows = profile.clearance.deviceToDevice.betweenRows;
   const box = (p: PlacedDevice) => {
     const spec = devices.get(p.specId);
     if (!spec) return null;
@@ -1033,15 +1035,17 @@ function pushRowsUp(
     const mine = placed.filter((p) => p.row === row.index && !p.pinned);
     if (mine.length === 0) continue;
     const others = placed.filter((p) => p.row !== row.index || p.pinned);
+    const gap = rowGap(profile, row.index);
 
     let shift = Infinity;
-    const limitBy = (b: { x0: number; x1: number; y1: number }) => {
+    /** clr はその1台がダクトとの間に残しておく離隔。レールの帯には離隔を求めない */
+    const limitBy = (b: { x0: number; x1: number; y1: number }, clr: number) => {
       // 面の上端
       shift = Math.min(shift, faceH - b.y1);
       for (const d of live) {
         if (d.x + d.w <= b.x0 + 0.01 || b.x1 <= d.x + 0.01) continue;
         if (d.y + 0.01 < b.y1) continue; // 上にあるものだけ
-        shift = Math.min(shift, d.y - b.y1);
+        shift = Math.min(shift, d.y - b.y1 - clr);
       }
       for (const q of others) {
         const o = box(q);
@@ -1054,17 +1058,21 @@ function pushRowsUp(
 
     for (const p of mine) {
       const b = box(p);
-      if (b) limitBy(b);
+      const spec = devices.get(p.specId);
+      if (b && spec) limitBy(b, effectiveClearance(spec, profile.clearance, gap).top);
     }
     // レールの帯もダクトへ食い込ませない
     const railTop = rowAxisY(row) + DIN_RAIL_WIDTH / 2;
     const xs = mine.map((p) => box(p)).filter((b): b is NonNullable<typeof b> => Boolean(b));
     if (xs.length > 0) {
-      limitBy({
-        x0: Math.min(...xs.map((b) => b.x0)),
-        x1: Math.max(...xs.map((b) => b.x1)),
-        y1: railTop,
-      });
+      limitBy(
+        {
+          x0: Math.min(...xs.map((b) => b.x0)),
+          x1: Math.max(...xs.map((b) => b.x1)),
+          y1: railTop,
+        },
+        0,
+      );
     }
 
     if (!Number.isFinite(shift) || shift <= 0.01) continue;
@@ -1285,7 +1293,7 @@ export function autoLayout(
       placed,
       devices,
       faceSize(panel, face).h,
-      profile.clearance.deviceToDevice.betweenRows,
+      profile,
     );
   }
 
