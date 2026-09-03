@@ -1,5 +1,14 @@
 import { DIN_RAIL_HEIGHT, DIN_RAIL_WIDTH } from '../data/enclosures';
-import { ductWidthOf, hasTapCuts, isRailMount, rotatedSize, rowAxisY, vertWidthOf } from '../types';
+import {
+  baseSlots,
+  ductWidthOf,
+  hasTapCuts,
+  isRailMount,
+  rotatedSize,
+  rowAxisY,
+  slotUseOf,
+  vertWidthOf,
+} from '../types';
 import { FACE_BY_ID, faceSize } from '../data/faces';
 import type {
   ClearanceSettings,
@@ -1132,6 +1141,46 @@ function ductOverlaps(placed: PlacedDevice[], ducts: Duct[], devices: DeviceLook
   return out;
 }
 
+/**
+ * ベースユニットに載せたユニットの検査。
+ *
+ * ポート数（スロット数）を超えて差せないのは実物と同じ。図の上では並んで見えて
+ * しまうので、必ず知らせる。ベースの端からはみ出す場合も同じ。
+ */
+function baseUnitViolations(placed: PlacedDevice[], devices: DeviceLookup): Violation[] {
+  const out: Violation[] = [];
+  for (const p of placed) {
+    const spec = devices.get(p.specId);
+    const base = spec?.baseUnit;
+    if (!spec || !base) continue;
+    const units = (p.opts ?? []).map((id) => devices.get(id));
+    const used = units.reduce((n, u) => n + slotUseOf(u), 0);
+    if (used > base.slots) {
+      out.push({
+        uid: p.uid,
+        kind: 'overflow',
+        message: `${spec.model}: スロットが足りません（ポート数 ${base.slots} に対して ${used} 使用）`,
+      });
+      continue;
+    }
+    const cells = baseSlots(
+      base,
+      units.map((u) => ({ w: u?.size.w ?? 0, h: u?.size.h ?? 0, slot: slotUseOf(u) })),
+    );
+    const right = Math.max(0, ...cells.map((c) => c.x + c.w));
+    if (right > spec.size.w + 0.01) {
+      out.push({
+        uid: p.uid,
+        kind: 'overflow',
+        message:
+          `${spec.model}: 載せたユニットがベースからはみ出します` +
+          `（幅 ${spec.size.w}mm に対して ${Math.round(right * 10) / 10}mm）`,
+      });
+    }
+  }
+  return out;
+}
+
 /** 面ごとの奥行きチェック。面によって当たる相手が違う。 */
 function depthViolations(
   panel: PanelSpec,
@@ -1147,8 +1196,15 @@ function depthViolations(
     if (face === 'plate') {
       // 中板の機器は扉内面に当たらないか。内訳が未入力なら判定しない（当たり判定の根拠が無い）
       const limit = effectiveDepth(panel);
-      // OP（アタッチメント等）は機器の下に挟まるので、その厚みぶん突出が増える
-      const optD = (p.opts ?? []).reduce((sum, id) => sum + (devices.get(id)?.size.d ?? 0), 0);
+      /*
+       * OP（アタッチメント等）は機器の下に挟まるので、その厚みぶん突出が増える。
+       * ただし**ベースユニットに載せたユニットは横に並ぶ**ので厚みは足し算にならない。
+       * ベース面から出るのはいちばん厚いユニット1台ぶん。
+       */
+      const optDs = (p.opts ?? []).map((id) => devices.get(id)?.size.d ?? 0);
+      const optD = spec.baseUnit
+        ? Math.max(0, ...optDs)
+        : optDs.reduce((sum, d) => sum + d, 0);
       const projection = deviceProjection(spec, p.mount) + optD;
       if (limit !== null && projection > limit) {
         out.push({
@@ -1156,7 +1212,7 @@ function depthViolations(
           kind: 'depth',
           message:
             `${spec.model}: 突出 ${projection}mm` +
-            (optD > 0 ? `（OP ${optD}mm 込み）` : '') +
+            (optD > 0 ? `（${spec.baseUnit ? 'ユニット' : 'OP'} ${optD}mm 込み）` : '') +
             ` が有効奥行き ${limit}mm を超えています`,
         });
       }
@@ -1240,6 +1296,7 @@ export function autoLayout(
     violations: [
       ...result.violations,
       ...depthViolations(panel, face, placed, devices),
+      ...baseUnitViolations(placed, devices),
       ...detectOverlaps(placed, devices),
       ...ductOverlaps(placed, ducts, devices),
       // タップ穴加工付きの部品は中板専用。足す口は塞いであるが、

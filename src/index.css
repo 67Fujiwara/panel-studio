@@ -1984,6 +1984,19 @@ ol.note.steps li {
 .opdev circle {
   stroke-dasharray: 3 2;
 }
+/*
+  ベースに載せたユニットは「重ねた影のもの」ではなく、そこに実在する機器。
+  破線だと下敷きに見えてしまうので、実線で1台ずつ区切って描く
+*/
+.opdev.onbase rect {
+  fill-opacity: 0.06;
+  stroke-dasharray: none;
+}
+.opdev.onbase polyline,
+.opdev.onbase polygon,
+.opdev.onbase circle {
+  stroke-dasharray: none;
+}
 .device.selected .opdev rect {
   stroke: var(--accent);
 }

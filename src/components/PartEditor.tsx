@@ -239,6 +239,80 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
         切り出し、<b>中板には両端の2点</b>で留めます。中板だけで使えます。
       </p>
 
+      <h4>ベースユニット（PLC）</h4>
+      <p className="note">
+        三菱の PLC のように、<b>電源・CPU・入出力ユニットを横に並べて載せる台</b>ならここを
+        設定します。ポート数（スロット数）を決めておくと、レイアウト画面で
+        <b>OP に足したユニットが左から順にきれいに嵌まり</b>、はみ出しやスロット不足は
+        チェックに出ます。載せるユニット側は下の「ベースの占有スロット」で数えます。
+      </p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={Boolean(part.baseUnit)}
+          onChange={(e) =>
+            update(part.id, {
+              baseUnit: e.target.checked
+                ? (part.baseUnit ?? { slots: 5, offset: 0, pitch: 0, bottom: 0 })
+                : undefined,
+            })
+          }
+        />
+        <span>この部品はベースユニット</span>
+      </label>
+      {part.baseUnit && (
+        <>
+          <div className="grid2">
+            <Num
+              label="ポート数（スロット）"
+              value={part.baseUnit.slots}
+              onChange={(slots) =>
+                update(part.id, { baseUnit: { ...part.baseUnit!, slots: Math.max(1, slots) } })
+              }
+            />
+            <Num
+              label="1台目までの左余白"
+              value={part.baseUnit.offset}
+              onChange={(offset) => update(part.id, { baseUnit: { ...part.baseUnit!, offset } })}
+              step={0.1}
+            />
+            <Num
+              label="スロット幅"
+              value={part.baseUnit.pitch}
+              onChange={(pitch) =>
+                update(part.id, { baseUnit: { ...part.baseUnit!, pitch: Math.max(0, pitch) } })
+              }
+              step={0.1}
+            />
+            <Num
+              label="下端からの高さ"
+              value={part.baseUnit.bottom}
+              onChange={(bottom) => update(part.id, { baseUnit: { ...part.baseUnit!, bottom } })}
+              step={0.1}
+            />
+          </div>
+          <p className="note">
+            <b>スロット幅を 0 にすると、各ユニットの実寸で詰めて並べます。</b>
+            三菱のようにユニットの幅がまちまち（電源 55mm・I/O 28mm など）なら 0 のままが
+            実物どおりです。数値を入れると等ピッチの枠に左寄せで嵌めます。
+          </p>
+        </>
+      )}
+
+      <h4>ベースの占有スロット</h4>
+      <p className="note">
+        この部品を<b>ベースに載せたとき</b>に使うスロット数です。既定は 1。
+        <b>0 にするとスロットを使いません</b>（三菱の電源・CPU のように、I/O スロットとは
+        別枠で付くもの）。幅2枠を占めるユニットは 2 にします。
+      </p>
+      <div className="grid2">
+        <Num
+          label="占有スロット"
+          value={part.slotUse ?? 1}
+          onChange={(slotUse) => update(part.id, { slotUse: Math.max(0, slotUse) })}
+        />
+      </div>
+
       <h4>DINレールからのオフセット</h4>
       <p className="note">
         DINレール取付のときに、レール中心から上下にどれだけずらすか。

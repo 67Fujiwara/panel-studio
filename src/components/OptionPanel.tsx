@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
+import { slotUseOf } from '../types';
 
 /**
  * OP（重ね付け部品）。
@@ -34,6 +35,9 @@ export function OptionPanel({ devices }: { devices: DeviceLookup }) {
 
   const opts = item.opts ?? [];
   const query = q.trim().toLowerCase();
+  // 親が PLC のベースユニットなら「重ねる」ではなく「載せて並べる」箱として見せる
+  const base = spec.baseUnit;
+  const used = opts.reduce((n, id) => n + slotUseOf(devices.get(id)), 0);
   const candidates =
     query === ''
       ? []
@@ -41,7 +45,9 @@ export function OptionPanel({ devices }: { devices: DeviceLookup }) {
           .filter(
             (d) =>
               d.id !== item.specId &&
-              !opts.includes(d.id) &&
+              // ベースには同じ型式のユニットを何枚も差す（入出力ユニットの増設）。
+              // 重ね付けの OP は同じ部品を2つ重ねる意味がないので1つまで
+              (base || !opts.includes(d.id)) &&
               `${d.model} ${d.name} ${d.maker}`.toLowerCase().includes(query),
           )
           .slice(0, 8);
@@ -49,9 +55,17 @@ export function OptionPanel({ devices }: { devices: DeviceLookup }) {
   return (
     <div className="opbox">
       <h2>
-        OP（重ね付け） <span className="dim">{spec.model} の選択中の1台</span>
+        {base ? 'ベースに載せるユニット' : 'OP（重ね付け）'}{' '}
+        <span className="dim">{spec.model} の選択中の1台</span>
       </h2>
-      {opts.length === 0 && (
+      {base && (
+        <p className={`note${used > base.slots ? ' warn' : ''}`}>
+          ポート数 <b>{base.slots}</b> / 使用 <b>{used}</b>
+          {used > base.slots ? '（スロットが足りません）' : `（残り ${base.slots - used}）`}。
+          足したユニットは<b>左から順に嵌まります</b>（電源・CPU は占有スロット 0 なら枠を使いません）。
+        </p>
+      )}
+      {opts.length === 0 && !base && (
         <p className="note">
           この1台の下に重ねて付く部品（DINレール取付アタッチメントなど）。
           重なり違反にならず、動かすと一緒に付いてきます。
@@ -59,18 +73,22 @@ export function OptionPanel({ devices }: { devices: DeviceLookup }) {
       )}
       {opts.length > 0 && (
         <ul className="oplist">
-          {opts.map((id) => {
+          {opts.map((id, i) => {
             const o = devices.get(id);
             return (
-              <li key={id}>
-                <strong>{o?.model ?? id}</strong>
+              // 同じ型式が複数並ぶ（ベース）ので、key と削除は番号で見る
+              <li key={`${id}-${i}`}>
+                <strong>
+                  {base && <span className="dim">{i + 1}.</span>} {o?.model ?? id}
+                </strong>
                 <span className="dim">
                   {o ? `${o.size.w}×${o.size.h}×${o.size.d}` : '（マスタに無い部品）'}
-                  {o?.mount.includes('din') && ' ・DINレール取付品'}
+                  {base && `・${slotUseOf(o)} スロット`}
+                  {!base && o?.mount.includes('din') && ' ・DINレール取付品'}
                 </span>
                 <button
-                  aria-label="OP を外す"
-                  onClick={() => setItemOpts(item.uid, opts.filter((x) => x !== id))}
+                  aria-label={base ? 'このユニットを外す' : 'OP を外す'}
+                  onClick={() => setItemOpts(item.uid, opts.filter((_x, j) => j !== i))}
                 >
                   ×
                 </button>
@@ -87,7 +105,7 @@ export function OptionPanel({ devices }: { devices: DeviceLookup }) {
       )}
       <input
         className="search"
-        placeholder="＋ OP を付ける（型式・品名で検索）"
+        placeholder={base ? '＋ ユニットを載せる（型式・品名で検索）' : '＋ OP を付ける（型式・品名で検索）'}
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />

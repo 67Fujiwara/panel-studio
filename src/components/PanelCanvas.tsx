@@ -9,7 +9,7 @@ import { cutOutline, outlinePolys, pilotDia, pilotPoints } from '../lib/holes';
 import { resolveArea } from '../lib/workArea';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
-import { ductSpecAt, isRailMount, rotatedSize, splitModels } from '../types';
+import { baseSlots, ductSpecAt, isRailMount, rotatedSize, slotUseOf, splitModels } from '../types';
 import type {
   CategoryDef,
   Duct,
@@ -780,33 +780,68 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                 <rect x={p.x} y={toSvgY(faceH, p.y, size.h)} width={size.w} height={size.h} />
               </clipPath>
               {/*
-                OP（重ね付けした部品）。機器の下に挟まるものなので、本体より先に
-                破線で描く。本体からはみ出すぶん（アタッチメントの耳など）だけが見える。
-                独立した配置物ではないため、重なり判定・加工の対象にならない
+                OP（載せた部品）。独立した配置物ではないので、重なり判定・加工には出ない。
+                - ふつうの OP は機器の**下に重なる**もの（DINレール取付アタッチメント等）。
+                  本体より先に破線で描き、はみ出すぶん（耳など）だけが見える
+                - 親がベースユニット（PLC）なら**横に並べて**描く。こちらは台の上に
+                  載っているので、**本体より後**に描かないと台の塗りに隠れてしまう。
+                  並べ方は types.ts の baseSlots が決め、図・奥行き・チェックで同じ答えになる
               */}
-              {(p.opts ?? []).map((id, oi) => {
-                const opt = devices.get(id);
-                if (!opt) return null;
-                const os = rotatedSize(opt.size, p.rot);
-                const ox = cx - os.w / 2;
-                const oy = cy - os.h / 2;
-                return (
-                  <g key={`op${oi}`} className="opdev">
-                    <rect x={ox} y={oy} width={os.w} height={os.h} />
-                    {opt.shape && (
-                      <g transform={`rotate(${-(p.rot ?? 0)} ${cx} ${cy})`}>
-                        <g
-                          transform={`translate(${cx - opt.size.w / 2} ${cy + opt.size.h / 2}) scale(${
-                            opt.size.w / (opt.shape.w || 1)
-                          } ${-opt.size.h / (opt.shape.h || 1)})`}
-                        >
-                          <ShapeGeometry shape={opt.shape} color="currentColor" />
-                        </g>
-                      </g>
-                    )}
-                  </g>
-                );
-              })}
+              {(() => {
+                const opts = p.opts ?? [];
+                // ベースに載せたユニットは本体の後ろで描く（下の onBase 参照）
+                if (opts.length === 0 || spec.baseUnit) return null;
+                const units = opts.map((id) => devices.get(id));
+                const base = spec.baseUnit;
+                const slots = base
+                  ? baseSlots(
+                      base,
+                      units.map((u) => ({
+                        w: u?.size.w ?? 0,
+                        h: u?.size.h ?? 0,
+                        slot: slotUseOf(u),
+                      })),
+                    )
+                  : null;
+                return opts.map((_id, oi) => {
+                  const opt = units[oi];
+                  if (!opt) return null;
+                  const os = rotatedSize(opt.size, p.rot);
+                  const at = slots?.[oi];
+                  // ベースは左下から並べる。ふつうの OP は中心に重ねる
+                  const ox = at ? p.x + at.x : cx - os.w / 2;
+                  const oyTop = at
+                    ? toSvgY(faceH, p.y + at.y, opt.size.h)
+                    : cy - os.h / 2;
+                  const ow = at ? opt.size.w : os.w;
+                  const oh = at ? opt.size.h : os.h;
+                  return (
+                    <g key={`op${oi}`} className={`opdev${at ? ' onbase' : ''}`}>
+                      <rect x={ox} y={oyTop} width={ow} height={oh} />
+                      {opt.shape &&
+                        (at ? (
+                          <g
+                            transform={`translate(${ox} ${oyTop + oh}) scale(${
+                              ow / (opt.shape.w || 1)
+                            } ${-oh / (opt.shape.h || 1)})`}
+                          >
+                            <ShapeGeometry shape={opt.shape} color="currentColor" />
+                          </g>
+                        ) : (
+                          <g transform={`rotate(${-(p.rot ?? 0)} ${cx} ${cy})`}>
+                            <g
+                              transform={`translate(${cx - opt.size.w / 2} ${cy + opt.size.h / 2}) scale(${
+                                opt.size.w / (opt.shape.w || 1)
+                              } ${-opt.size.h / (opt.shape.h || 1)})`}
+                            >
+                              <ShapeGeometry shape={opt.shape} color="currentColor" />
+                            </g>
+                          </g>
+                        ))}
+                    </g>
+                  );
+                });
+              })()}
               {/*
                 CAD の外形線がある機器は、外形線そのものが機器の姿。
                 四角の枠と塗りは出さない。枠があると外形線との間が「隙間」に見えて、
@@ -835,6 +870,45 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                   </g>
                 </g>
               )}
+              {/*
+                ベースに載せたユニット。台の**上**に載っているので、本体の塗りより後に
+                描く（先に描くと台の色で塗りつぶされて見えなくなる）。
+              */}
+              {spec.baseUnit &&
+                (() => {
+                  const opts = p.opts ?? [];
+                  if (opts.length === 0) return null;
+                  const units = opts.map((id) => devices.get(id));
+                  const slots = baseSlots(
+                    spec.baseUnit,
+                    units.map((u) => ({
+                      w: u?.size.w ?? 0,
+                      h: u?.size.h ?? 0,
+                      slot: slotUseOf(u),
+                    })),
+                  );
+                  return opts.map((_id, oi) => {
+                    const opt = units[oi];
+                    const at = slots[oi];
+                    if (!opt || !at) return null;
+                    const ox = p.x + at.x;
+                    const oyTop = toSvgY(faceH, p.y + at.y, opt.size.h);
+                    return (
+                      <g key={`unit${oi}`} className="opdev onbase">
+                        <rect x={ox} y={oyTop} width={opt.size.w} height={opt.size.h} />
+                        {opt.shape && (
+                          <g
+                            transform={`translate(${ox} ${oyTop + opt.size.h}) scale(${
+                              opt.size.w / (opt.shape.w || 1)
+                            } ${-opt.size.h / (opt.shape.h || 1)})`}
+                          >
+                            <ShapeGeometry shape={opt.shape} color="currentColor" />
+                          </g>
+                        )}
+                      </g>
+                    );
+                  });
+                })()}
               {(horizontal || vertical) && !spec.shape && (
                 <text
                   x={cx}

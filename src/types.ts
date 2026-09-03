@@ -110,7 +110,71 @@ export type DeviceSpec = {
    * x,y は**部品の中心からのずれ**(mm・Y上向き)。配置すると座標に展開される。
    */
   extraCuts?: MachiningDraft[];
+  /**
+   * PLC のベースユニット。電源・CPU・入出力ユニットを**横に並べて**載せる親。
+   * 指定するとこの部品は「載せる台」になり、OP に付けた部品が重ならず横に整列する。
+   */
+  baseUnit?: BaseUnit;
+  /**
+   * ベースに載せたときに使うスロット数。既定 1。
+   * **0 なら枠を使わない**（三菱の電源・CPU のように I/O スロットとは別枠のもの）。
+   */
+  slotUse?: number;
 };
+
+/**
+ * ベースユニットの仕様。
+ *
+ * 三菱の R35B のように「ポート数（スロット数）」が決まっていて、そこへユニットを
+ * 差していく。図の上でも実物どおり**左から順に隙間なく**並べたい。
+ */
+export type BaseUnit = {
+  /** 載せられるユニットの数（ポート数／I/Oスロット数） */
+  slots: number;
+  /** ベースの左端から1台目の左端まで(mm) */
+  offset: number;
+  /**
+   * スロット1つぶんの幅(mm)。
+   * 0 なら**各ユニットの実寸で詰める**（幅がまちまちな三菱はこちら）。
+   * 数値を入れると等ピッチの枠に左寄せで嵌める。
+   */
+  pitch: number;
+  /** ベース下端から1台目の下端まで(mm)。0 ならベースの下端に合わせる */
+  bottom: number;
+};
+
+/** ベースに載せたとき、その部品が使うスロット数。 */
+export function slotUseOf(spec: DeviceSpec | undefined): number {
+  return Math.max(0, spec?.slotUse ?? 1);
+}
+
+/**
+ * ベースに載せたユニットの並び。**ベースの左下を原点**にした位置を返す。
+ *
+ * 図・奥行きの検査・チェックが同じ答えになるよう、並べ方はここ1か所で決める。
+ * 実物と同じく左から順。ピッチ指定があれば枠に左寄せ、無ければ実寸で詰める。
+ */
+export function baseSlots(
+  base: BaseUnit,
+  units: { w: number; h: number; slot: number }[],
+): { x: number; y: number; w: number; h: number }[] {
+  const out: { x: number; y: number; w: number; h: number }[] = [];
+  let x = base.offset;
+  let slot = 0;
+  for (const u of units) {
+    if (base.pitch > 0) {
+      // 枠に嵌める。スロットを使わない部品（電源・CPU）は実寸ぶんだけ進める
+      out.push({ x, y: base.bottom, w: u.w, h: u.h });
+      x += u.slot > 0 ? base.pitch * u.slot : u.w;
+    } else {
+      out.push({ x, y: base.bottom, w: u.w, h: u.h });
+      x += u.w;
+    }
+    slot += u.slot;
+  }
+  void slot;
+  return out;
+}
 
 /** 機器の向き。図の上でダブルクリックすると 90° ずつ回る。 */
 export type Rotation = 0 | 90 | 180 | 270;
