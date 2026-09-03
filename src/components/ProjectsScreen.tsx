@@ -46,12 +46,26 @@ export function ProjectsScreen() {
         p.note.toLowerCase().includes(q)),
   );
 
+  /**
+   * その案件を読むための部品・ダクト。
+   *
+   * **完了時の写しがあればそれを使う。** 記録はその時に出した図そのものでないと
+   * 意味がないので、あとでマスタの寸法や離隔を直しても納品済みの図は動かさない。
+   * 写しが無い古い案件だけ、現行マスタで読む。
+   */
+  const mastersOf = (p: Project) => ({
+    devices: p.devices ? deviceLookup(p.devices, []) : lookup,
+    ducts: p.ducts ?? ducts,
+    frozen: Boolean(p.devices),
+  });
+
   /** その案件の BOM。開いたときだけ組み立てる */
   const bomOf = (p: Project) => {
+    const m = mastersOf(p);
     const layouts = FACES.map((f) =>
-      autoLayout(p.panel, p.profile, f.id, p.items, p.pinned, lookup, p.removedDucts[f.id] ?? []),
+      autoLayout(p.panel, p.profile, f.id, p.items, p.pinned, m.devices, p.removedDucts[f.id] ?? []),
     );
-    return buildBom(layouts, p.profile, lookup, ducts);
+    return buildBom(layouts, p.profile, m.devices, m.ducts);
   };
 
   return (
@@ -62,6 +76,13 @@ export function ProjectsScreen() {
           「設計完了」で残した案件です。<b>複製</b>を押すと、その案件の盤・設定・機器・加工を
           そのまま読み込んで続きから作れます。似た盤を一から組み直す必要がなくなります。
           <b>DXF</b> はその案件の図面4ファイル（キャビネット／中板 × 機器つき／加工穴のみ）を ZIP で出します。
+        </p>
+        <p className="note">
+          完了した案件は<b>そのときの部品・分類・ダクトを写して固めてあります</b>。
+          あとでマスタの寸法や離隔を直しても、<b>ここの図・BOM・DXF は変わりません</b>
+          （納品済みの記録が後から動くと、何を出したのか分からなくなるためです）。
+          複製したときだけは今のマスタで作り直します（マスタから消えている部品は
+          当時のものを My部品へ戻します）。
         </p>
         <p className="note">
           記録は<b>バックアップ先フォルダへ自動で書き出します</b>。
@@ -147,8 +168,9 @@ export function ProjectsScreen() {
                                     machining: p.machining,
                                     removedDucts: p.removedDucts,
                                     underlays: p.underlays,
-                                    devices: lookup,
-                                    ducts,
+                                    // 完了時に固めた部品・ダクトで書き出す（無ければ現行マスタ）
+                                    devices: mastersOf(p).devices,
+                                    ducts: mastersOf(p).ducts,
                                   },
                                   base,
                                 ),

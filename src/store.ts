@@ -65,6 +65,18 @@ export type Project = {
   machining: Machining[];
   removedDucts: Partial<Record<FaceId, number[]>>;
   underlays: Partial<Record<FaceId, DeviceShape>>;
+  /**
+   * 完了時点の部品（その案件で使ったものだけ）と分類。
+   *
+   * 記録は**その時に出した図そのもの**でなければ意味がない。マスタを参照すると、
+   * あとで部品の寸法や離隔を直したときに、納品済みの案件の図と BOM まで
+   * 変わってしまう。完了時に写しを持たせて、以後は動かないようにする。
+   * 古い案件には無いので、そのときは現行マスタで読む。
+   */
+  devices?: DeviceSpec[];
+  categories?: CategoryDef[];
+  /** 完了時点のダクトマスタ（使ったものだけ） */
+  ducts?: DuctSpec[];
 };
 
 /**
@@ -413,6 +425,23 @@ export type AiReview = {
   results?: { face: FaceId; ok: boolean; text: string }[];
 };
 
+/**
+ * 完了時に固めるマスタの写し。**その案件で実際に使ったものだけ**を持つ。
+ * マスタ全部を複製すると、案件が増えるほどファイルが太る。
+ */
+function frozenMasters(s: State): Pick<Project, 'devices' | 'categories' | 'ducts'> {
+  const used = new Set(s.items.map((i) => i.specId));
+  // OP（重ね付け）で足した部品も図と BOM に出るので一緒に固める
+  for (const i of s.items) for (const o of i.opts ?? []) used.add(o);
+  const devices = [...s.devices, ...s.myDevices].filter((d) => used.has(d.id));
+  const cats = new Set(devices.map((d) => d.category));
+  return {
+    devices: structuredClone(devices),
+    categories: structuredClone(s.categories.filter((c) => cats.has(c.id))),
+    ducts: structuredClone(s.ducts),
+  };
+}
+
 /** 白紙の机か。何も置いていないものをしまっても、一覧が「無題」で埋まるだけ。 */
 function isBlankDesk(s: State): boolean {
   return (
@@ -690,6 +719,8 @@ export const useStore = create<State>((set) => ({
         machining: structuredClone(s.machining),
         removedDucts: structuredClone(s.removedDucts),
         underlays: structuredClone(s.underlays),
+        // 使った部品・分類・ダクトも写して固める。以後マスタを直しても図は動かない
+        ...frozenMasters(s),
       };
       const projects = [project, ...s.projects];
       saveProjects(projects);
@@ -733,8 +764,16 @@ export const useStore = create<State>((set) => ({
       if (!p) return s;
       // 複製は「新しい作業」の始まり。いまの机は先にしまう
       const stashed = stashDraft(s);
+      /*
+       * 当時の部品がマスタから消えている（型式の入れ替え・整理）と、複製した図から
+       * その機器だけ消えてしまう。完了時の写しから欠けているぶんだけ My部品へ戻す。
+       * 現行マスタにある部品はいまの値で作る（新しく作る図なので）。
+       */
+      const have = new Set([...s.devices, ...s.myDevices].map((d) => d.id));
+      const restored = (p.devices ?? []).filter((d) => !have.has(d.id));
       return {
         ...stashed,
+        myDevices: restored.length > 0 ? [...s.myDevices, ...restored] : s.myDevices,
         currentDraftId: null,
         panel: structuredClone(p.panel),
         profile: structuredClone(p.profile),

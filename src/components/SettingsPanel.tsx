@@ -1,6 +1,6 @@
 import { DUCT_LAYOUT_HINT, DUCT_LAYOUT_LABEL, DUCT_LAYOUT_READY } from '../data/enclosures';
 import { computeRows } from '../lib/layout';
-import { useStore } from '../store';
+import { deviceLookup, useStore } from '../store';
 import type { DuctLayoutId, RowHeightMode } from '../types';
 
 function Num({
@@ -46,9 +46,31 @@ export function SettingsPanel({ ductCount }: { ductCount: number }) {
   const ducts = useStore((s) => s.ducts);
   const selectDuctSpec = useStore((s) => s.selectDuctSpec);
   const ductGaps = profile.duct.ductGaps ?? {};
+  const items = useStore((s) => s.items);
+  const devices = useStore((s) => s.devices);
+  const myDevices = useStore((s) => s.myDevices);
 
   const isEqual = profile.duct.rowHeightMode === 'equal';
   const rowH = computeRows(panel, face, profile).rows[0]?.h ?? 0;
+
+  /*
+   * ここの値は**下限**で、部品側の「メーカー指定の最小離隔」のほうが大きければ
+   * そちらが効く。0 にしたのに隙間が空くのはたいていこれなので、
+   * いま効いている値とそれを決めている部品を名指しで出す。
+   */
+  const lookup = deviceLookup(devices, myDevices);
+  const onFace = [...new Set(items.filter((i) => i.face === face).map((i) => i.specId))]
+    .map((id) => lookup.get(id))
+    .filter((d): d is NonNullable<ReturnType<typeof lookup.get>> => Boolean(d));
+  const over = (['top', 'bottom'] as const)
+    .map((side) => {
+      const best = onFace.reduce<{ v: number; model: string } | null>((acc, d) => {
+        const v = d.clearance?.[side] ?? 0;
+        return v > (acc?.v ?? 0) ? { v, model: d.model } : acc;
+      }, null);
+      return { side, best };
+    })
+    .filter((q) => q.best !== null && q.best.v > profile.clearance.deviceToDuct[q.side]);
 
   return (
     <div className="panel">
@@ -222,6 +244,28 @@ export function SettingsPanel({ ductCount }: { ductCount: number }) {
           }
         />
       </div>
+      {over.length > 0 ? (
+        <p className="note warn">
+          この値は<b>下限</b>です。いまこの面では
+          {over.map((q, i) => (
+            <span key={q.side}>
+              {i > 0 && '／'}
+              <b>
+                {q.side === 'top' ? '上' : '下'} {q.best!.v}mm
+              </b>
+              （{q.best!.model} の指定）
+            </span>
+          ))}
+          のほうが大きいので、そちらが効いています。
+          <b>ここを 0 にしても、その部品のぶんは詰まりません。</b>
+          詰めるなら部品編集の「メーカー指定の最小離隔」を直してください。
+        </p>
+      ) : (
+        <p className="note">
+          この値は<b>下限</b>です。部品編集の「メーカー指定の最小離隔」のほうが大きければ、
+          そちらが効きます（いまこの面では、この値がそのまま効いています）。
+        </p>
+      )}
       <h3>その他</h3>
       <div className="grid2">
         <Num
