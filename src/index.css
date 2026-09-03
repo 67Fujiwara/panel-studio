@@ -493,6 +493,132 @@ label.check {
   padding: 4px 12px;
 }
 
+/* --- 作業中案件の切り替え --- */
+/*
+  掛け持ちの入り口。画面移動ではないので、タブとは見た目を分けて手前に置く。
+  いまどの案件を開いているかが常に見えていないと、別案件に足していたことに
+  気づかないまま進んでしまう。
+*/
+.drafts {
+  position: relative;
+  align-self: center;
+  margin-right: 10px;
+}
+.drafts .draftbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.drafts .draftbtn.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.drafts .draftname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drafts .caret {
+  color: var(--muted);
+  font-size: 10px;
+}
+/* まだしまっていない机の印。閉じたら消える状態だと分かるように */
+.drafts .dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.drafts .draftmenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: 320px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+}
+.drafts .draftmenu-head {
+  padding: 2px 4px 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.drafts .draftmenu ul {
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  list-style: none;
+}
+.drafts .draftmenu li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+}
+.drafts .draftmenu li.on {
+  background: var(--accent-soft);
+}
+.drafts .draftmenu li.empty {
+  padding: 8px 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.drafts .draftmenu .pick {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  border: 0;
+  background: none;
+  padding: 6px;
+  font-size: 12px;
+  text-align: left;
+}
+.drafts .draftmenu .pick .nm {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drafts .draftmenu .pick .when {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.drafts .draftmenu .mini {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+.drafts .draftmenu-foot {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.drafts .draftmenu-foot button {
+  flex: 1 1 auto;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.drafts .draftmenu-note {
+  margin: 8px 2px 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
 /* --- 共通の広い画面 --- */
 .screen,
 .start {

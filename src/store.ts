@@ -32,6 +32,7 @@ import type {
   RailSettings,
   Rotation,
 } from './types';
+import { effectiveDepth } from './lib/layout';
 import type { LayoutItem } from './lib/layout';
 import { rotatedSize, hasTapCuts } from './types';
 
@@ -66,10 +67,41 @@ export type Project = {
   underlays: Partial<Record<FaceId, DeviceShape>>;
 };
 
-/** 過去案件のファイル。共有フォルダに置いて全員で見る想定。 */
-export type ProjectFile = { schemaVersion: 1; projects: Project[] };
+/**
+ * 作業中の案件1件（一時保存）。
+ *
+ * 設計完了までは机の上に出しっぱなしになるが、実務では
+ * 「A の途中で B を急ぎで見てくれ」が普通に起きる。そのたびに
+ * 完了させたり書き出したりせずに済むよう、**途中の机ごと**しまっておく。
+ *
+ * 中身は完了案件（Project）と同じ7点セット。違うのは「まだ完了していない」ことと、
+ * 開いていた面まで覚えて戻れることだけ。
+ */
+export type Draft = {
+  id: string;
+  /** 表示名。案件番号や会社名を入れて見分ける */
+  name: string;
+  /** 最後にしまった時刻（ISO） */
+  savedAt: string;
+  /** しまったときに開いていた面。戻したらそこから続けられる */
+  face: FaceId;
+  panel: PanelSpec;
+  profile: Profile;
+  items: LayoutItem[];
+  pinned: PlacedDevice[];
+  machining: Machining[];
+  removedDucts: Partial<Record<FaceId, number[]>>;
+  underlays: Partial<Record<FaceId, DeviceShape>>;
+};
+
+/**
+ * 過去案件のファイル。共有フォルダに置いて全員で見る想定。
+ * 作業中の案件も同じファイルに入れる（バックアップ1つで机ごと持ち運べるように）。
+ */
+export type ProjectFile = { schemaVersion: 1; projects: Project[]; drafts?: Draft[] };
 
 const PROJECT_KEY = 'panel-studio.projects';
+const DRAFT_KEY = 'panel-studio.drafts';
 
 /**
  * 過去案件はブラウザにも残す。閉じたら消えるのでは「振り返る」用途を満たせないため。
@@ -89,6 +121,28 @@ function loadProjects(): Project[] {
 function saveProjects(projects: Project[]) {
   try {
     localStorage.setItem(PROJECT_KEY, JSON.stringify({ schemaVersion: 1, projects }));
+  } catch {
+    /* 保存できない環境では JSON 書き出しを使ってもらう */
+  }
+}
+
+/**
+ * 作業中の案件も完了案件と同じくブラウザに残す。
+ * 「一時保存」が閉じたら消えるのでは、掛け持ちの用が足りないため。
+ */
+function loadDrafts(): Draft[] {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    const data = raw ? (JSON.parse(raw) as { schemaVersion: number; drafts: Draft[] }) : null;
+    return data?.schemaVersion === 1 ? (data.drafts ?? []) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDrafts(drafts: Draft[]) {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ schemaVersion: 1, drafts }));
   } catch {
     /* 保存できない環境では JSON 書き出しを使ってもらう */
   }
@@ -154,6 +208,10 @@ type State = {
   ducts: DuctSpec[];
   /** 設計完了した案件 */
   projects: Project[];
+  /** 作業中の案件（一時保存）。掛け持ちのために机ごとしまっておく */
+  drafts: Draft[];
+  /** いま机に出している作業中案件。まだ一度もしまっていなければ null */
+  currentDraftId: string | null;
   /** AI 自動配置の接続先。ブラウザにだけ持つ */
   ai: AiSettings;
 
@@ -176,6 +234,19 @@ type State = {
    * マスタ（盤・ダクト・部品）と設定、完了案件は残す。
    */
   newDesign: () => void;
+
+  /**
+   * いまの設計を作業中案件としてしまう。名前を省くと、いまの名前
+   * （初回は盤の型式か「無題の設計」）を使う。
+   */
+  saveDraft: (name?: string) => void;
+  /** 別の作業中案件へ切り替える。いまの机は自動でしまわれる */
+  switchDraft: (id: string) => void;
+  /** いまの机をしまってから、白紙の案件を始める */
+  newDraft: () => void;
+  renameDraft: (id: string, name: string) => void;
+  removeDraft: (id: string) => void;
+
   setUnderlay: (face: FaceId, shape: DeviceShape | undefined) => void;
   openFace: (face: FaceId) => void;
 
@@ -342,6 +413,44 @@ export type AiReview = {
   results?: { face: FaceId; ok: boolean; text: string }[];
 };
 
+/** 白紙の机か。何も置いていないものをしまっても、一覧が「無題」で埋まるだけ。 */
+function isBlankDesk(s: State): boolean {
+  return (
+    s.items.length === 0 &&
+    s.machining.length === 0 &&
+    Object.keys(s.underlays).length === 0 &&
+    !s.panel.model.trim()
+  );
+}
+
+/**
+ * いまの机を作業中案件へしまう。切り替え・新規のたびに通る道なので、
+ * 「しまい忘れで作りかけが消える」が起きないよう**自動で**呼ぶ。
+ *
+ * 白紙の机はしまわない。まだ一度もしまっていなければ新しく作る。
+ */
+function stashDraft(s: State, name?: string): Partial<State> {
+  if (!s.currentDraftId && !name && isBlankDesk(s)) return {};
+  const snapshot = {
+    face: s.face,
+    panel: structuredClone(s.panel),
+    profile: structuredClone(s.profile),
+    items: structuredClone(s.items),
+    pinned: structuredClone(s.pinned),
+    machining: structuredClone(s.machining),
+    removedDucts: structuredClone(s.removedDucts),
+    underlays: structuredClone(s.underlays),
+    savedAt: new Date().toISOString(),
+  };
+  const cur = s.drafts.find((d) => d.id === s.currentDraftId);
+  const label = (name ?? cur?.name ?? s.panel.model.trim() ?? '').trim() || '無題の設計';
+  const drafts = cur
+    ? s.drafts.map((d) => (d.id === cur.id ? { ...d, ...snapshot, name: label } : d))
+    : [{ id: nextId('drf'), name: label, ...snapshot }, ...s.drafts];
+  saveDrafts(drafts);
+  return { drafts, currentDraftId: cur?.id ?? drafts[0]!.id };
+}
+
 export const useStore = create<State>((set) => ({
   screen: 'start',
   face: 'plate',
@@ -356,6 +465,8 @@ export const useStore = create<State>((set) => ({
   ducts: SAMPLE_DUCTS,
   prices: {},
   projects: loadProjects(),
+  drafts: loadDrafts(),
+  currentDraftId: null,
   ai: loadAi(),
 
   aiReview: null,
@@ -399,7 +510,89 @@ export const useStore = create<State>((set) => ({
       aiFeedback: '',
       face: 'plate' as FaceId,
       screen: 'start' as Screen,
+      // 白紙にしたら、いまの机はどの作業中案件でもなくなる。
+      // ここを残すと、次にしまったとき前の案件を白紙で上書きしてしまう
+      currentDraftId: null,
     })),
+
+  saveDraft: (name) => set((s) => stashDraft(s, name)),
+
+  switchDraft: (id) =>
+    set((s) => {
+      if (id === s.currentDraftId) return s;
+      // いまの机を先にしまう。しまい先が増えることもあるので、その結果から探す
+      const stashed = stashDraft(s);
+      const drafts = stashed.drafts ?? s.drafts;
+      const to = drafts.find((d) => d.id === id);
+      if (!to) return stashed;
+      return {
+        ...stashed,
+        panel: structuredClone(to.panel),
+        profile: structuredClone(to.profile),
+        items: structuredClone(to.items),
+        pinned: structuredClone(to.pinned),
+        machining: structuredClone(to.machining),
+        removedDucts: structuredClone(to.removedDucts),
+        underlays: structuredClone(to.underlays),
+        face: to.face,
+        currentDraftId: to.id,
+        selectedUid: null,
+        selectedCut: null,
+        selectedDuct: null,
+        aiReview: null,
+        aiFeedback: '',
+        // しまったときの面へ戻す。中板の続きなら中板が開く
+        screen: (effectiveDepth(to.panel) === null ? 'start' : 'layout') as Screen,
+      };
+    }),
+
+  newDraft: () =>
+    set((s) => {
+      const stashed = stashDraft(s);
+      return {
+        ...stashed,
+        profile: {
+          ...s.profile,
+          duct: {
+            ...s.profile.duct,
+            layout: DEFAULT_PROFILE.duct.layout,
+            rowHeightMode: DEFAULT_PROFILE.duct.rowHeightMode,
+            ductGaps: {},
+            vertGaps: {},
+          },
+        },
+        panel: structuredClone(BLANK_PANEL),
+        items: [],
+        pinned: [],
+        machining: [],
+        underlays: {},
+        removedDucts: {},
+        selectedUid: null,
+        selectedCut: null,
+        selectedDuct: null,
+        aiReview: null,
+        aiFeedback: '',
+        face: 'plate' as FaceId,
+        screen: 'start' as Screen,
+        currentDraftId: null,
+      };
+    }),
+
+  renameDraft: (id, name) =>
+    set((s) => {
+      const drafts = s.drafts.map((d) => (d.id === id ? { ...d, name } : d));
+      saveDrafts(drafts);
+      return { drafts };
+    }),
+
+  removeDraft: (id) =>
+    set((s) => {
+      const drafts = s.drafts.filter((d) => d.id !== id);
+      saveDrafts(drafts);
+      // 机に出しているものを消したら、机の中身は「どこにも属さない」状態にする。
+      // 図はそのまま残す（消した覚えのない作業が消えるほうが困る）
+      return { drafts, currentDraftId: s.currentDraftId === id ? null : s.currentDraftId };
+    }),
 
   setUnderlay: (face, shape) =>
     set((s) => ({ underlays: { ...s.underlays, [face]: shape } })),
@@ -500,10 +693,16 @@ export const useStore = create<State>((set) => ({
       };
       const projects = [project, ...s.projects];
       saveProjects(projects);
+      // 完了した案件は「作業中」から外す。終わったものが掛け持ちの一覧に残ると、
+      // どれが生きているのか読めなくなる
+      const drafts = s.drafts.filter((d) => d.id !== s.currentDraftId);
+      if (drafts.length !== s.drafts.length) saveDrafts(drafts);
       // 完了したら机の上を片付ける。前の案件の盤や機器が残っていると
       // 次の設計に混ざり込むため、盤サイズと面選択を白紙に戻す
       return {
         projects,
+        drafts,
+        currentDraftId: null,
         profile: {
           ...s.profile,
           duct: {
@@ -532,7 +731,11 @@ export const useStore = create<State>((set) => ({
     set((s) => {
       const p = s.projects.find((q) => q.id === id);
       if (!p) return s;
+      // 複製は「新しい作業」の始まり。いまの机は先にしまう
+      const stashed = stashDraft(s);
       return {
+        ...stashed,
+        currentDraftId: null,
         panel: structuredClone(p.panel),
         profile: structuredClone(p.profile),
         items: structuredClone(p.items),
@@ -567,7 +770,13 @@ export const useStore = create<State>((set) => ({
       const ids = new Set(f.projects.map((p) => p.id));
       const projects = [...f.projects, ...s.projects.filter((p) => !ids.has(p.id))];
       saveProjects(projects);
-      return { projects };
+      // 作業中の案件も同じ扱いで取り込む（古いファイルには入っていないので既存を残す）
+      const incoming = f.drafts ?? [];
+      if (incoming.length === 0) return { projects };
+      const dids = new Set(incoming.map((d) => d.id));
+      const drafts = [...incoming, ...s.drafts.filter((d) => !dids.has(d.id))];
+      saveDrafts(drafts);
+      return { projects, drafts };
     }),
 
   // --- AI 自動配置 ---
@@ -1031,7 +1240,8 @@ export function makeBundle(): BackupBundle {
       prices: s.prices,
     },
     my: { schemaVersion: 1, owners: s.owners, devices: s.myDevices },
-    projects: { schemaVersion: 1, projects: s.projects },
+    // 作業中の案件も入れる。バックアップ1つで掛け持ちの机ごと持ち運べるように
+    projects: { schemaVersion: 1, projects: s.projects, drafts: s.drafts },
   };
 }
 
@@ -1041,5 +1251,6 @@ export function loadBundle(b: BackupBundle): void {
   // 手で編集された・壊れたファイルでも、読める部分だけは読む
   if (b.config) s.loadConfig(b.config);
   if (b.my) s.loadMyConfig(b.my);
-  if (b.projects && b.projects.projects.length > 0) s.loadProjectFile(b.projects);
+  if (b.projects && (b.projects.projects.length > 0 || (b.projects.drafts ?? []).length > 0))
+    s.loadProjectFile(b.projects);
 }

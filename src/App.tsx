@@ -12,6 +12,7 @@ import { ProjectsScreen } from './components/ProjectsScreen';
 import { SettingsPanel } from './components/SettingsPanel';
 import { AiLayoutPanel } from './components/AiLayoutPanel';
 import { BackupBar } from './components/BackupBar';
+import { DraftSwitcher } from './components/DraftSwitcher';
 import { StartScreen } from './components/StartScreen';
 import { FACE_BY_ID, FACE_LABEL } from './data/faces';
 import { autoLayout, effectiveDepth } from './lib/layout';
@@ -28,7 +29,7 @@ export default function App() {
   const devices = useStore((s) => s.devices);
   const myDevices = useStore((s) => s.myDevices);
   const go = useStore((s) => s.go);
-  const newDesign = useStore((s) => s.newDesign);
+  const newDraft = useStore((s) => s.newDraft);
   const removedDucts = useStore((s) => s.removedDucts);
 
   const lookup = useMemo(() => deviceLookup(devices, myDevices), [devices, myDevices]);
@@ -40,14 +41,12 @@ export default function App() {
   const hasDucts = FACE_BY_ID.get(face)?.ducts ?? false;
 
   /**
-   * 新規作成。作りかけがあるときだけ確かめる。
-   * 押し間違いで机の上が消えるのを防ぎつつ、白紙のときは黙って進む。
+   * 新規作成。作りかけは**捨てずに作業中案件へしまってから**白紙にする。
+   * 押し間違いで机の上が消えるのがいちばん困るので、消す道は用意しない
+   * （要らない案件は切り替えメニューから削除できる）。
    */
   const startNew = () => {
-    const s = useStore.getState();
-    const dirty = s.items.length > 0 || s.machining.length > 0;
-    if (dirty && !window.confirm('いまの設計を消して新規作成します。よろしいですか？')) return;
-    newDesign();
+    newDraft();
   };
 
   /**
@@ -74,6 +73,8 @@ export default function App() {
 
   const nav = (
     <nav className="nav">
+      {/* 掛け持ちの切り替えは画面移動ではないので、タブの手前に置いて分ける */}
+      <DraftSwitcher />
       {tab('start', '盤サイズ')}
       {tab('faces', '面選択', depthBlock)}
       {tab('config', '設定')}
