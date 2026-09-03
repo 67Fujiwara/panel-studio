@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   BACKUP_FILE,
+  BACKUP_PREV_FILE,
   BackupWriter,
   ensurePermission,
   fsAccessSupported,
@@ -171,11 +172,59 @@ export function BackupBar() {
           許可し直す
         </button>
       )}
+      {/*
+        1つ前へ戻す口。間違って消した・壊れた状態のまま上書きされたときの逃げ道。
+        押しても勝手には戻さず、中身の要約を見せてから確かめる
+      */}
+      <button
+        disabled={busy}
+        title="自動バックアップの「1つ前」を読み込みます"
+        onClick={() => void restorePrev()}
+      >
+        1つ前に戻す
+      </button>
       <button disabled={busy} onClick={() => void choose()}>
         変更
       </button>
     </div>
   );
+
+  /** 1つ前のバックアップを読み込む。無ければその旨を出す。 */
+  async function restorePrev() {
+    const dir = dirRef.current;
+    if (!dir) return;
+    setBusy(true);
+    try {
+      const text = await readFile(dir, BACKUP_PREV_FILE);
+      if (text === null) {
+        window.alert(
+          `「1つ前」のバックアップはまだありません（${BACKUP_PREV_FILE}）。\n` +
+            '自動書き出しが2回目に走った時点から作られます。',
+        );
+        return;
+      }
+      const b = JSON.parse(text) as BackupBundle;
+      if (b.schemaVersion !== 1 || b.kind !== 'bundle') {
+        window.alert('「1つ前」のファイルが読めませんでした。');
+        return;
+      }
+      // 戻す前に中身を見せる。件数が減るなら、それが分かってから決められる
+      const now = useStore.getState();
+      const n = (v: unknown[] | undefined) => v?.length ?? 0;
+      const msg =
+        '「1つ前」のバックアップを読み込みます。\n\n' +
+        `部品表: ${n(now.devices)} → ${n(b.config?.devices)} 件\n` +
+        `My部品: ${n(now.myDevices)} → ${n(b.my?.devices)} 件\n` +
+        `完了案件: ${n(now.projects)} → ${n(b.projects?.projects)} 件\n\n` +
+        '※ いまの内容は上書きされます。';
+      if (!window.confirm(msg)) return;
+      loadBundle(b);
+    } catch (e) {
+      window.alert(`読み込めませんでした: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
 }
 
 /**
@@ -187,8 +236,8 @@ export function BackupBar() {
 async function offerRestore(dir: FileSystemDirectoryHandle) {
   const s = useStore.getState();
 
-  // いまの形式（全部入りの1ファイル）を先に見る
-  const bundleText = await readFile(dir, BACKUP_FILE);
+  // いまの形式（全部入りの1ファイル）を先に見る。無ければ「1つ前」も拾う
+  const bundleText = (await readFile(dir, BACKUP_FILE)) ?? (await readFile(dir, BACKUP_PREV_FILE));
   // 旧版の3ファイルは読み込み（復元）だけ対応する。書くのはもうしない
   const config = bundleText ? null : await readFile(dir, LEGACY_BACKUP_FILES.config);
   const my = bundleText ? null : await readFile(dir, LEGACY_BACKUP_FILES.my);

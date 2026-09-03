@@ -18,6 +18,17 @@
  */
 export const BACKUP_FILE = 'panel-studio-backup.json';
 
+/**
+ * 1つ前のバックアップ。
+ *
+ * 自動書き出しは同じファイルへ上書きするので、**間違って消した部品や壊れた状態も
+ * そのまま上書きされる**。気づいたときには戻す先が無い、が実際に起きた。
+ * 書く前に前の中身をこちらへ退避して、**1回分は戻せる**ようにする。
+ *
+ * ファイルは常にこの2つだけ。「フォルダに何個もあって分からない」は起こさない。
+ */
+export const BACKUP_PREV_FILE = 'panel-studio-backup.prev.json';
+
 /** 旧版が書いていたファイル名。読み込み（復元）のときだけ使う。書くのはもうしない */
 export const LEGACY_BACKUP_FILES = {
   config: 'panel-studio-settings.json',
@@ -202,7 +213,21 @@ export class BackupWriter {
       }
       // どこが変わっていても書くのは全部入りの1ファイル。kinds は「書く必要があるか」の印
       void kinds;
-      await writeFile(this.dir, BACKUP_FILE, JSON.stringify(this.snapshot(), null, 2));
+      const text = JSON.stringify(this.snapshot(), null, 2);
+      /*
+       * 上書きする前に、いまフォルダにある中身を「1つ前」へ退避する。
+       * 中身が同じときは動かさない（同じものを2つ持っても戻す先にならない）。
+       * 退避に失敗しても本体の書き出しは続ける — 最新が書けないほうが困る。
+       */
+      try {
+        const before = await readFile(this.dir, BACKUP_FILE);
+        if (before !== null && before !== text) {
+          await writeFile(this.dir, BACKUP_PREV_FILE, before);
+        }
+      } catch {
+        /* 退避できなくても最新は書く */
+      }
+      await writeFile(this.dir, BACKUP_FILE, text);
       this.onChange({ lastAt: Date.now(), error: null, pending: false });
     } catch (e) {
       // 失敗したぶんは次にもう一度書く
