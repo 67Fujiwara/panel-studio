@@ -999,6 +999,63 @@ input[type='color'] {
   font-size: 11px;
   color: var(--muted);
 }
+/* 部品編集の折りたたみ。たたんだ行だけを並べても中身が読めるようにする */
+.parteditor-head button {
+  margin-left: 6px;
+}
+.parteditor-head strong {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sect {
+  border-top: 1px solid var(--line);
+}
+.sect:first-of-type {
+  border-top: 0;
+}
+.secthead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 2px;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--muted);
+}
+.secthead:hover {
+  color: var(--fg);
+}
+.secthead .caret {
+  flex: 0 0 auto;
+  width: 10px;
+  font-size: 9px;
+}
+.secthead .secttitle {
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+/* 要約はたたんでいるときの中身。長い型式でも行を折らずに省く */
+.secthead .sectsum {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+.sect.open .secthead .sectsum {
+  visibility: hidden;
+}
+.sectbody {
+  padding: 0 2px 8px;
+}
+.sectbody > .note:first-child {
+  margin-top: 0;
+}
 .mountpick {
   display: flex;
   gap: 14px;
@@ -2075,6 +2132,10 @@ ul.oplist.pick button.linkish:hover {
   .machcols {
     grid-template-columns: 1fr;
   }
+}
+/* 加工の見出しを全部たたんだとき。プレビューを出さないので右の列も要らない */
+.machcols.solo {
+  grid-template-columns: 1fr;
 }
 .cutfig {
   position: sticky;

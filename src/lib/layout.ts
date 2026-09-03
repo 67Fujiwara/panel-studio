@@ -422,6 +422,30 @@ function horizontalGap(prevRight: number, eff: Sides, c: ClearanceSettings) {
 }
 
 /**
+ * 独立DINレールの機器を見分ける印。レールの高さ（＝dinOffset）まで持つ。
+ * レールに乗らない機器は null。
+ */
+function soloMark(spec: DeviceSpec, mount: MountType): number | null {
+  return mount === 'din-solo' ? (spec.dinOffset ?? 0) : null;
+}
+
+/**
+ * 隣どうしのあいだに、**エンドストッパの場所として**要る幅(mm)。
+ *
+ * 5mm は「物が乗る場所」であって離隔（空気）ではない。機器⇔機器のクリアランスに
+ * 含めて max で潰すと、**ストッパが隣の機器に重なる**（クリアランス 0 なら丸ごと重なる）。
+ * なのでクリアランスとは別に、足し込む。
+ *
+ * ただし隣どうしが**同じ高さの独立レール**なら1本につながり、あいだにストッパは
+ * 入らない（BOM でも 2個で数えている）ので 0。高さが違えば別々の1本なので両側に要る。
+ */
+function stopperGap(prev: number | null, next: number | null): number {
+  if (prev === null && next === null) return 0;
+  if (prev !== null && next !== null && prev === next) return 0;
+  return (prev === null ? 0 : SOLO_RAIL_MARGIN) + (next === null ? 0 : SOLO_RAIL_MARGIN);
+}
+
+/**
  * 段の中での上下位置。**段の基準線（レール中心）に中心を合わせ**、
  * DINレール取付なら部品ごとのオフセットぶんだけずらす。
  * 基準線の指定が無い段（equal モード）では段の中心が基準線になる。
@@ -467,7 +491,13 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
 
   type Placed = { e: Entry; x: number; eff: Sides };
   /** 段の中の区画。縦ダクトで分断されたそれぞれを別に詰める */
-  type Slot = Segment & { cursor: number; prevRight: number; used: boolean };
+  type Slot = Segment & {
+    cursor: number;
+    prevRight: number;
+    /** 直前に置いた1台が独立レールなら、そのレール高さ。違えば null */
+    prevSolo: number | null;
+    used: boolean;
+  };
   /** up/down は基準線（レール中心）から上下それぞれに要る高さ。段の高さはその和 */
   type Bucket = { entries: Placed[]; up: number; down: number; slots: Slot[] };
 
@@ -479,6 +509,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
       ...s,
       cursor: s.x0,
       prevRight: 0,
+      prevSolo: null,
       used: false,
     })),
   });
@@ -522,9 +553,12 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
           : Math.max(flow, lastUsed());
     let b = bucketAt(index);
     let eff = effectiveClearance(e.spec, c, rowGap(profile, index));
+    // 独立レールの機器は、機器の幅のほかに左右のエンドストッパの場所も要る
+    const mySolo = soloMark(e.spec, e.item.mount);
+    const myEnds = mySolo === null ? 0 : SOLO_RAIL_MARGIN;
 
     const widest = (bk: Bucket) => Math.max(0, ...bk.slots.map((s) => s.x1 - s.x0));
-    if (w > widest(b)) {
+    if (w + myEnds * 2 > widest(b)) {
       violations.push({
         uid: e.item.uid,
         kind: 'overflow',
@@ -540,9 +574,9 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
       for (const i of order) {
         const s = bk.slots[i];
         if (!s) continue;
-        const gap = horizontalGap(s.prevRight, eff, c);
-        const x = s.used ? s.cursor + gap : s.x0;
-        if (x + w <= s.x1) return { slot: s, x };
+        const gap = horizontalGap(s.prevRight, eff, c) + stopperGap(s.prevSolo, mySolo);
+        const x = s.used ? s.cursor + gap : s.x0 + myEnds;
+        if (x + w + myEnds <= s.x1) return { slot: s, x };
       }
       return null;
     };
@@ -558,7 +592,12 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
           kind: 'overflow',
           message: `${e.spec.model}: 指定された ${forced + 1} 段目に横幅が足りません`,
         });
-        hit = { slot: s, x: s.used ? s.cursor + horizontalGap(s.prevRight, eff, c) : s.x0 };
+        hit = {
+          slot: s,
+          x: s.used
+            ? s.cursor + horizontalGap(s.prevRight, eff, c) + stopperGap(s.prevSolo, mySolo)
+            : s.x0 + myEnds,
+        };
       } else {
         flow = buckets.length;
         index = flow;
@@ -572,6 +611,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
     b.entries.push({ e, x: hit.x, eff });
     hit.slot.cursor = hit.x + w;
     hit.slot.prevRight = eff.right;
+    hit.slot.prevSolo = mySolo;
     hit.slot.used = true;
     // 基準線の上下を別々に積む。オフセットも離隔も、要る側にだけ効かせる
     const need = vertSpan(e.spec, e.item.mount, e.item.rot, eff);
@@ -702,6 +742,7 @@ function packEqual(
   const placed: PlacedDevice[] = [];
   const cursor = rows.map((_, i) => span[i]!.xMin);
   const prevRight = rows.map(() => 0);
+  const prevSolo = rows.map<number | null>(() => null);
 
   for (const p of pinned) {
     const spec = devices.get(p.specId);
@@ -710,6 +751,7 @@ function packEqual(
     if (cursor[p.row] !== undefined) {
       cursor[p.row] = Math.max(cursor[p.row]!, p.x + rotatedSize(spec.size, p.rot).w);
       prevRight[p.row] = effectiveClearance(spec, c, rowGap(profile, p.row)).right;
+      prevSolo[p.row] = soloMark(spec, p.mount);
     }
   }
 
@@ -734,9 +776,12 @@ function packEqual(
         tooShort = true;
         continue;
       }
-      const gap = horizontalGap(prevRight[r] ?? 0, eff, c);
-      const startX = cursor[r] === xMin ? xMin : (cursor[r] ?? xMin) + gap;
-      const fits = startX + size.w <= xMax;
+      // 独立レールの機器は、機器の幅のほかに左右のエンドストッパの場所も要る
+      const mySolo = soloMark(spec, item.mount);
+      const myEnds = mySolo === null ? 0 : SOLO_RAIL_MARGIN;
+      const gap = horizontalGap(prevRight[r] ?? 0, eff, c) + stopperGap(prevSolo[r] ?? null, mySolo);
+      const startX = cursor[r] === xMin ? xMin + myEnds : (cursor[r] ?? xMin) + gap;
+      const fits = startX + size.w + myEnds <= xMax;
       if (fits || candidates.length === 1) {
         placed.push({
           uid: item.uid,
@@ -752,6 +797,7 @@ function packEqual(
         });
         cursor[r] = startX + size.w;
         prevRight[r] = eff.right;
+        prevSolo[r] = mySolo;
         done = true;
         if (!fits) {
           violations.push({
