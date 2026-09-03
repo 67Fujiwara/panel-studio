@@ -6,9 +6,11 @@ import {
   ensurePermission,
   fsAccessSupported,
   LEGACY_BACKUP_FILES,
+  loadAutoFlag,
   loadDir,
   pickDir,
   readFile,
+  saveAutoFlag,
   type BackupKind,
   type BackupState,
 } from '../lib/backup';
@@ -36,8 +38,10 @@ export function BackupBar() {
     lastAt: null,
     error: null,
     pending: false,
+    writing: false,
   });
   const [busy, setBusy] = useState(false);
+  const [auto, setAuto] = useState(loadAutoFlag);
   const writerRef = useRef<BackupWriter | null>(null);
   const dirRef = useRef<FileSystemDirectoryHandle | null>(null);
 
@@ -49,6 +53,7 @@ export function BackupBar() {
   useEffect(() => {
     const writer = new BackupWriter(snapshot, (patch) => setState((v) => ({ ...v, ...patch })));
     writerRef.current = writer;
+    writer.setAuto(loadAutoFlag());
 
     void (async () => {
       const dir = await loadDir();
@@ -91,6 +96,17 @@ export function BackupBar() {
       window.removeEventListener('pagehide', onHide);
     };
   }, []);
+
+  /*
+   * 自動を切っているあいだは、押し忘れたまま閉じると消える。
+   * 未保存のときだけブラウザの確認を挟む（自動のときは邪魔なので出さない）。
+   */
+  useEffect(() => {
+    if (auto || !state.pending) return;
+    const onLeave = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', onLeave);
+    return () => window.removeEventListener('beforeunload', onLeave);
+  }, [auto, state.pending]);
 
   const choose = async () => {
     setBusy(true);
@@ -152,19 +168,26 @@ export function BackupBar() {
     );
   }
 
+  // 手動にしているあいだの未保存は、書けていないのと同じ扱いで目立たせる
+  const unsaved = !auto && state.pending && !state.writing;
+
   return (
-    <div className={`backupbar${state.error ? ' warn' : ' ok'}`}>
-      <span className="mark">{state.error ? '!' : '✓'}</span>
+    <div className={`backupbar${state.error || unsaved ? ' warn' : ' ok'}`}>
+      <span className="mark">{state.error || unsaved ? '!' : '✓'}</span>
       <span>
         バックアップ先: <b>{state.dirName}</b>
         {state.error ? (
           <em className="bad"> — {state.error}</em>
+        ) : state.writing ? (
+          <em> — 書き出し中…</em>
         ) : state.pending ? (
-          <em> — 書き出し待ち…</em>
+          <em className={auto ? undefined : 'bad'}>
+            {auto ? ' — 書き出し待ち…' : ' — 未保存の変更があります'}
+          </em>
         ) : state.lastAt ? (
           <em> — 最終 {new Date(state.lastAt).toLocaleTimeString('ja-JP')}</em>
         ) : (
-          <em> — 変更があれば自動で書き出します</em>
+          <em>{auto ? ' — 変更があれば自動で書き出します' : ' — 「上書き保存」で書き出します'}</em>
         )}
       </span>
       {state.error && (
@@ -172,6 +195,30 @@ export function BackupBar() {
           許可し直す
         </button>
       )}
+      {/*
+        いま書く口。部品に外形を持たせると1ファイルが数 MB になり、
+        変更のたびに書かれると手が止まる。自動を切って、ここで区切りよく書けるようにする
+      */}
+      <button
+        className={state.pending ? 'primary' : undefined}
+        disabled={busy || state.writing}
+        title="いまの内容をバックアップ先へ上書きします"
+        onClick={() => void writerRef.current?.flush(true)}
+      >
+        {state.writing ? '書き出し中…' : '上書き保存'}
+      </button>
+      <label className="check inline" title="切ると、書き出すのは「上書き保存」を押したときと、閉じる直前だけになります">
+        <input
+          type="checkbox"
+          checked={auto}
+          onChange={(e) => {
+            setAuto(e.target.checked);
+            saveAutoFlag(e.target.checked);
+            writerRef.current?.setAuto(e.target.checked);
+          }}
+        />
+        <span>自動</span>
+      </label>
       {/*
         1つ前へ戻す口。間違って消した・壊れた状態のまま上書きされたときの逃げ道。
         押しても勝手には戻さず、中身の要約を見せてから確かめる

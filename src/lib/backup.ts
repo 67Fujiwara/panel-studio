@@ -50,7 +50,35 @@ export type BackupState = {
   error: string | null;
   /** 書き出し待ちの変更があるか */
   pending: boolean;
+  /** いま書いている最中か。7MB 級だと数秒かかるので、押した手応えとして出す */
+  writing: boolean;
 };
+
+/**
+ * 自動で書き出すかどうかの覚え書き。
+ *
+ * 部品に外形（DXF から起こした形）を持たせると1ファイルが数 MB になる。
+ * 変更のたびに書くと、その数 MB を JSON にして2回書き直すので手が止まる。
+ * **手動にしておいて、区切りのいいところで「上書き保存」を押す**運用ができるようにする。
+ */
+const AUTO_KEY = 'panel-studio.backup-auto';
+
+/** 既定は自動。書き忘れで消えるほうが痛いので、外すのは押した人の意思に任せる */
+export function loadAutoFlag(): boolean {
+  try {
+    return localStorage.getItem(AUTO_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+export function saveAutoFlag(on: boolean): void {
+  try {
+    localStorage.setItem(AUTO_KEY, on ? 'on' : 'off');
+  } catch {
+    /* 覚えられなくても、このセッション中は効く */
+  }
+}
 
 export function fsAccessSupported(): boolean {
   return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
@@ -158,12 +186,23 @@ export async function readFile(
  * 変更のたびに書くとキー入力1つでファイルを開き直すことになるので、
  * **少し待ってからまとめて書く**（打っている最中は書かない）。
  * 変更が続いても放置されないよう、上限の間隔でも書く。
+ *
+ * 自動を切ると、書くのは**人が「上書き保存」を押したときだけ**になる。
+ * それでも閉じる直前には書く（押し忘れたぶんを捨てないため）。
  */
 export class BackupWriter {
   private dir: FileSystemDirectoryHandle | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private dirty = new Set<BackupKind>();
   private busy = false;
+  private auto = true;
+  /**
+   * 最後に書いた中身。次に書くときの見比べ用。
+   *
+   * - 中身が同じなら書かない（同じ数 MB を書き直さない）
+   * - 「1つ前」へ退避するとき、フォルダから読み直さずに済む
+   */
+  private lastText: string | null = null;
 
   constructor(
     /** 書き出す中身（全部入りの1ファイルぶん）を取り出す。呼ばれた時点の最新を返すこと */
@@ -171,13 +210,14 @@ export class BackupWriter {
     /** 状態が変わったら知らせる（画面の帯の更新用） */
     private readonly onChange: (patch: Partial<BackupState>) => void,
     /** 変更が止まってから書くまでの待ち時間(ms) */
-    private readonly debounceMs = 3000,
+    private readonly debounceMs = 30000,
     /** 変更が続いていても、この間隔では必ず書く(ms) */
-    private readonly periodMs = 60000,
+    private readonly periodMs = 300000,
   ) {}
 
   setDir(dir: FileSystemDirectoryHandle | null) {
     this.dir = dir;
+    this.lastText = null;
     this.onChange({ dirName: dir?.name ?? null, error: null });
     // フォルダを決めた時点で、いまの中身をひととおり書いておく
     if (dir) this.mark('config', 'my', 'projects');
@@ -187,18 +227,36 @@ export class BackupWriter {
     return this.dir !== null;
   }
 
+  /** 自動書き出しの入切。切ったら待ち時間のタイマーも止める */
+  setAuto(on: boolean) {
+    this.auto = on;
+    if (!on && this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (on) this.mark();
+  }
+
   /** 中身が変わったことを伝える。実際の書き出しはまとめて後で。 */
   mark(...kinds: BackupKind[]) {
     for (const k of kinds) this.dirty.add(k);
     if (!this.dir || this.dirty.size === 0) return;
     this.onChange({ pending: true });
+    // 手動のときは印だけ付けて待つ。書くのはボタンか、閉じる直前
+    if (!this.auto) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => void this.flush(), this.debounceMs);
   }
 
-  /** 溜まっているぶんをいますぐ書く。 */
-  async flush(): Promise<void> {
-    if (!this.dir || this.busy || this.dirty.size === 0) return;
+  /**
+   * 溜まっているぶんをいますぐ書く。
+   *
+   * `force` はボタンから押されたとき。溜まっていなくても中身を見に行き、
+   * 同じなら書かずに時刻だけ更新する（押したのに無反応、を避ける）。
+   */
+  async flush(force = false): Promise<void> {
+    if (!this.dir || this.busy) return;
+    if (this.dirty.size === 0 && !force) return;
     this.busy = true;
     if (this.timer) {
       clearTimeout(this.timer);
@@ -206,6 +264,7 @@ export class BackupWriter {
     }
     const kinds = [...this.dirty];
     this.dirty.clear();
+    this.onChange({ writing: true });
     try {
       if (!(await ensurePermission(this.dir, false))) {
         // 再読み込み後などで許可が切れている。人がボタンを押すまで待つ
@@ -219,15 +278,19 @@ export class BackupWriter {
        * 中身が同じときは動かさない（同じものを2つ持っても戻す先にならない）。
        * 退避に失敗しても本体の書き出しは続ける — 最新が書けないほうが困る。
        */
+      const before = this.lastText ?? (await readFile(this.dir, BACKUP_FILE));
+      if (before === text) {
+        // 前と同じ。数 MB を書き直しても増えるものがないので、押した時刻だけ返す
+        this.onChange({ lastAt: Date.now(), error: null, pending: false });
+        return;
+      }
       try {
-        const before = await readFile(this.dir, BACKUP_FILE);
-        if (before !== null && before !== text) {
-          await writeFile(this.dir, BACKUP_PREV_FILE, before);
-        }
+        if (before !== null) await writeFile(this.dir, BACKUP_PREV_FILE, before);
       } catch {
         /* 退避できなくても最新は書く */
       }
       await writeFile(this.dir, BACKUP_FILE, text);
+      this.lastText = text;
       this.onChange({ lastAt: Date.now(), error: null, pending: false });
     } catch (e) {
       // 失敗したぶんは次にもう一度書く
@@ -235,12 +298,15 @@ export class BackupWriter {
       this.onChange({ error: e instanceof Error ? e.message : String(e), pending: true });
     } finally {
       this.busy = false;
+      this.onChange({ writing: false });
     }
   }
 
   /** 一定間隔での書き出しを始める。溜まっていなければ何もしない。 */
   startTimer(): () => void {
-    const id = setInterval(() => void this.flush(), this.periodMs);
+    const id = setInterval(() => {
+      if (this.auto) void this.flush();
+    }, this.periodMs);
     return () => clearInterval(id);
   }
 }

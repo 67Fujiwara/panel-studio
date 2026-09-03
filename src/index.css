@@ -1701,6 +1701,14 @@ table.bom .qty em {
   border-radius: 999px;
   font-weight: 600;
 }
+/* 帯の中に置く小さなチェック。左ペインの label.check と違って行に並べる */
+.backupbar label.check.inline {
+  flex: 0 0 auto;
+  margin: 0;
+  gap: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+}
 /* 盤・ダクトのマスタ表とは別物なので、encl のクラスは付けない（表の並びが変わるため） */
 table.backup-io {
   width: 100%;
