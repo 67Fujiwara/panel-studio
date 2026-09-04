@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FACE_BY_ID } from '../data/faces';
 import { useStore } from '../store';
 import { hasTapCuts } from '../types';
@@ -52,12 +52,19 @@ export function DevicePicker() {
     return { config: devices.filter(ok), my: myDevices.filter(ok) };
   }, [q, devices, myDevices, allowedMounts]);
 
-  const branchOpen = (key: string, hasUsed: boolean) => {
+  /*
+   * 分類は**たたんだ状態で始まる**。以前は「置いた機器のある分類は開く」にしていたが、
+   * 面を移るたびに数分類ぶんの機器が並んで縦に伸び、下の分類まで毎回スクロールになる。
+   * 見出しの数字（置いた台数）で中身は分かるので、開くのは触ったときだけにする。
+   * 絞り込み中は当たった機器を見せるため全部開く。
+   */
+  const branchOpen = (key: string, _hasUsed: boolean) => {
     if (q) return true;
-    if (closed[key] !== undefined) return !closed[key];
-    return hasUsed;
+    return closed[key] === false;
   };
   const toggle = (key: string, open: boolean) => setClosed((c) => ({ ...c, [key]: open }));
+  // 面を移ったら開いていた分類もたたむ（画面遷移で最小化）
+  useEffect(() => setClosed({}), [face]);
 
   const Leaf = ({ d }: { d: DeviceSpec }) => {
     const count = countOf(d.id);
