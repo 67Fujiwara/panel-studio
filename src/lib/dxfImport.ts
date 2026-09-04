@@ -1,6 +1,7 @@
 import Encoding from 'encoding-japanese';
 import DxfParser from 'dxf-parser';
 import { FACE_LABEL } from '../data/faces';
+import { liteShape } from './shapeLite';
 import type { DeviceShape, FaceId, ShapeEntity } from '../types';
 
 /**
@@ -666,7 +667,8 @@ export function extractRegion(prims: Prim[], rect: { x: number; y: number; w: nu
       b.maxY <= rect.y + rect.h + m
     );
   });
-  return primsToShape(inside, { x: rect.x, y: rect.y }, rect.w, rect.h);
+  // 取り込んだ時点で軽くしておく（短い線の連結・間引き。見た目は変わらない）
+  return liteShape(primsToShape(inside, { x: rect.x, y: rect.y }, rect.w, rect.h)).shape;
 }
 
 /**
@@ -684,5 +686,6 @@ export function extractShape(text: string): DeviceShape | null {
     maxY: Math.max(a.maxY, c.maxY),
   }));
   if (!Number.isFinite(b.minX)) return null;
-  return primsToShape(prims, { x: b.minX, y: b.minY }, b.maxX - b.minX, b.maxY - b.minY);
+  // 取り込んだ時点で軽くしておく（短い線の連結・間引き。見た目は変わらない）
+  return liteShape(primsToShape(prims, { x: b.minX, y: b.minY }, b.maxX - b.minX, b.maxY - b.minY)).shape;
 }

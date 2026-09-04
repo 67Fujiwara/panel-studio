@@ -16,6 +16,7 @@ import {
   type ProjectFile,
 } from '../store';
 import { downloadJson, pickJson, pickJsonFiles } from '../lib/jsonFile';
+import { liteShape, shapePoints } from '../lib/shapeLite';
 
 /**
  * ConfigFile 画面。共通の部品表（分類と部品）を編集する。
@@ -84,6 +85,42 @@ export function ConfigScreen() {
    * 1ファイルなら確実に全部入りで渡せて、読み込みも1回で済む。
    */
   const exportAll = () => downloadJson(makeBundle(), 'panel-studio-backup.json');
+
+  /**
+   * 登録済みの外形線をまとめて軽くする。
+   * 新しく取り込む DXF はその場で軽くなるが、以前に取り込んだものは重いまま残っている。
+   * 見た目は変わらない（0.05mm の間引きと、短い線の連結だけ）。
+   */
+  const liteAll = () => {
+    const s = useStore.getState();
+    let parts = 0;
+    let before = 0;
+    let after = 0;
+    let ptsBefore = 0;
+    let ptsAfter = 0;
+    for (const d of [...s.devices, ...s.myDevices]) {
+      const patch: Partial<typeof d> = {};
+      for (const k of ['shape', 'sideShape'] as const) {
+        const sh = d[k];
+        if (!sh) continue;
+        const r = liteShape(sh);
+        before += r.before;
+        after += r.after;
+        ptsBefore += shapePoints(sh);
+        ptsAfter += shapePoints(r.shape);
+        if (r.after !== r.before || shapePoints(r.shape) !== shapePoints(sh)) patch[k] = r.shape;
+      }
+      if (Object.keys(patch).length > 0) {
+        s.updatePart(d.id, patch);
+        parts++;
+      }
+    }
+    window.alert(
+      parts === 0
+        ? '外形線はすでに軽い状態です（変わるものはありませんでした）。'
+        : `外形線を軽くしました。\n\n部品: ${parts} 件\n線: ${before.toLocaleString()} → ${after.toLocaleString()} 本\n点: ${ptsBefore.toLocaleString()} → ${ptsAfter.toLocaleString()}\n\n見た目は変わりません（0.05mm の間引きと、短い線の連結だけ）。`,
+    );
+  };
 
   /**
    * ファイルの中身から種類を見分ける。ファイル名は見ない —
@@ -156,6 +193,12 @@ export function ConfigScreen() {
       <div className="row-buttons">
         <button onClick={exportAll}>一括書き出し（1ファイルに全部）</button>
         <button onClick={() => void importAny()}>一括読み込み</button>
+        <button
+          onClick={liteAll}
+          title="登録済みの外形線をまとめて軽くします（短い線の連結と 0.05mm の間引き。見た目は変わりません）"
+        >
+          外形線を軽量化
+        </button>
       </div>
       <p className="note">
         一括書き出しは<b>全部入りの1ファイル</b>（panel-studio-backup.json）を作ります。

@@ -4,7 +4,8 @@
  */
 
 export function downloadJson(data: unknown, fileName: string): void {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  // 整形（インデント）は付けない。外形線入りの部品表だと整形だけで 4倍（3.9MB → 16MB）になる
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

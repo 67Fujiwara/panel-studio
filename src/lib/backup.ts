@@ -272,7 +272,11 @@ export class BackupWriter {
       }
       // どこが変わっていても書くのは全部入りの1ファイル。kinds は「書く必要があるか」の印
       void kinds;
-      const text = JSON.stringify(this.snapshot(), null, 2);
+      /*
+       * 整形（インデント）は付けない。外形線を持つ部品表だと整形だけで 4倍
+       * （3.9MB → 16MB）になり、書くのも読むのも遅くなる。人が目で読むファイルではない
+       */
+      const text = JSON.stringify(this.snapshot());
       /*
        * 上書きする前に、いまフォルダにある中身を「1つ前」へ退避する。
        * 中身が同じときは動かさない（同じものを2つ持っても戻す先にならない）。
