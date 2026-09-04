@@ -172,6 +172,36 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     return () => window.removeEventListener('keydown', onKey);
   }, [removeSelected]);
 
+  /*
+   * 矢印キーで選択中の機器を 1mm ずつ動かす（Shift で 10mm）。
+   * ドラッグは 5mm スナップなので、1mm の微調整はここで行う。
+   * 動かした時点で「座標で置く」になる（段の流れからは外れる）。
+   * 入力欄にフォーカスがあるときは、カーソル移動の邪魔をしないよう何もしない。
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[
+        e.key
+      ];
+      if (!step) return;
+      const el = document.activeElement;
+      if (el instanceof HTMLElement && /INPUT|TEXTAREA|SELECT/.test(el.tagName)) return;
+      const uid = useStore.getState().selectedUid;
+      if (!uid) return;
+      const p = layout.placed.find((q) => q.uid === uid);
+      const spec = p && devices.get(p.specId);
+      if (!p || !spec) return;
+      e.preventDefault();
+      const size = rotatedSize(spec.size, p.rot);
+      const k = e.shiftKey ? 10 : 1;
+      const x = Math.max(0, Math.min(faceW - size.w, p.x + step[0]! * k));
+      const y = Math.max(0, Math.min(faceH - size.h, p.y + step[1]! * k));
+      pin({ ...p, x, y });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [layout, devices, pin, faceW, faceH]);
+
   // 面や盤サイズが変わったら全体が入るように戻す
   useEffect(() => {
     setView({ x: -PAD, y: -PAD, w: faceW + PAD * 2, h: faceH + PAD * 2 });
@@ -774,6 +804,9 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
               onPointerDown={(e) => {
                 e.stopPropagation();
                 e.preventDefault();
+                // preventDefault で入力欄からフォーカスが移らないので、手で外す。
+                // 外さないと、矢印キーや Delete が入力欄に食われて機器に届かない
+                if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
                 holdSelection(true);
                 select(p.uid);
                 dragRef.current = {
@@ -1054,7 +1087,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         {FACE_LABEL(face)}（{faceW} × {faceH}）／ 原点は左下 0,0 ／ ホイールで拡大縮小・背景ドラッグで移動 ／
         <b>機器をドラッグすると上下左右どこへでも入れ込めます</b>
         （Shift＋ドラッグで自由に置く・{SNAP}mm スナップ）／
-        機器・ダクトを選んで <b>Delete</b> で削除 ／
+        機器を選んで<b>矢印キー</b>で 1mm ずつ移動（Shift で 10mm）／ 機器・ダクトを選んで{' '}
+        <b>Delete</b> で削除 ／
         <b>ダブルクリック</b>で機器は90°回転・ダクトは型式を選ぶ
       </div>
     </div>

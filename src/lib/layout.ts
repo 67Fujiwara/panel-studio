@@ -417,8 +417,19 @@ function splitByBands(bands: Segment[], x: number, w: number): Segment[] {
 }
 
 /** 機器同士の水平方向の間隔。 */
-function horizontalGap(prevRight: number, eff: Sides, c: ClearanceSettings) {
-  return Math.max(prevRight, eff.left, c.deviceToDevice.sameRow);
+/**
+ * 隣との間隔。`stopper` は独立レールのエンドストッパの場所（stopperGap の値）。
+ *
+ * - 機器⇔機器のクリアランス（全体設定）には**足す**。あれは「機器と機器の間の空気」
+ *   なので、ストッパの場所を含めると隣に重なる
+ * - メーカー指定の最小離隔（部品ごと）には**足さない**。ストッパはその離隔の中に
+ *   入れて、機器のすぐ隣に置く。離隔は機器どうしの間に要る空気で、ストッパは
+ *   レールに付く小さなクリップなので、離隔の内側に居てよい。
+ *   （離隔 20mm の機器に 5mm を上乗せして 25mm 空けるのが「離隔が無効にならない」
+ *   と言われたところ）
+ */
+function horizontalGap(prevRight: number, eff: Sides, c: ClearanceSettings, stopper = 0) {
+  return Math.max(prevRight, eff.left, c.deviceToDevice.sameRow + stopper);
 }
 
 /**
@@ -574,7 +585,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
       for (const i of order) {
         const s = bk.slots[i];
         if (!s) continue;
-        const gap = horizontalGap(s.prevRight, eff, c) + stopperGap(s.prevSolo, mySolo);
+        const gap = horizontalGap(s.prevRight, eff, c, stopperGap(s.prevSolo, mySolo));
         const x = s.used ? s.cursor + gap : s.x0 + myEnds;
         if (x + w + myEnds <= s.x1) return { slot: s, x };
       }
@@ -595,7 +606,7 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
         hit = {
           slot: s,
           x: s.used
-            ? s.cursor + horizontalGap(s.prevRight, eff, c) + stopperGap(s.prevSolo, mySolo)
+            ? s.cursor + horizontalGap(s.prevRight, eff, c, stopperGap(s.prevSolo, mySolo))
             : s.x0 + myEnds,
         };
       } else {
@@ -779,7 +790,7 @@ function packEqual(
       // 独立レールの機器は、機器の幅のほかに左右のエンドストッパの場所も要る
       const mySolo = soloMark(spec, item.mount);
       const myEnds = mySolo === null ? 0 : SOLO_RAIL_MARGIN;
-      const gap = horizontalGap(prevRight[r] ?? 0, eff, c) + stopperGap(prevSolo[r] ?? null, mySolo);
+      const gap = horizontalGap(prevRight[r] ?? 0, eff, c, stopperGap(prevSolo[r] ?? null, mySolo));
       const startX = cursor[r] === xMin ? xMin + myEnds : (cursor[r] ?? xMin) + gap;
       const fits = startX + size.w + myEnds <= xMax;
       if (fits || candidates.length === 1) {
