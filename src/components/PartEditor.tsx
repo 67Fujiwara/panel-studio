@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { extractShape, readDxfText } from '../lib/dxfImport';
 import { machiningLabel } from '../lib/machining';
 import { PartFigure } from './PartFigure';
@@ -64,7 +64,7 @@ function Txt({
  *
  * 部品に持たせる項目が増えて、1件の編集が縦に長くなりすぎた。
  * **たたんだ状態でも中身が分かる**ように、見出しの右へ要約を出す。
- * 開いた／閉じたは覚えるので、いつも触る項目だけ開いたまま次の部品へ移れる。
+ * 部品を選ぶたび（画面に入るたび）に全部たたんだ状態から始める。
  */
 function Section({
   title,
@@ -93,25 +93,20 @@ function Section({
   );
 }
 
-/** 開いている見出しの覚え書き。部品を選び直しても同じ開き方で出したい */
-const OPEN_KEY = 'panel-studio.parteditor-open';
-
-function loadOpen(): Record<string, boolean> {
-  try {
-    const raw = localStorage.getItem(OPEN_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveOpen(v: Record<string, boolean>): void {
-  try {
-    localStorage.setItem(OPEN_KEY, JSON.stringify(v));
-  } catch {
-    /* 覚えられなくても、このセッション中は効く */
-  }
-}
+/** 見出しの並び。「すべて開く／閉じる」で回す */
+const SECTION_IDS = [
+  'shape',
+  'side',
+  'size',
+  'mount',
+  'base',
+  'slot',
+  'offset',
+  'holes',
+  'cutout',
+  'cuts',
+  'clearance',
+] as const;
 
 /** 部品1件の編集フォーム。ConfigFile 画面と MyConfig 画面で共用する。 */
 export function PartEditor({ part, categories }: { part: DeviceSpec; categories: CategoryDef[] }) {
@@ -126,42 +121,23 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
   const [shapeMsg, setShapeMsg] = useState('');
   const [sideMsg, setSideMsg] = useState('');
   const [cutPickOpen, setCutPickOpen] = useState(false);
-  const [openMap, setOpenMap] = useState<Record<string, boolean>>(loadOpen);
-
   /*
-   * 見出しの既定は「中身が入っていれば開く」。
-   * 触ったことのある見出しは、その人が決めた開き方を優先する（openMap）。
-   * 一度もいじっていない部品でも、設定済みの項目だけが開いて見える。
+   * 見出しは**全部たたんだ状態で始める**。以前は「中身が入っていれば開く」＋開き方を
+   * 覚える、にしていたが、部品を選ぶたびに数項目ぶん開いて縦に伸びるのが結局は邪魔だった。
+   * 要約が見出しに出ているので、たたんだままでも設定済みかどうかは分かる。
+   * 開くのは見出しを押したときだけ。別の部品を選んだら（画面に入り直したら）またたたむ。
    */
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
+  useEffect(() => setOpenMap({}), [part.id]);
+
   const nz = (v: number | undefined) => Boolean(v);
   const cuts = part.extraCuts ?? [];
   const hasClearance =
     nz(cl.top) || nz(cl.bottom) || nz(cl.left) || nz(cl.right) || nz(part.heatW);
-  const filled: Record<string, boolean> = {
-    shape: Boolean(part.shape),
-    side: Boolean(part.sideShape),
-    size: true,
-    mount: true,
-    base: Boolean(part.baseUnit),
-    slot: part.slotUse !== undefined && part.slotUse !== 1,
-    offset: nz(part.dinOffset),
-    holes: Boolean(part.mountHoles),
-    cutout: Boolean(cut),
-    cuts: cuts.length > 0,
-    clearance: hasClearance,
-  };
-  const isOpen = (id: string) => openMap[id] ?? filled[id] ?? false;
-  const toggle = (id: string) =>
-    setOpenMap((v) => {
-      const next = { ...v, [id]: !isOpen(id) };
-      saveOpen(next);
-      return next;
-    });
-  const setAll = (open: boolean) => {
-    const next = Object.fromEntries(Object.keys(filled).map((k) => [k, open]));
-    saveOpen(next);
-    setOpenMap(next);
-  };
+  const isOpen = (id: string) => openMap[id] === true;
+  const toggle = (id: string) => setOpenMap((v) => ({ ...v, [id]: !isOpen(id) }));
+  const setAll = (open: boolean) =>
+    setOpenMap(Object.fromEntries(SECTION_IDS.map((k) => [k, open])));
   const sect = (id: string, title: string, summary: string, children: React.ReactNode) => (
     <Section title={title} summary={summary} open={isOpen(id)} onToggle={() => toggle(id)}>
       {children}
