@@ -254,6 +254,8 @@ type State = {
   saveDraft: (name?: string) => void;
   /** 別の作業中案件へ切り替える。いまの机は自動でしまわれる */
   switchDraft: (id: string) => void;
+  /** いまの机を作業中案件へしまう（自動保存用。白紙なら何もしない） */
+  autoStash: () => void;
   /** いまの机をしまってから、白紙の案件を始める */
   newDraft: () => void;
   renameDraft: (id: string, name: string) => void;
@@ -545,6 +547,7 @@ export const useStore = create<State>((set) => ({
     })),
 
   saveDraft: (name) => set((s) => stashDraft(s, name)),
+  autoStash: () => set((s) => stashDraft(s)),
 
   switchDraft: (id) =>
     set((s) => {

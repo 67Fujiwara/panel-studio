@@ -143,6 +143,8 @@ export type LiteResult = { shape: DeviceShape; before: number; after: number };
  */
 export function liteShape(shape: DeviceShape, tol = LITE_TOL): LiteResult {
   const before = shape.entities.length;
+  // 済みの印があれば何もしない（起動のたびに 0.5 秒かけて同じ結果を出さない）
+  if (shape.lite) return { shape, before, after: before };
   let cur = shape;
   let prevPts = -1;
   for (let pass = 0; pass < 6; pass++) {
@@ -152,7 +154,7 @@ export function liteShape(shape: DeviceShape, tol = LITE_TOL): LiteResult {
     prevPts = pts;
     cur = next;
   }
-  return { shape: cur, before, after: cur.entities.length };
+  return { shape: { ...cur, lite: true }, before, after: cur.entities.length };
 }
 
 function litePass(shape: DeviceShape, tol: number): LiteResult {

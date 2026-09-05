@@ -63,6 +63,11 @@ export type DeviceShape = {
   w: number;
   h: number;
   entities: ShapeEntity[];
+  /**
+   * 軽量化（shapeLite）済みの印。付いていれば起動時にやり直さない。
+   * 旧データには無いので、無いものは起動時に一度だけ軽くする
+   */
+  lite?: true;
 };
 
 /** 機器マスタの1件。レイアウトと BOM の両方がここを参照する。 */
