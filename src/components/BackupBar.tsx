@@ -46,8 +46,13 @@ export function BackupBar() {
   const dirRef = useRef<FileSystemDirectoryHandle | null>(null);
 
   // 書き出す中身はストアから直に取る。React の描画とは切り離しておきたいので getState を使う。
-  // 書くのは常に全部入りの1ファイル（panel-studio-backup.json）
-  const snapshot = (): unknown => makeBundle();
+  // 書くのは常に全部入りの1ファイル（panel-studio-backup.json）。
+  // 書く直前に**机の上（設計中のレイアウト）を作業中案件へしまってから**取る。
+  // 自動でしまうのは変更が止まって1秒後なので、直後に押されると1秒ぶん古い机が書かれる
+  const snapshot = (): unknown => {
+    useStore.getState().autoStash();
+    return makeBundle();
+  };
 
   // 書き出し係を1つだけ作る。中身の変化を見張って、止まったところでまとめて書く
   useEffect(() => {
@@ -82,7 +87,8 @@ export function BackupBar() {
       )
         kinds.push('config');
       if (now.owners !== before.owners || now.myDevices !== before.myDevices) kinds.push('my');
-      if (now.projects !== before.projects) kinds.push('projects');
+      // 作業中案件（机の上を自動でしまった結果）も書き出しの対象。作りかけも一緒に残す
+      if (now.projects !== before.projects || now.drafts !== before.drafts) kinds.push('projects');
       if (kinds.length > 0) writer.mark(...kinds);
     });
 
