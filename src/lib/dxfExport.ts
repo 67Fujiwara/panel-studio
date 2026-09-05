@@ -6,7 +6,7 @@ import type { DeviceLookup, LayoutItem } from './layout';
 import { autoMachining, TAP_DRILL } from './machining';
 import { cutOutline, pilotDia, pilotPoints } from './holes';
 import { unfoldCells } from './unfold';
-import { rotatedSize } from '../types';
+import { baseSlots, rotatedSize, slotUseOf } from '../types';
 import type { DeviceShape, DuctSpec, FaceId, Machining, PanelSpec, PlacedDevice, Profile } from '../types';
 
 /**
@@ -297,6 +297,40 @@ function drawFace(
       if (withText) {
         w.text(LAYER.deviceText, ox + p.x + 2, oy + p.y + 2, Math.min(8, s.h / 3), spec.model);
       }
+
+      /*
+       * 重ねた部品（OP）とベースに載せたユニットも書く。図に見えているものが
+       * DXF に無いと、盤屋がベースの上のユニットや DIN アタッチメントを見落とす。
+       * 置き方は画面と同じ:
+       *  - ベースユニットに載せたものは baseSlots の位置に左から順（回転なし）
+       *  - ふつうの OP は機器の中心に重ね、機器と同じ向きに回す
+       */
+      const opts = p.opts ?? [];
+      if (opts.length === 0) continue;
+      const units = opts.map((id) => devices.get(id));
+      const slots = spec.baseUnit
+        ? baseSlots(
+            spec.baseUnit,
+            units.map((u) => ({ w: u?.size.w ?? 0, h: u?.size.h ?? 0, slot: slotUseOf(u) })),
+          )
+        : null;
+      units.forEach((opt, oi) => {
+        if (!opt) return;
+        const at = slots?.[oi];
+        const cx = at ? ox + p.x + at.x + opt.size.w / 2 : ox + p.x + s.w / 2;
+        const cy = at ? oy + p.y + at.y + opt.size.h / 2 : oy + p.y + s.h / 2;
+        const rot = at ? 0 : (p.rot ?? 0);
+        if (opt.shape) {
+          drawShape(w, opt.shape, { x: cx, y: cy }, opt.size, rot);
+        } else {
+          const os = rotatedSize(opt.size, rot);
+          w.rect(LAYER.device, cx - os.w / 2, cy - os.h / 2, os.w, os.h);
+        }
+        if (withText) {
+          const os = rotatedSize(opt.size, rot);
+          w.text(LAYER.deviceText, cx - os.w / 2 + 2, cy - os.h / 2 + 2, Math.min(6, os.h / 3), opt.model);
+        }
+      });
     }
   }
 

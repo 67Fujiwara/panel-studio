@@ -1027,10 +1027,24 @@ export function computeRails(
       1本で貫かず、切れ目（縦ダクト）の間ごとに機器をまとめて**別々のレール**を引く。
     */
     const band = { y0: y - DIN_RAIL_WIDTH / 2, y1: y + DIN_RAIL_WIDTH / 2 };
+    /*
+      直付けの機器（PLC のベースなど）もレールの切れ目。レールの帯（35mm）に掛かる
+      直付け機器の上をレールが貫くと、実物では機器の下にレールが潜ることになり組めない。
+      その機器の両側で別々のレールにする（ストッパもそれぞれの端に付く）。
+    */
+    const directBlocks = layout.placed
+      .filter((p) => p.mount === 'direct')
+      .flatMap((p) => {
+        const spec = devices.get(p.specId);
+        if (!spec) return [];
+        const s = rotatedSize(spec.size, p.rot);
+        return p.y < band.y1 && band.y0 < p.y + s.h ? [{ x0: p.x, x1: p.x + s.w }] : [];
+      });
     const cuts = [
       ...layout.ducts
         .filter((d) => !d.removed && d.y < band.y1 && band.y0 < d.y + d.h)
         .map((d) => ({ x0: d.x, x1: d.x + d.w })),
+      ...directBlocks,
       /*
         独立レールも切れ目にする。同じ高さに共通レールが通ると、レールの上にレールが
         乗ることになって実物では組めない。共通レールの側が譲る（独立レールは1台ぶんしか
@@ -1066,10 +1080,11 @@ export function computeRails(
         （余長どうしが噛み合って「間に収まる」と読めない場合）。最後に差し引いて、
         レールの上にレールが乗った図が残らないようにする。
       */
-      const pieces = subtractSpans(
-        { x0: left, x1: right },
-        solo.filter((r) => sameBand(r.y, y)).map((r) => ({ x0: r.x, x1: r.x + r.length })),
-      );
+      const pieces = subtractSpans({ x0: left, x1: right }, [
+        ...solo.filter((r) => sameBand(r.y, y)).map((r) => ({ x0: r.x, x1: r.x + r.length })),
+        // 直付け機器の上も同じ。余長が機器に掛かったぶんは切り落とす
+        ...directBlocks,
+      ]);
       for (const q of pieces) out.push({ row: row.index, x: q.x0, y, length: q.x1 - q.x0 });
     }
   }
