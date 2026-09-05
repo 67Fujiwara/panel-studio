@@ -251,32 +251,43 @@ export const isDerived = (m: Machining) =>
 /**
  * 1本の帯（ダクト・DINレール）を留める穴の位置を、端からの距離で割り出す。
  *
- * 留め方の考え方は現場と同じで **「両端はできるだけ外側、残りは真ん中に寄せる」**。
- * 端を押さえないと帯が浮くし、真ん中が偏っていると図面として見苦しいため。
+ * **ピッチがあるときは「片側の端を基準に、ピッチ刻みの位置」だけを使う。**
+ * 配線ダクトの底穴や DINレールの長穴は、製品の端から一定ピッチで開いているので、
+ * ネジはその刻みの上にしか来ない。以前は「両端は端から endOffset、間は帯の中心を
+ * 軸に対称」にしていたが、それだと中心側の穴が製品の穴と合わない。
  *
- * - 両端の穴は端から endOffset のところ
- * - 間の穴は指定ピッチのまま、帯の中心を軸に振り分ける
- * - ピッチ 0 なら両端の間を等分する（定尺の穴位置に縛られないとき）
+ * - 基準は帯の始まり（横ダクト・レールは左端、縦ダクトは下端）
+ * - 候補は endOffset, endOffset+pitch, endOffset+2pitch … のうち、反対の端から
+ *   endOffset 以上内側にあるもの
+ * - 固定か所（points）ぶんを候補から**できるだけ均等に**選ぶ。両端はいちばん外側の候補
+ *   （端を押さえないと帯が浮く）、間は等間隔に近い候補
+ * - ピッチ 0 なら候補に縛られず、両端の間を等分する（穴位置が自由な帯のとき）
  */
 export function fixingOffsets(length: number, f: FixingSettings): number[] {
   const n = Math.max(1, Math.floor(f.points));
   const first = Math.min(f.endOffset, length / 2);
   const last = length - first;
+
+  if (f.pitch > 0) {
+    const grid: number[] = [];
+    for (let at = first; at <= last + 1e-6; at += f.pitch) grid.push(round(at));
+    if (grid.length === 0) return [round(length / 2)];
+    if (grid.length <= n) return grid;
+    if (n === 1) {
+      // 1か所なら真ん中にいちばん近い刻み
+      const mid = length / 2;
+      return [grid.reduce((a, b) => (Math.abs(b - mid) < Math.abs(a - mid) ? b : a))];
+    }
+    // 候補から均等に n 個。両端はいちばん外側の候補
+    const pick = new Set<number>();
+    for (let i = 0; i < n; i++) pick.add(Math.round((i * (grid.length - 1)) / (n - 1)));
+    return [...pick].sort((a, b) => a - b).map((i) => grid[i]!);
+  }
+
   if (n === 1) return [length / 2];
   if (n === 2) return [first, last];
-
-  const inner = n - 2;
-  const mid = length / 2;
-  let middles: number[];
-  if (f.pitch > 0) {
-    // 中の穴は帯の中心を軸に、指定ピッチで左右対称に並べる
-    middles = Array.from({ length: inner }, (_, i) => mid + (i - (inner - 1) / 2) * f.pitch);
-  } else {
-    middles = Array.from({ length: inner }, (_, i) => first + ((last - first) * (i + 1)) / (n - 1));
-  }
-  // 端の穴より外へ出さない
-  const clamp = (v: number) => Math.min(last, Math.max(first, v));
-  return [first, ...middles.map(clamp), last];
+  const middles = Array.from({ length: n - 2 }, (_, i) => first + ((last - first) * (i + 1)) / (n - 1));
+  return [first, ...middles, last];
 }
 
 /**

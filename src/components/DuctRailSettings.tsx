@@ -59,7 +59,7 @@ export function FixingFields({
       </label>
       <Num
         label="穴ピッチ"
-        hint="0 で等分"
+        hint="端から刻み／0 で等分"
         value={value.pitch}
         onChange={(pitch) => onChange({ pitch: Math.max(0, pitch) })}
         step={5}
@@ -90,7 +90,9 @@ export function DuctRailSettings() {
       <h3 className="section">ダクトの固定穴</h3>
       <p className="note">
         ダクト1本あたりの固定か所とタップです。穴の座標はレイアウト画面の<b>加工</b>に出ます。
-        ピッチを 0 にすると、両端の余白を除いた残りを<b>等分</b>します。
+        ピッチがあるときは<b>片側の端（左端・縦ダクトは下端）を基準に、端からの距離＋ピッチ刻み</b>
+        の位置だけを使い、固定か所ぶんを両端からできるだけ均等に選びます（製品の底穴と合わせるため）。
+        ピッチを 0 にすると、両端の余白を除いた残りを<b>等分</b>します。DINレールも同じ考え方です。
         底の穴位置が型式で違うときは、<b>ダクトマスタの行の「固定穴」</b>で型式ごとに
         変えられます。ここの値は個別設定の無い型式に効きます。
       </p>

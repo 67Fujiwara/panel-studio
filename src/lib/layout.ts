@@ -489,7 +489,19 @@ function buildQueue(items: LayoutItem[], skip: Set<string>, devices: DeviceLooku
  * その段の高さにする。実際の盤は段ごとに高さが違うので、こちらが実物に近い。
  * 段を指定された機器は、幅が空いていなくてもその段に入れる。
  */
-function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry[]) {
+/**
+ * 段の中で場所を取っている座標置きの機器（矢印キーで寄せた1台など）。
+ * 流し込みはここを避けて詰める。避けないと、寄せた1台の跡へ隣が詰まってきて重なる
+ */
+type Obstacle = { row: number; x0: number; x1: number };
+
+function packAuto(
+  panel: PanelSpec,
+  face: FaceId,
+  profile: Profile,
+  queue: Entry[],
+  obstacles: Obstacle[] = [],
+) {
   const c = profile.clearance;
   const hasDucts = FACE_BY_ID.get(face)?.ducts ?? false;
   const rule = LAYOUT_RULES[profile.duct.layout];
@@ -582,11 +594,17 @@ function packAuto(panel: PanelSpec, face: FaceId, profile: Profile, queue: Entry
     const findSlot = (bk: Bucket) => {
       const from = zoneOf(e, bk.slots);
       const order = rule.zoned ? [from] : bk.slots.map((_, i) => i).filter((i) => i >= from);
+      // この段で場所を取っている座標置きの機器。左から順に避ける
+      const blocks = obstacles.filter((o) => o.row === index).sort((a, b) => a.x0 - b.x0);
+      const gapO = Math.max(eff.left, c.deviceToDevice.sameRow);
       for (const i of order) {
         const s = bk.slots[i];
         if (!s) continue;
         const gap = horizontalGap(s.prevRight, eff, c, stopperGap(s.prevSolo, mySolo));
-        const x = s.used ? s.cursor + gap : s.x0 + myEnds;
+        let x = s.used ? s.cursor + gap : s.x0 + myEnds;
+        for (const o of blocks) {
+          if (x - gapO < o.x1 && o.x0 < x + w + myEnds + gapO) x = o.x1 + gapO + myEnds;
+        }
         if (x + w + myEnds <= s.x1) return { slot: s, x };
       }
       return null;
@@ -869,6 +887,46 @@ export type RailRun = {
  * `exceptUid` を渡すと、その1台を無かったことにして計算する。ドラッグ中に
  * 「吸い付く先」を出すのに使う（自分のレールに吸い付こうとして暴れるのを防ぐ）。
  */
+/** レール中心が段の基準線と「同じ高さ」とみなす差(mm)。矢印キーの 1mm 刻みより小さく */
+const SAME_AXIS_MM = 0.5;
+
+/**
+ * 座標で置いた DIN 機器が、どの段の共通レールの高さに居るか。無ければ null。
+ *
+ * 矢印キーで 1mm 動かしただけで独立レールになると、共通レールが切れて
+ * エンドストッパが4個に増え、固定穴も変わる。**レールの高さが段の基準線と同じなら
+ * その段の共通レールに乗っている**とみなす。上下に動かして高さが変われば独立レール。
+ */
+export function rowOfPinnedRail(
+  p: PlacedDevice,
+  spec: DeviceSpec,
+  layout: LayoutResult,
+  devices: DeviceLookup,
+): DeviceRow | null {
+  if (p.mount !== 'din' || !p.pinned) return null;
+  const size = rotatedSize(spec.size, p.rot);
+  const y = p.y + size.h / 2 - (spec.dinOffset ?? 0);
+  const row = layout.rows.find((r) => Math.abs(rowAxisY(r) - y) <= SAME_AXIS_MM);
+  if (!row) return null;
+  /*
+   * 独立DINレール取付の機器の**隣に吸い付けた**ものは、そのレールに乗る（独立レール側）。
+   * 同じ高さでも、自分のレール（機器幅＋両端 5mm）が独立レールに触れていればそちら。
+   * 触れていなければ段の共通レール。
+   */
+  const x0 = p.x - SOLO_RAIL_MARGIN;
+  const x1 = p.x + size.w + SOLO_RAIL_MARGIN;
+  for (const q of layout.placed) {
+    if (q.uid === p.uid || q.mount !== 'din-solo') continue;
+    const qs = devices.get(q.specId);
+    if (!qs) continue;
+    const qsize = rotatedSize(qs.size, q.rot);
+    const qy = q.y + qsize.h / 2 - (qs.dinOffset ?? 0);
+    if (Math.abs(qy - y) > SAME_AXIS_MM) continue;
+    if (q.x - SOLO_RAIL_MARGIN <= x1 + 0.01 && x0 <= q.x + qsize.w + SOLO_RAIL_MARGIN + 0.01) return null;
+  }
+  return row;
+}
+
 export function independentRails(
   layout: LayoutResult,
   devices: DeviceLookup,
@@ -881,6 +939,8 @@ export function independentRails(
     if (p.mount !== 'din-solo' && !p.pinned) continue;
     const spec = devices.get(p.specId);
     if (!spec) continue;
+    // 段の共通レールの高さに居る座標置きの機器は、共通レールに乗せる（独立にしない）
+    if (rowOfPinnedRail(p, spec, layout, devices)) continue;
     const s = rotatedSize(spec.size, p.rot);
     const y = p.y + s.h / 2 - (spec.dinOffset ?? 0);
     const band = { y0: y - DIN_RAIL_WIDTH / 2, y1: y + DIN_RAIL_WIDTH / 2 };
@@ -941,9 +1001,15 @@ export function computeRails(
   const solo = independentRails(layout, devices);
 
   for (const row of layout.rows) {
-    // 座標で置いた機器は段の流れから外れているので、共通レールにも数えない
+    // 座標で置いた機器は段の流れから外れているので、共通レールには数えない。
+    // ただし**レールの高さが段の基準線と同じ**なら、その段の共通レールに乗せる
+    // （矢印キーで左右に 1mm 寄せただけで独立レールにならないように）
     const inRow = railDevices.filter(
-      (e) => e.p.row === row.index && e.p.mount === 'din' && !e.p.pinned,
+      (e) =>
+        e.p.mount === 'din' &&
+        (e.p.pinned
+          ? rowOfPinnedRail(e.p, e.spec, layout, devices)?.index === row.index
+          : e.p.row === row.index),
     );
     if (inRow.length === 0) continue;
 
@@ -1324,9 +1390,18 @@ export function autoLayout(
   const pinnedUids = new Set(pinned.map((p) => p.uid));
   const queue = buildQueue(faceItems, pinnedUids, devices);
 
+  /*
+   * 座標で置いた機器のうち段の番号を持つもの（矢印キーで寄せた1台など）は、
+   * その段の流し込みが避ける場所として渡す。避けないと、寄せた跡へ隣が詰まってきて重なる
+   */
+  const obstacles: Obstacle[] = pinned.flatMap((p) => {
+    const spec = devices.get(p.specId);
+    if (!spec || p.row === undefined || p.row < 0) return [];
+    return [{ row: p.row, x0: p.x, x1: p.x + rotatedSize(spec.size, p.rot).w }];
+  });
   const auto = profile.duct.rowHeightMode === 'auto';
   const result = auto
-    ? packAuto(panel, face, profile, queue)
+    ? packAuto(panel, face, profile, queue, obstacles)
     : packEqual(panel, face, profile, queue, pinned, devices);
 
   // auto モードでは段の高さを中身から決めるため、手動配置した機器は
