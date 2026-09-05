@@ -629,7 +629,7 @@ export function FacePicker() {
             onChange={(e) => setWithDxf(e.target.checked)}
           />
           <span>
-            設計完了と同時に <b>DXF 4ファイルを ZIP で書き出す</b>
+            設計完了と同時に <b>DXF 4ファイル＋PDF 4ファイルを ZIP で書き出す</b>
             （キャビネット／中板 × 機器つき／加工穴のみ）
           </span>
         </label>

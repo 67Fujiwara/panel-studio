@@ -621,9 +621,30 @@ export const useStore = create<State>((set) => ({
     set((s) => {
       const drafts = s.drafts.filter((d) => d.id !== id);
       saveDrafts(drafts);
-      // 机に出しているものを消したら、机の中身は「どこにも属さない」状態にする。
-      // 図はそのまま残す（消した覚えのない作業が消えるほうが困る）
-      return { drafts, currentDraftId: s.currentDraftId === id ? null : s.currentDraftId };
+      if (s.currentDraftId !== id) return { drafts };
+      /*
+       * 机に出している案件を消したら、机も白紙にする。
+       * 以前は「図はそのまま残す」にしていたが、机は変更が止まると自動で作業中案件へ
+       * しまわれるので、残した図が1秒後に「無題の設計」として**復活**していた。
+       * 消したのに消えない、が実際に起きたので、消すときは机ごと消す
+       */
+      return {
+        drafts,
+        currentDraftId: null,
+        panel: structuredClone(BLANK_PANEL),
+        items: [],
+        pinned: [],
+        machining: [],
+        underlays: {},
+        removedDucts: {},
+        selectedUid: null,
+        selectedCut: null,
+        selectedDuct: null,
+        aiReview: null,
+        aiFeedback: '',
+        face: 'plate' as FaceId,
+        screen: 'start' as Screen,
+      };
     }),
 
   setUnderlay: (face, shape) =>

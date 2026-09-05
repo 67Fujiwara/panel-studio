@@ -6,6 +6,8 @@ import type { DeviceLookup, LayoutItem } from './layout';
 import { autoMachining, TAP_DRILL } from './machining';
 import { cutOutline, pilotDia, pilotPoints } from './holes';
 import { unfoldCells } from './unfold';
+import { LAYER, type Drawer } from './drawing';
+import { PdfWriter } from './pdfExport';
 import { baseSlots, rotatedSize, slotUseOf } from '../types';
 import type { DeviceShape, DuctSpec, FaceId, Machining, PanelSpec, PlacedDevice, Profile } from '../types';
 
@@ -21,17 +23,7 @@ import type { DeviceShape, DuctSpec, FaceId, Machining, PanelSpec, PlacedDevice,
  */
 
 /** レイヤ名。加工だけを拾いたいことがあるので、加工は種類ごとに分ける。 */
-export const LAYER = {
-  outline: '外形',
-  device: '機器',
-  deviceText: '機器-型式',
-  duct: 'ダクト',
-  rail: 'DINレール',
-  hole: '加工-丸穴',
-  tap: '加工-タップ',
-  notch: '加工-切り欠き',
-  note: '図面-注記',
-} as const;
+export { LAYER } from './drawing';
 
 /** レイヤの色番号（AutoCAD Color Index）。 */
 const LAYER_COLOR: Record<string, number> = {
@@ -150,7 +142,7 @@ class DxfWriter {
 
 /** 部品の外形線を、置かれた位置・向き・大きさに合わせて描く。 */
 function drawShape(
-  w: DxfWriter,
+  w: Drawer,
   shape: DeviceShape,
   at: { x: number; y: number },
   size: { w: number; h: number },
@@ -192,7 +184,7 @@ function drawShape(
  * 形の定義は holes.ts が持ち、弧は折れ線にせず ARC のまま出す
  * （レーザー加工に渡す図なので、円弧は円弧で残す）。
  */
-function drawMachining(w: DxfWriter, m: Machining, ox: number, oy: number) {
+function drawMachining(w: Drawer, m: Machining, ox: number, oy: number) {
   const cx = ox + m.x;
   const cy = oy + m.y;
 
@@ -236,7 +228,7 @@ export type ExportInput = {
  * 板金屋はその図で作っているので、線が1本でも違うと突き合わせができない。
  * 取り込みが無い面だけ、外形の四角を代わりに引く。
  */
-function drawBase(w: DxfWriter, shape: DeviceShape | undefined, ox: number, oy: number, size: { w: number; h: number }) {
+function drawBase(w: Drawer, shape: DeviceShape | undefined, ox: number, oy: number, size: { w: number; h: number }) {
   if (!shape || shape.entities.length === 0) {
     w.rect(LAYER.outline, ox, oy, size.w, size.h);
     return;
@@ -260,7 +252,7 @@ export type ExportKind = 'full' | 'holes';
 
 /** 面1つぶんを、指定した位置を左下として書き込む。 */
 function drawFace(
-  w: DxfWriter,
+  w: Drawer,
   input: ExportInput,
   face: FaceId,
   ox: number,
@@ -339,10 +331,9 @@ function drawFace(
   for (const m of machining.filter((q) => q.face === face)) drawMachining(w, m, ox, oy);
 }
 
-/** キャビネット（中板以外の6面）を三面図の並びで1枚に書き出す。 */
-export function cabinetDxf(input: ExportInput, kind: ExportKind): string {
-  const w = new DxfWriter();
-  const { cells, h } = unfoldCells(input.panel);
+/** キャビネット（中板以外の6面）を三面図の並びで描く。DXF と PDF で共通 */
+function drawCabinet(w: Drawer, input: ExportInput, kind: ExportKind): { w: number; h: number } {
+  const { cells, h, w: totalW } = unfoldCells(input.panel);
   for (const c of cells) {
     if (c.id === 'plate') continue;
     /*
@@ -355,6 +346,13 @@ export function cabinetDxf(input: ExportInput, kind: ExportKind): string {
     // 面の名前は参考用。加工屋へ渡す穴だけの図には文字を出さない（切断線に化ける）
     if (kind === 'full') w.text(LAYER.note, c.x, oy - 14, 10, `${FACE_LABEL(c.id)} ${c.w}x${c.h}`);
   }
+  return { w: totalW, h };
+}
+
+/** キャビネット（中板以外の6面）を三面図の並びで1枚に書き出す。 */
+export function cabinetDxf(input: ExportInput, kind: ExportKind): string {
+  const w = new DxfWriter();
+  drawCabinet(w, input, kind);
   return w.finish();
 }
 
@@ -364,6 +362,23 @@ export function plateDxf(input: ExportInput, kind: ExportKind): string {
   // 中板は文字なしで出す（型式・寸法の注記とも）。そのまま加工へ回る図のため
   drawFace(w, input, 'plate', 0, 0, kind, false);
   return w.finish();
+}
+
+/**
+ * PDF 版。CAD の無い人（現場・営業・客先）が見るためのもので、DXF と同じ絵を A3 横 1 枚に収める。
+ * 機器つきの中板には型式も入れる（PDF は切断線に化ける心配がないので）。
+ */
+export function cabinetPdf(input: ExportInput, kind: ExportKind, title: string): Uint8Array {
+  const w = new PdfWriter();
+  const extent = drawCabinet(w, input, kind);
+  return w.finish(extent, `${title}  キャビネット（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`);
+}
+
+export function platePdf(input: ExportInput, kind: ExportKind, title: string): Uint8Array {
+  const w = new PdfWriter();
+  drawFace(w, input, 'plate', 0, 0, kind, kind === 'full');
+  const size = faceSize(input.panel, 'plate');
+  return w.finish({ w: size.w, h: size.h }, `${title}  中板（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`);
 }
 
 /** DXF の中身を Shift-JIS のバイト列にする。国内の CAD はこちら。 */
@@ -485,7 +500,8 @@ function buildZip(entries: ZipEntry[]): Blob {
   return new Blob(parts, { type: 'application/zip' });
 }
 
-export type DxfSet = { name: string; text: string }[];
+/** 書き出す1ファイル。DXF は文字列（Shift-JIS にして書く）、PDF はバイト列そのまま */
+export type DxfSet = { name: string; text?: string; bytes?: Uint8Array }[];
 
 /**
  * 設計完了時に出す4ファイル。
@@ -496,16 +512,22 @@ export type DxfSet = { name: string; text: string }[];
  * の2種類を作る。加工屋に機器の絵まで渡すと拾う線が増えて事故のもとになるため。
  */
 export function buildDxfSet(input: ExportInput, base: string): DxfSet {
+  const title = base || 'panel';
   return [
     { name: `${base}_cabinet_full.dxf`, text: cabinetDxf(input, 'full') },
     { name: `${base}_cabinet_holes.dxf`, text: cabinetDxf(input, 'holes') },
     { name: `${base}_plate_full.dxf`, text: plateDxf(input, 'full') },
     { name: `${base}_plate_holes.dxf`, text: plateDxf(input, 'holes') },
+    // 同じ4枚を PDF でも。CAD の無い人がそのまま開ける
+    { name: `${base}_cabinet_full.pdf`, bytes: cabinetPdf(input, 'full', title) },
+    { name: `${base}_cabinet_holes.pdf`, bytes: cabinetPdf(input, 'holes', title) },
+    { name: `${base}_plate_full.pdf`, bytes: platePdf(input, 'full', title) },
+    { name: `${base}_plate_holes.pdf`, bytes: platePdf(input, 'holes', title) },
   ];
 }
 
 /**
- * 4ファイルを1つのフォルダにまとめて ZIP で渡す。
+ * DXF 4 ファイルと PDF 4 ファイルを1つのフォルダにまとめて ZIP で渡す。
  *
  * バラバラに落とすとブラウザが毎回確認を出すうえ、ダウンロードフォルダに
  * 散らばって「どれが今回の4枚か」が分からなくなる。
@@ -513,7 +535,7 @@ export function buildDxfSet(input: ExportInput, base: string): DxfSet {
  */
 export function downloadDxfSet(set: DxfSet, folder: string) {
   const dir = folder || 'panel';
-  const zip = buildZip(set.map((f) => ({ name: `${dir}/${f.name}`, data: toSjis(f.text) })));
+  const zip = buildZip(set.map((f) => ({ name: `${dir}/${f.name}`, data: f.bytes ?? toSjis(f.text ?? '') })));
   saveBlob(zip, `${dir}_dxf.zip`);
 }
 
