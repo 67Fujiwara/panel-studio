@@ -630,7 +630,8 @@ export function FacePicker() {
           />
           <span>
             設計完了と同時に <b>DXF 4ファイル＋PDF 4ファイルを ZIP で書き出す</b>
-            （キャビネット／中板 × 機器つき／加工穴のみ）
+            （キャビネット／中板 × 機器つき／加工穴のみ）。
+            <b>ElectraCAD Studio に差し込む用の JSON</b>（図枠なしの中身だけ）も同梱
           </span>
         </label>
         <div className="row-buttons">
@@ -644,6 +645,7 @@ export function FacePicker() {
                   buildDxfSet(
                     { panel, profile, items, pinned, machining, removedDucts, underlays, devices: lookup, ducts },
                     base,
+                    { company: jobCompany, jobNo, owner: jobOwner, completedAt: jobDate, note: jobNote },
                   ),
                   base,
                 );

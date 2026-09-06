@@ -173,11 +173,12 @@ export function ProjectsScreen() {
                                     ducts: mastersOf(p).ducts,
                                   },
                                   base,
+                                  { company: p.company, jobNo: p.jobNo, owner: p.owner, completedAt: p.completedAt, note: p.note },
                                 ),
                                 base,
                               );
                             }}
-                            title="キャビネット／中板 × 機器つき／加工穴のみ を DXF と PDF で（8ファイルの ZIP）"
+                            title="キャビネット／中板 × 機器つき／加工穴のみ を DXF と PDF で。ElectraCAD Studio 用の JSON も同梱（9ファイルの ZIP）"
                           >
                             DXF
                           </button>

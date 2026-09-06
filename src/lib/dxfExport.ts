@@ -8,6 +8,8 @@ import { cutOutline, pilotDia, pilotPoints } from './holes';
 import { unfoldCells } from './unfold';
 import { LAYER, type Drawer } from './drawing';
 import { PdfWriter } from './pdfExport';
+import { ElectraSheetWriter, buildElectraFile } from './electraExport';
+import type { ElectraJob, ElectraSheet } from './electraExport';
 import { baseSlots, rotatedSize, slotUseOf } from '../types';
 import type { DeviceShape, DuctSpec, FaceId, Machining, PanelSpec, PlacedDevice, Profile } from '../types';
 
@@ -381,6 +383,38 @@ export function platePdf(input: ExportInput, kind: ExportKind, title: string): U
   return w.finish({ w: size.w, h: size.h }, `${title}  中板（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`);
 }
 
+/**
+ * ElectraCAD Studio 用のシート（図枠なし・中身だけ）。DXF・PDF と同じ描画を JSON に溜める。
+ * 中板は PDF と同じく型式も入れる（ElectraCAD 側で図枠に入れて見る図なので、切断線の心配がない）。
+ */
+export function cabinetElectra(input: ExportInput, kind: ExportKind): ElectraSheet {
+  const w = new ElectraSheetWriter();
+  const extent = drawCabinet(w, input, kind);
+  return w.finish(`cabinet_${kind}`, `キャビネット（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`, extent);
+}
+
+export function plateElectra(input: ExportInput, kind: ExportKind): ElectraSheet {
+  const w = new ElectraSheetWriter();
+  drawFace(w, input, 'plate', 0, 0, kind, kind === 'full');
+  const size = faceSize(input.panel, 'plate');
+  return w.finish(`plate_${kind}`, `中板（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`, { w: size.w, h: size.h });
+}
+
+/** ElectraCAD Studio へ差し込む 1 ファイル（JSON・UTF-8）。4 シートをまとめて持つ */
+export function electraJson(input: ExportInput, job: ElectraJob): string {
+  const file = buildElectraFile(
+    job,
+    { model: input.panel.model, outer: { ...input.panel.outer }, plate: { ...input.panel.plate } },
+    [
+      cabinetElectra(input, 'full'),
+      cabinetElectra(input, 'holes'),
+      plateElectra(input, 'full'),
+      plateElectra(input, 'holes'),
+    ],
+  );
+  return JSON.stringify(file);
+}
+
 /** DXF の中身を Shift-JIS のバイト列にする。国内の CAD はこちら。 */
 function toSjis(text: string): Uint8Array {
   return new Uint8Array(
@@ -500,7 +534,7 @@ function buildZip(entries: ZipEntry[]): Blob {
   return new Blob(parts, { type: 'application/zip' });
 }
 
-/** 書き出す1ファイル。DXF は文字列（Shift-JIS にして書く）、PDF はバイト列そのまま */
+/** 書き出す1ファイル。DXF は文字列（Shift-JIS にして書く）、PDF・JSON はバイト列そのまま */
 export type DxfSet = { name: string; text?: string; bytes?: Uint8Array }[];
 
 /**
@@ -511,8 +545,9 @@ export type DxfSet = { name: string; text?: string; bytes?: Uint8Array }[];
  *  - 加工穴のみ（板金・加工屋へ渡す用）
  * の2種類を作る。加工屋に機器の絵まで渡すと拾う線が増えて事故のもとになるため。
  */
-export function buildDxfSet(input: ExportInput, base: string): DxfSet {
+export function buildDxfSet(input: ExportInput, base: string, job?: ElectraJob): DxfSet {
   const title = base || 'panel';
+  const meta: ElectraJob = job ?? { company: '', jobNo: '', owner: '', completedAt: '', note: '' };
   return [
     { name: `${base}_cabinet_full.dxf`, text: cabinetDxf(input, 'full') },
     { name: `${base}_cabinet_holes.dxf`, text: cabinetDxf(input, 'holes') },
@@ -523,6 +558,8 @@ export function buildDxfSet(input: ExportInput, base: string): DxfSet {
     { name: `${base}_cabinet_holes.pdf`, bytes: cabinetPdf(input, 'holes', title) },
     { name: `${base}_plate_full.pdf`, bytes: platePdf(input, 'full', title) },
     { name: `${base}_plate_holes.pdf`, bytes: platePdf(input, 'holes', title) },
+    // ElectraCAD Studio へ差し込む用。図枠なしの中身だけを JSON（UTF-8）で
+    { name: `${base}_electracad.json`, bytes: new TextEncoder().encode(electraJson(input, meta)) },
   ];
 }
 
