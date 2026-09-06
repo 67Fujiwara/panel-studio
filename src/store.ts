@@ -104,6 +104,8 @@ export type Draft = {
   machining: Machining[];
   removedDucts: Partial<Record<FaceId, number[]>>;
   underlays: Partial<Record<FaceId, DeviceShape>>;
+  /** 盤サイズを確定済みか（古い案件には無い。無ければ奥行きの内訳が入っていれば確定済みとみなす） */
+  sizeLocked?: boolean;
 };
 
 /**
@@ -239,8 +241,16 @@ type State = {
   removedDucts: Partial<Record<FaceId, number[]>>;
   /** 面ごとの下敷き。DXF から取り込んだ図をキャンバスの背景に敷く */
   underlays: Partial<Record<FaceId, DeviceShape>>;
+  /**
+   * 盤サイズを確定したか。「この寸法で進む」で true になり、盤サイズ画面の入力が
+   * グレーアウトする。設計完了・案件の削除・新規作成のどれかでしか戻らない。
+   * 設計の途中で寸法が動くと、並べた機器・加工がずれたまま図が出てしまうため。
+   */
+  sizeLocked: boolean;
 
   go: (screen: Screen) => void;
+  /** 盤サイズを確定して面選択へ。以後、盤サイズ画面の入力は触れなくなる */
+  confirmSize: () => void;
   /**
    * 新規作成。盤・機器・加工・下敷きを白紙に戻して盤サイズ画面へ。
    * マスタ（盤・ダクト・部品）と設定、完了案件は残す。
@@ -471,6 +481,7 @@ function stashDraft(s: State, name?: string): Partial<State> {
     machining: structuredClone(s.machining),
     removedDucts: structuredClone(s.removedDucts),
     underlays: structuredClone(s.underlays),
+    sizeLocked: s.sizeLocked,
     savedAt: new Date().toISOString(),
   };
   const cur = s.drafts.find((d) => d.id === s.currentDraftId);
@@ -511,8 +522,10 @@ export const useStore = create<State>((set) => ({
   selectedDuct: null,
   removedDucts: {},
   underlays: {},
+  sizeLocked: false,
 
   go: (screen) => set({ screen, selectedUid: null }),
+  confirmSize: () => set({ sizeLocked: true, screen: 'faces', selectedUid: null }),
 
   newDesign: () =>
     set((s) => ({
@@ -541,6 +554,7 @@ export const useStore = create<State>((set) => ({
       aiFeedback: '',
       face: 'plate' as FaceId,
       screen: 'start' as Screen,
+      sizeLocked: false,
       // 白紙にしたら、いまの机はどの作業中案件でもなくなる。
       // ここを残すと、次にしまったとき前の案件を白紙で上書きしてしまう
       currentDraftId: null,
@@ -566,6 +580,8 @@ export const useStore = create<State>((set) => ({
         machining: structuredClone(to.machining),
         removedDucts: structuredClone(to.removedDucts),
         underlays: structuredClone(to.underlays),
+        // 古い案件は確定の印を持っていない。奥行きまで入っていれば先へ進んでいた案件なので確定済みとみなす
+        sizeLocked: to.sizeLocked ?? effectiveDepth(to.panel) !== null,
         face: to.face,
         currentDraftId: to.id,
         selectedUid: null,
@@ -606,6 +622,7 @@ export const useStore = create<State>((set) => ({
         aiFeedback: '',
         face: 'plate' as FaceId,
         screen: 'start' as Screen,
+        sizeLocked: false,
         currentDraftId: null,
       };
     }),
@@ -644,6 +661,7 @@ export const useStore = create<State>((set) => ({
         aiFeedback: '',
         face: 'plate' as FaceId,
         screen: 'start' as Screen,
+        sizeLocked: false,
       };
     }),
 
@@ -779,6 +797,7 @@ export const useStore = create<State>((set) => ({
         selectedDuct: null,
         face: 'plate' as FaceId,
         screen: 'projects' as Screen,
+        sizeLocked: false,
       };
     }),
 
@@ -810,6 +829,8 @@ export const useStore = create<State>((set) => ({
         selectedCut: null,
         selectedDuct: null,
         screen: 'faces' as Screen,
+        // 複製元は完了した設計なので、寸法は確定済みとして始める
+        sizeLocked: true,
       };
     }),
 

@@ -866,6 +866,21 @@ button.primary:hover:not(:disabled) {
 .start-actions {
   margin-top: 20px;
 }
+/* 盤サイズの入力一式。確定したら fieldset ごと disabled にしてグレーアウトする */
+fieldset.sizeform {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+fieldset.sizeform.locked {
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+}
+.locked-note {
+  border-left: 3px solid var(--accent, #2b6de9);
+}
 .dxfbox input[type='file'] {
   margin: 8px 0;
   font: inherit;
