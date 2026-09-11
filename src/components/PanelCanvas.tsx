@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DIN_RAIL_WIDTH } from '../data/enclosures';
 import { FACE_BY_ID, FACE_LABEL, faceSize } from '../data/faces';
-import { computeRails, independentRails, SOLO_RAIL_MARGIN } from '../lib/layout';
+import { computeRails, independentRails, isStopper, SOLO_RAIL_MARGIN } from '../lib/layout';
+import { beginUndoGroup, endUndoGroup, redo, undo, useUndoCounts } from '../lib/undo';
 import { sideSilhouettes } from '../lib/sideView';
 import { ShapeGeometry } from './ShapeGeometry';
 import { autoMachining } from '../lib/machining';
@@ -155,10 +156,23 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const restoreDucts = useStore((s) => s.restoreDucts);
   const removedHere = useStore((s) => s.removedDucts[face]?.length ?? 0);
 
-  // 選択中の機器・ダクトを Delete / Backspace で消す。Esc は型式の一覧を閉じる
+  const undoCounts = useUndoCounts();
+
+  // 選択中の機器・ダクトを Delete / Backspace で消す。Esc は型式の一覧を閉じる。
+  // Ctrl+Z で戻す、Ctrl+Y（Ctrl+Shift+Z）でやり直す
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') return setDuctPick(null);
+      if ((e.ctrlKey || e.metaKey) && /^[zyZY]$/.test(e.key)) {
+        const el = document.activeElement;
+        // 入力欄の中では、その欄の戻すに任せる
+        if (el instanceof HTMLElement && /INPUT|TEXTAREA|SELECT/.test(el.tagName)) return;
+        e.preventDefault();
+        const isRedo = e.key.toLowerCase() === 'y' || e.shiftKey;
+        if (isRedo) redo();
+        else undo();
+        return;
+      }
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const el = document.activeElement;
       // 入力欄で編集しているときは消さない
@@ -414,6 +428,44 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     return onDuct ? null : { x: cx, y: cy };
   };
 
+  /**
+   * 止め金具（エンドストッパ）を機器の横へ持っていったら、その機器に**密着**させる。
+   *
+   * 止め金具は機器をレール上で止めるクリップなので、離隔（メーカー指定・機器⇔機器）は
+   * 効かせず、機器のすぐ隣に付くのが正しい。目分量で 1mm ずつ寄せずに済むよう、
+   * 近づいたときだけ吸い付かせる（レールの高さも相手に揃える）。
+   */
+  const snapStopperToDevice = (
+    x: number,
+    y: number,
+    size: { w: number; h: number },
+    self: { uid: string; dinOffset: number },
+  ) => {
+    const myRailY = y + size.h / 2 - self.dinOffset;
+    let best: { d: number; x: number; y: number } | null = null;
+    for (const q of layout.placed) {
+      if (q.uid === self.uid) continue;
+      const qs = devices.get(q.specId);
+      if (!qs || isStopper(qs)) continue;
+      const qsize = rotatedSize(qs.size, q.rot);
+      const qOff = q.mount === 'direct' ? 0 : (qs.dinOffset ?? 0);
+      const qRailY = q.y + qsize.h / 2 - qOff;
+      if (Math.abs(qRailY - myRailY) > SNAP_RAIL) continue;
+      const ny = qRailY - size.h / 2 + self.dinOffset;
+      // 相手の右隣・左隣のうち、いま近いほう
+      for (const nx of [q.x + qsize.w, q.x - size.w]) {
+        const d = Math.abs(nx - x);
+        if (d > SNAP_RAIL) continue;
+        if (!best || d < best.d) best = { d, x: nx, y: ny };
+      }
+    }
+    if (!best) return null;
+    return {
+      x: Math.max(0, Math.min(faceW - size.w, best.x)),
+      y: Math.max(0, Math.min(faceH - size.h, best.y)),
+    };
+  };
+
   /** ドラッグ中の1台の、いまのポインタ位置に対応する面の座標（左下角）。 */
   const draggedPos = (e: React.PointerEvent, d: NonNullable<typeof dragRef.current>) => {
     const k = mmPerPx();
@@ -431,6 +483,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         uid: placed.uid,
         mount: placed.mount,
         dinOffset: placed.mount === 'direct' ? 0 : (spec.dinOffset ?? 0),
+        stopper: isStopper(spec),
       },
       x: Math.max(0, Math.min(faceW - size.w, nx)),
       y: Math.max(0, Math.min(faceH - size.h, ny)),
@@ -455,10 +508,26 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         // Shift 併用: 座標を自由に動かして固定する
         if (!at) return;
         const dodged = dodgeDucts(at.x, at.y, at.size);
-        // 独立レールの隣に持っていったら、その並びへ吸い付かせる
-        const snapped = snapToSoloRails(dodged.x, dodged.y, at.size, at.self) ?? dodged;
+        // 止め金具は機器の横へ密着、それ以外は独立レールの隣に持っていったらその並びへ吸い付かせる
+        const snapped =
+          (at.self.stopper ? snapStopperToDevice(dodged.x, dodged.y, at.size, at.self) : null) ??
+          snapToSoloRails(dodged.x, dodged.y, at.size, at.self) ??
+          dodged;
         pin({ ...at.placed, x: snapped.x, y: snapped.y });
         return;
+      }
+      /*
+       * 止め金具は、ふつうのドラッグでも機器の横へ近づけたらそこへ密着させる（座標置きになる）。
+       * 段の流れに入れてもクリアランス 0 で隣に付くが、狙った機器の**どちら側**に付くかを
+       * 目で決められるほうが分かりやすい
+       */
+      if (at && at.self.stopper) {
+        const snapped = snapStopperToDevice(at.x, at.y, at.size, at.self);
+        if (snapped) {
+          d.snapped = true;
+          pin({ ...at.placed, x: snapped.x, y: snapped.y });
+          return;
+        }
       }
       /*
        * ふつうのドラッグでも、独立レールの上へ持っていったら**そこに並べる**。
@@ -504,11 +573,16 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     panRef.current = null;
     dragRef.current = null;
     holdSelection(false);
+    // つかんでから放すまでを「戻す」の1手にまとめる。ここで閉じる
+    endUndoGroup();
   };
 
   // 図から離れたところでボタンを放しても選択止めを解く
   useEffect(() => {
-    const off = () => holdSelection(false);
+    const off = () => {
+      holdSelection(false);
+      endUndoGroup();
+    };
     window.addEventListener('pointerup', off);
     window.addEventListener('pointercancel', off);
     return () => {
@@ -809,6 +883,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                 if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
                 holdSelection(true);
                 select(p.uid);
+                // ドラッグ中の細かな変更は「戻す」の1手にまとめる
+                beginUndoGroup();
                 dragRef.current = {
                   uid: p.uid,
                   startX: e.clientX,
@@ -1073,6 +1149,20 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
       )}
 
       <div className="canvas-overlay">
+        <button
+          disabled={undoCounts.past === 0}
+          title="直前の操作を取り消す（Ctrl+Z）"
+          onClick={() => undo()}
+        >
+          ↶ 戻す{undoCounts.past > 0 ? `（${undoCounts.past}）` : ''}
+        </button>
+        <button
+          disabled={undoCounts.future === 0}
+          title="取り消した操作をやり直す（Ctrl+Y）"
+          onClick={() => redo()}
+        >
+          ↷ やり直す
+        </button>
         {underlay && (
           <button onClick={() => setUnderlay(face, undefined)}>
             下敷き（{underlay.w}×{underlay.h}）を消す
@@ -1088,7 +1178,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         <b>機器をドラッグすると上下左右どこへでも入れ込めます</b>
         （Shift＋ドラッグで自由に置く・{SNAP}mm スナップ）／
         機器を選んで<b>矢印キー</b>で 1mm ずつ移動（Shift で 10mm）／ 機器・ダクトを選んで{' '}
-        <b>Delete</b> で削除 ／
+        <b>Delete</b> で削除 ／ <b>Ctrl+Z</b> で戻す・<b>Ctrl+Y</b> でやり直す ／
+        止め金具は機器の横へ寄せると<b>密着</b>します ／
         <b>ダブルクリック</b>で機器は90°回転・ダクトは型式を選ぶ
       </div>
     </div>

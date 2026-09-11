@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { startPersisting } from './lib/persist';
+import { startUndoTracking } from './lib/undo';
 import './index.css';
 
 /*
@@ -10,6 +11,8 @@ import './index.css';
  * 戻す側は数秒で切り上げるので、IndexedDB が固まっていても画面は出る。
  */
 void startPersisting().finally(() => {
+  // 戻す／やり直すの見張りは、残してあるものを戻し終えてから（復元を「操作」として数えない）
+  startUndoTracking();
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />

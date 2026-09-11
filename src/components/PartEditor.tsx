@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { extractShape, readDxfText } from '../lib/dxfImport';
+import { isStopper } from '../lib/layout';
 import { machiningLabel } from '../lib/machining';
 import { PartFigure } from './PartFigure';
 import { CutFields, HolePicker } from './HolePicker';
@@ -639,10 +640,13 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
       {sect(
         'clearance',
         'メーカー指定の最小離隔・発熱',
-        hasClearance
-          ? `上${mm(cl.top ?? 0)} 下${mm(cl.bottom ?? 0)} 左${mm(cl.left ?? 0)} 右${mm(cl.right ?? 0)}` +
-            (nz(part.heatW) ? ` / ${mm(part.heatW ?? 0)}W` : '')
-          : '指定なし',
+        (isStopper(part) ? '止め金具（隣に密着）' : '') +
+          (hasClearance
+            ? `${isStopper(part) ? ' / ' : ''}上${mm(cl.top ?? 0)} 下${mm(cl.bottom ?? 0)} 左${mm(cl.left ?? 0)} 右${mm(cl.right ?? 0)}` +
+              (nz(part.heatW) ? ` / ${mm(part.heatW ?? 0)}W` : '')
+            : isStopper(part)
+              ? ''
+              : '指定なし'),
         <div className="grid2">
           <Num
             label="上"
@@ -670,6 +674,17 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
             onChange={(heatW) => update(part.id, { heatW })}
             step={0.5}
           />
+          <label className="check" style={{ gridColumn: '1 / -1' }}>
+            <input
+              type="checkbox"
+              checked={isStopper(part)}
+              onChange={(e) => update(part.id, { stopper: e.target.checked })}
+            />
+            <span>
+              <b>止め金具（エンドストッパ）</b> — 隣の機器との離隔を無視して<b>密着</b>させる。
+              図の上で機器の横へ寄せると隣り合わせに吸い付きます
+            </span>
+          </label>
         </div>,
       )}
     </div>

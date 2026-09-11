@@ -207,7 +207,7 @@ export type MyConfigFile = {
   devices: DeviceSpec[];
 };
 
-type State = {
+export type State = {
   screen: Screen;
   face: FaceId;
   panel: PanelSpec;

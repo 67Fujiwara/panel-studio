@@ -111,6 +111,18 @@ export function effectiveClearance(
 }
 
 /**
+ * 止め金具（エンドストッパ）か。
+ *
+ * 止め金具は機器をレール上で止めるためのクリップで、機器の**すぐ隣に密着**して付く。
+ * 離隔（メーカー指定・機器⇔機器のクリアランス）は機器どうしの空気なので、
+ * 止め金具にはどちらも効かせない。部品の印（stopper）が無ければ名前で見分ける。
+ */
+export function isStopper(spec: DeviceSpec): boolean {
+  if (spec.stopper !== undefined) return spec.stopper;
+  return /ストッパ|止め金具|stopper|CLIPFIX/i.test(`${spec.name} ${spec.model}`);
+}
+
+/**
  * 中板上面から扉内面までの有効奥行き。ここに収まらない機器は扉に当たる。
  * 内訳が未入力なら null。数字を仮置きすると「収まっている」と読める図が出てしまう。
  */
@@ -493,7 +505,7 @@ function buildQueue(items: LayoutItem[], skip: Set<string>, devices: DeviceLooku
  * 段の中で場所を取っている座標置きの機器（矢印キーで寄せた1台など）。
  * 流し込みはここを避けて詰める。避けないと、寄せた1台の跡へ隣が詰まってきて重なる
  */
-type Obstacle = { row: number; x0: number; x1: number };
+type Obstacle = { row: number; x0: number; x1: number; stopper: boolean };
 
 function packAuto(
   panel: PanelSpec,
@@ -519,6 +531,8 @@ function packAuto(
     prevRight: number;
     /** 直前に置いた1台が独立レールなら、そのレール高さ。違えば null */
     prevSolo: number | null;
+    /** 直前に置いたのが止め金具か。止め金具の隣は離隔なしで密着させる */
+    prevStopper: boolean;
     used: boolean;
   };
   /** up/down は基準線（レール中心）から上下それぞれに要る高さ。段の高さはその和 */
@@ -533,6 +547,7 @@ function packAuto(
       cursor: s.x0,
       prevRight: 0,
       prevSolo: null,
+      prevStopper: false,
       used: false,
     })),
   });
@@ -579,6 +594,10 @@ function packAuto(
     // 独立レールの機器は、機器の幅のほかに左右のエンドストッパの場所も要る
     const mySolo = soloMark(e.spec, e.item.mount);
     const myEnds = mySolo === null ? 0 : SOLO_RAIL_MARGIN;
+    // 止め金具は隣に密着。自分が止め金具でも、直前が止め金具でも、間隔は 0
+    const iAmStopper = isStopper(e.spec);
+    const gapAfter = (s: Slot) =>
+      iAmStopper || s.prevStopper ? 0 : horizontalGap(s.prevRight, eff, c, stopperGap(s.prevSolo, mySolo));
 
     const widest = (bk: Bucket) => Math.max(0, ...bk.slots.map((s) => s.x1 - s.x0));
     if (w + myEnds * 2 > widest(b)) {
@@ -600,10 +619,12 @@ function packAuto(
       for (const i of order) {
         const s = bk.slots[i];
         if (!s) continue;
-        const gap = horizontalGap(s.prevRight, eff, c, stopperGap(s.prevSolo, mySolo));
+        const gap = gapAfter(s);
         let x = s.used ? s.cursor + gap : s.x0 + myEnds;
         for (const o of blocks) {
-          if (x - gapO < o.x1 && o.x0 < x + w + myEnds + gapO) x = o.x1 + gapO + myEnds;
+          // 座標で置いた止め金具の隣（または自分が止め金具）は離隔なしで密着させる
+          const g = iAmStopper || o.stopper ? 0 : gapO;
+          if (x - g < o.x1 && o.x0 < x + w + myEnds + g) x = o.x1 + g + myEnds;
         }
         if (x + w + myEnds <= s.x1) return { slot: s, x };
       }
@@ -623,9 +644,7 @@ function packAuto(
         });
         hit = {
           slot: s,
-          x: s.used
-            ? s.cursor + horizontalGap(s.prevRight, eff, c, stopperGap(s.prevSolo, mySolo))
-            : s.x0 + myEnds,
+          x: s.used ? s.cursor + gapAfter(s) : s.x0 + myEnds,
         };
       } else {
         flow = buckets.length;
@@ -641,6 +660,7 @@ function packAuto(
     hit.slot.cursor = hit.x + w;
     hit.slot.prevRight = eff.right;
     hit.slot.prevSolo = mySolo;
+    hit.slot.prevStopper = iAmStopper;
     hit.slot.used = true;
     // 基準線の上下を別々に積む。オフセットも離隔も、要る側にだけ効かせる
     const need = vertSpan(e.spec, e.item.mount, e.item.rot, eff);
@@ -772,6 +792,7 @@ function packEqual(
   const cursor = rows.map((_, i) => span[i]!.xMin);
   const prevRight = rows.map(() => 0);
   const prevSolo = rows.map<number | null>(() => null);
+  const prevStopper = rows.map(() => false);
 
   for (const p of pinned) {
     const spec = devices.get(p.specId);
@@ -781,6 +802,7 @@ function packEqual(
       cursor[p.row] = Math.max(cursor[p.row]!, p.x + rotatedSize(spec.size, p.rot).w);
       prevRight[p.row] = effectiveClearance(spec, c, rowGap(profile, p.row)).right;
       prevSolo[p.row] = soloMark(spec, p.mount);
+      prevStopper[p.row] = isStopper(spec);
     }
   }
 
@@ -808,7 +830,12 @@ function packEqual(
       // 独立レールの機器は、機器の幅のほかに左右のエンドストッパの場所も要る
       const mySolo = soloMark(spec, item.mount);
       const myEnds = mySolo === null ? 0 : SOLO_RAIL_MARGIN;
-      const gap = horizontalGap(prevRight[r] ?? 0, eff, c, stopperGap(prevSolo[r] ?? null, mySolo));
+      // 止め金具は隣に密着。自分が止め金具でも、直前が止め金具でも、間隔は 0
+      const iAmStopper = isStopper(spec);
+      const gap =
+        iAmStopper || prevStopper[r]
+          ? 0
+          : horizontalGap(prevRight[r] ?? 0, eff, c, stopperGap(prevSolo[r] ?? null, mySolo));
       const startX = cursor[r] === xMin ? xMin + myEnds : (cursor[r] ?? xMin) + gap;
       const fits = startX + size.w + myEnds <= xMax;
       if (fits || candidates.length === 1) {
@@ -827,6 +854,7 @@ function packEqual(
         cursor[r] = startX + size.w;
         prevRight[r] = eff.right;
         prevSolo[r] = mySolo;
+        prevStopper[r] = iAmStopper;
         done = true;
         if (!fits) {
           violations.push({
@@ -1412,7 +1440,7 @@ export function autoLayout(
   const obstacles: Obstacle[] = pinned.flatMap((p) => {
     const spec = devices.get(p.specId);
     if (!spec || p.row === undefined || p.row < 0) return [];
-    return [{ row: p.row, x0: p.x, x1: p.x + rotatedSize(spec.size, p.rot).w }];
+    return [{ row: p.row, x0: p.x, x1: p.x + rotatedSize(spec.size, p.rot).w, stopper: isStopper(spec) }];
   });
   const auto = profile.duct.rowHeightMode === 'auto';
   const result = auto
