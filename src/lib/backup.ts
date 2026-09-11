@@ -29,6 +29,22 @@ export const BACKUP_FILE = 'panel-studio-backup.json';
  */
 export const BACKUP_PREV_FILE = 'panel-studio-backup.prev.json';
 
+/**
+ * 起動時に**ブラウザの許可なしで**読める写し。
+ *
+ * ブラウザの中身（IndexedDB / localStorage）が消えていると、開いた瞬間は空で、
+ * 人が「一括読み込み」でファイルを選び直すしかなかった。file:// で開いた HTML は
+ * fetch で隣のファイルを読めない（ブラウザが塞ぐ）が、**<script src> なら読める**。
+ * そこで同じ中身を `window.__panelStudioBackup = {...}` の形でも書いておき、
+ * 起動時にブラウザが空ならこれを script として読み込んで戻す。
+ *
+ * 読めるのは **HTML と同じフォルダ（またはその backup/ サブフォルダ）**に書いてあるとき。
+ * バックアップ先をそこにしておけば、ブラウザのデータが消えても開くだけで戻る。
+ */
+export const BACKUP_JS_FILE = 'panel-studio-backup.js';
+/** script として読んだときに中身が入る窓口 */
+export const BACKUP_JS_GLOBAL = '__panelStudioBackup';
+
 /** 旧版が書いていたファイル名。読み込み（復元）のときだけ使う。書くのはもうしない */
 export const LEGACY_BACKUP_FILES = {
   config: 'panel-studio-settings.json',
@@ -78,6 +94,74 @@ export function saveAutoFlag(on: boolean): void {
   } catch {
     /* 覚えられなくても、このセッション中は効く */
   }
+}
+
+/**
+ * このブラウザが最後に「見た」バックアップの時刻（bundle.savedAt）。
+ * 自分で書いたときと、読み込んだときに更新する。
+ * 起動時に共有フォルダの写しがこれより新しければ、別の PC で書かれたものなので知らせる。
+ */
+const SEEN_KEY = 'panel-studio.backup-seen';
+
+export function loadBackupSeen(): string {
+  try {
+    return localStorage.getItem(SEEN_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function markBackupSeen(savedAt: string | undefined): void {
+  if (!savedAt) return;
+  try {
+    // 時刻は ISO 文字列なので文字列比較で前後が分かる。古いものでは戻さない
+    if (savedAt > loadBackupSeen()) localStorage.setItem(SEEN_KEY, savedAt);
+  } catch {
+    /* 覚えられなくても致命ではない（次回また知らせるだけ） */
+  }
+}
+
+/**
+ * 隣に置いてある写し（panel-studio-backup.js）を script として読む。無ければ null。
+ *
+ * 候補は HTML と同じフォルダ → その backup/ サブフォルダ の順。
+ * 読めた中身は呼び出し側が判定する（schemaVersion / kind）。
+ * 数 MB を共有フォルダから読むので上限の時間を置き、過ぎたら諦めて起動を続ける。
+ */
+export function loadSidecar(timeoutMs = 20000): Promise<unknown | null> {
+  if (typeof document === 'undefined') return Promise.resolve(null);
+  const candidates = [`./${BACKUP_JS_FILE}`, `./backup/${BACKUP_JS_FILE}`];
+  const w = window as unknown as Record<string, unknown>;
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v: unknown | null) => {
+      if (done) return;
+      done = true;
+      delete w[BACKUP_JS_GLOBAL];
+      resolve(v);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    const tryAt = (i: number) => {
+      if (i >= candidates.length) {
+        clearTimeout(timer);
+        return finish(null);
+      }
+      const el = document.createElement('script');
+      // 前回の中身をブラウザが覚えていて古いものを返さないように、毎回違う URL にする
+      el.src = `${candidates[i]}?t=${Date.now()}`;
+      el.onload = () => {
+        el.remove();
+        clearTimeout(timer);
+        finish(w[BACKUP_JS_GLOBAL] ?? null);
+      };
+      el.onerror = () => {
+        el.remove();
+        tryAt(i + 1);
+      };
+      document.head.appendChild(el);
+    };
+    tryAt(0);
+  });
 }
 
 export function fsAccessSupported(): boolean {
@@ -276,7 +360,8 @@ export class BackupWriter {
        * 整形（インデント）は付けない。外形線を持つ部品表だと整形だけで 4倍
        * （3.9MB → 16MB）になり、書くのも読むのも遅くなる。人が目で読むファイルではない
        */
-      const text = JSON.stringify(this.snapshot());
+      const snap = this.snapshot();
+      const text = JSON.stringify(snap);
       /*
        * 上書きする前に、いまフォルダにある中身を「1つ前」へ退避する。
        * 中身が同じときは動かさない（同じものを2つ持っても戻す先にならない）。
@@ -295,6 +380,17 @@ export class BackupWriter {
       }
       await writeFile(this.dir, BACKUP_FILE, text);
       this.lastText = text;
+      /*
+       * 起動時にブラウザの許可なしで読める写し（script 形式）も書く。
+       * 本体が書けたあとなので、ここで失敗しても最新の JSON は残っている
+       */
+      try {
+        await writeFile(this.dir, BACKUP_JS_FILE, `window.${BACKUP_JS_GLOBAL}=${text};`);
+      } catch {
+        /* 写しが書けなくても本体はある */
+      }
+      // 自分で書いたものは「見た」扱い。次に開いたとき自分の書いた写しで知らせない
+      markBackupSeen((snap as { savedAt?: string } | null)?.savedAt);
       this.onChange({ lastAt: Date.now(), error: null, pending: false });
     } catch (e) {
       // 失敗したぶんは次にもう一度書く

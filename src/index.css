@@ -1733,6 +1733,14 @@ table.bom .qty em {
   background: var(--surface);
   color: var(--muted);
 }
+/* 別の PC で書かれた新しいバックアップの知らせ。読むかどうかを人が決めるまで出す */
+.backupbar.notice {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.backupbar.notice .mark {
+  background: var(--accent);
+}
 .backupbar .mark {
   display: inline-flex;
   align-items: center;

@@ -8,13 +8,16 @@ import {
   LEGACY_BACKUP_FILES,
   loadAutoFlag,
   loadDir,
+  markBackupSeen,
   pickDir,
   readFile,
   saveAutoFlag,
   type BackupKind,
   type BackupState,
 } from '../lib/backup';
+import { persistInfo } from '../lib/persist';
 import {
+  isBundle,
   loadBundle,
   makeBundle,
   useStore,
@@ -42,6 +45,8 @@ export function BackupBar() {
   });
   const [busy, setBusy] = useState(false);
   const [auto, setAuto] = useState(loadAutoFlag);
+  const newer = useStore((s) => s.newerBackup);
+  const setNewerBackup = useStore((s) => s.setNewerBackup);
   const writerRef = useRef<BackupWriter | null>(null);
   const dirRef = useRef<FileSystemDirectoryHandle | null>(null);
 
@@ -66,11 +71,16 @@ export function BackupBar() {
       dirRef.current = dir;
       // 再読み込み直後は許可が「保留」になることがある。ここでは聞かず、名前だけ出す
       setState((v) => ({ ...v, dirName: dir.name }));
-      if (await ensurePermission(dir, false)) writer.setDir(dir);
-      else
+      if (await ensurePermission(dir, false)) {
+        // ブラウザが空のままフォルダを書き出し先にすると、既定値でバックアップを潰す。先に戻す
+        await restoreMissing(dir);
+        writer.setDir(dir);
+      } else
         setState((v) => ({
           ...v,
-          error: '書き込みの許可を確かめてください（「許可し直す」を押す）',
+          error: persistInfo.fromBrowser || persistInfo.fromSidecar
+            ? '書き込みの許可を確かめてください（「許可し直す」を押す）'
+            : 'ブラウザに保存がありません。「許可し直す」を押すとバックアップから戻します',
         }));
     })();
 
@@ -138,6 +148,8 @@ export function BackupBar() {
     setBusy(true);
     try {
       if (await ensurePermission(dir, true)) {
+        // 許可が戻った時点でブラウザが空なら、書き出しを始める前にフォルダから戻す
+        await restoreMissing(dir);
         writerRef.current?.setDir(dir);
         setState((v) => ({ ...v, error: null }));
       }
@@ -145,6 +157,32 @@ export function BackupBar() {
       setBusy(false);
     }
   };
+
+  /** 別の PC で書かれた新しいバックアップを、人が「読み込む」と決めたとき */
+  const takeNewer = () => {
+    if (!newer) return;
+    loadBundle(newer.bundle);
+    setNewerBackup(null);
+  };
+  const ignoreNewer = () => {
+    if (!newer) return;
+    markBackupSeen(newer.savedAt);
+    setNewerBackup(null);
+  };
+  const newerNotice = newer && (
+    <div className="backupbar notice">
+      <span className="mark">!</span>
+      <span>
+        共有フォルダに<b>このブラウザより新しいバックアップ</b>があります（
+        {new Date(newer.savedAt).toLocaleString('ja-JP')} 保存・別の PC で書かれたもの）。
+        読み込むと、いまの部品表・設定・案件は置き換わります。
+      </span>
+      <button className="primary" onClick={takeNewer}>
+        読み込む
+      </button>
+      <button onClick={ignoreNewer}>今回は無視</button>
+    </div>
+  );
 
   if (!state.supported) {
     return (
@@ -161,16 +199,20 @@ export function BackupBar() {
 
   if (!state.dirName) {
     return (
-      <div className="backupbar warn">
-        <span className="mark">!</span>
-        <span>
-          データは<b>このブラウザの中だけ</b>に保存されています。
-          <b>バックアップ先フォルダ</b>を決めておくと、変わるたびに自動で書き出します。
-        </span>
-        <button className="primary" disabled={busy} onClick={() => void choose()}>
-          バックアップ先を選ぶ
-        </button>
-      </div>
+      <>
+        {newerNotice}
+        <div className="backupbar warn">
+          <span className="mark">!</span>
+          <span>
+            データは<b>このブラウザの中だけ</b>に保存されています。
+            <b>バックアップ先フォルダ</b>を決めておくと、変わるたびに自動で書き出します。
+            <b>この HTML と同じフォルダ</b>にしておくと、ブラウザのデータが消えても開くだけで戻ります。
+          </span>
+          <button className="primary" disabled={busy} onClick={() => void choose()}>
+            バックアップ先を選ぶ
+          </button>
+        </div>
+      </>
     );
   }
 
@@ -178,6 +220,8 @@ export function BackupBar() {
   const unsaved = !auto && state.pending && !state.writing;
 
   return (
+    <>
+    {newerNotice}
     <div className={`backupbar${state.error || unsaved ? ' warn' : ' ok'}`}>
       <span className="mark">{state.error || unsaved ? '!' : '✓'}</span>
       <span>
@@ -240,6 +284,7 @@ export function BackupBar() {
         変更
       </button>
     </div>
+    </>
   );
 
   /** 1つ前のバックアップを読み込む。無ければその旨を出す。 */
@@ -277,6 +322,31 @@ export function BackupBar() {
     } finally {
       setBusy(false);
     }
+  }
+}
+
+/**
+ * ブラウザに何も残っていなかったとき、書き出しを始める前にフォルダのバックアップを戻す。
+ *
+ * 起動時に IndexedDB からも共有フォルダの写しからも戻せなかった（ブラウザのデータが消えた、
+ * 写しが HTML の隣に無い）ときの最後の道。ここで戻さずに書き出し係を動かすと、
+ * 既定の21件でバックアップを上書きしてしまう。失うものが無いので聞かずに戻す。
+ */
+async function restoreMissing(dir: FileSystemDirectoryHandle) {
+  if (persistInfo.fromBrowser || persistInfo.fromSidecar) return;
+  const s = useStore.getState();
+  // 起動後に人が既に一括読み込みなどで入れていれば、それを消さない
+  if (s.myDevices.length > 0 || s.projects.length > 0) return;
+  const text = (await readFile(dir, BACKUP_FILE)) ?? (await readFile(dir, BACKUP_PREV_FILE));
+  if (!text) return;
+  try {
+    const b = JSON.parse(text) as unknown;
+    if (isBundle(b)) {
+      loadBundle(b);
+      persistInfo.fromSidecar = true;
+    }
+  } catch {
+    /* 壊れたファイルは読まない。人が一括読み込みで別のものを選べる */
   }
 }
 

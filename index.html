@@ -6,7 +6,12 @@
     <title>Panel Studio — 制御盤 盤内レイアウト &amp; BOM</title>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- 残してある部品表・共有フォルダの写しを戻してから描くので、そのあいだだけ出る -->
+    <div id="root">
+      <p style="margin: 40px; font: 14px system-ui, sans-serif; color: #667">
+        保存してある内容を読み込んでいます…
+      </p>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

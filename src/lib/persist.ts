@@ -9,6 +9,14 @@
  *  - 外形線の軽量化 …… 部品表が変わるたびに、まだ軽くしていないものだけ軽くする。
  *    済みの印（shape.lite）で見分けるので、2回目以降はほぼ何もしない
  *
+ * 戻す元は2つ:
+ *  1. IndexedDB（同じ PC で開き直したとき）
+ *  2. 共有フォルダの写し panel-studio-backup.js（ブラウザの中身が消えていた・別の PC で開いたとき）。
+ *     file:// の HTML は隣のファイルを fetch できないが script としてなら読めるので、
+ *     バックアップ係が JSON と一緒に script 形式の写しも書いておき、起動時に読む。
+ *     ブラウザに何も残っていなければ黙って戻し、残っているのに写しのほうが新しければ
+ *     （別の PC で書かれた）帯で知らせて、人が読むかどうかを決める。
+ *
  * localStorage は 5MB 前後で頭打ち。部品に外形（DXF から起こした形）を持たせると
  * 部品表だけで数 MB になり入り切らない。IndexedDB なら文字列にせず構造のまま入れられ、
  * 上限も桁違いに大きい。
@@ -19,7 +27,8 @@
  * ⚠ API キーは残さない。キーは panel-studio.ai（localStorage）だけに置き、ここには入れない。
  */
 import type { ConfigFile, MyConfigFile } from '../store';
-import { useStore } from '../store';
+import { isBundle, loadBundle, useStore } from '../store';
+import { loadBackupSeen, loadSidecar } from './backup';
 import { liteMasters } from './liteMasters';
 
 const DB = 'panel-studio-state';
@@ -31,7 +40,22 @@ const CURRENT_DRAFT_KEY = 'panel-studio.current-draft';
 /** 変更が止まってから書くまで(ms) */
 const DEBOUNCE_MS = 1000;
 /** 起動時の読み込みをこれ以上待たない(ms)。IndexedDB が固まっても画面は出す */
-const HYDRATE_TIMEOUT_MS = 4000;
+const HYDRATE_TIMEOUT_MS = 15000;
+/** 共有フォルダの写しを待つ上限(ms)。数 MB を共有フォルダから読むぶん長めに */
+const SIDECAR_TIMEOUT_MS = 20000;
+
+/**
+ * 起動時に何をどこから戻したか。帯（BackupBar）が「ブラウザが空だったからフォルダから戻す」
+ * の判断に使う。
+ */
+export const persistInfo = {
+  /** IndexedDB に部品表・設定が残っていて、それを戻した */
+  fromBrowser: false,
+  /** 共有フォルダの写し（panel-studio-backup.js）から戻した */
+  fromSidecar: false,
+  /** 起動時の戻しが済んだ（これより前に IndexedDB へ書くと、残してあるものを既定値で潰す） */
+  settled: false,
+};
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -106,6 +130,11 @@ const writeCurrentDraft = (id: string | null) => {
   }
 };
 
+/** 上限つきで待つ。過ぎたら fallback を返すが、元の Promise は捨てない（遅れて来た結果も使える） */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
+}
+
 /**
  * 起動時に呼ぶ。残してあるものをストアへ戻してから、以後の変更を見張って書き続ける。
  *
@@ -113,31 +142,54 @@ const writeCurrentDraft = (id: string | null) => {
  * 「変更」として残してある部品表の上に書かれ、せっかくのものが消える。
  */
 export async function startPersisting(): Promise<void> {
-  // 1) 部品表・設定・My部品を戻す。長くても HYDRATE_TIMEOUT_MS で切り上げて画面を出す
+  // 共有フォルダの写しは読むのに時間がかかることがあるので、先に読み始めておく
+  const sidecarP = loadSidecar(SIDECAR_TIMEOUT_MS).catch(() => null);
+
+  // 1) 部品表・設定・My部品を IndexedDB から戻す。長くても HYDRATE_TIMEOUT_MS で切り上げて画面を出す
+  let hydrateLate: Promise<{ config: ConfigFile | null; my: MyConfigFile | null }> | null = null;
   if (available()) {
-    const timeout = new Promise<{ config: null; my: null }>((r) =>
-      setTimeout(() => r({ config: null, my: null }), HYDRATE_TIMEOUT_MS),
-    );
-    const saved = await Promise.race([loadPersisted(), timeout]);
+    type Loaded = { config: ConfigFile | null; my: MyConfigFile | null; timedOut?: boolean };
+    const p: Promise<Loaded> = loadPersisted();
+    const saved = await withTimeout<Loaded>(p, HYDRATE_TIMEOUT_MS, { config: null, my: null, timedOut: true });
     const s = useStore.getState();
     if (saved.config) s.loadConfig(saved.config);
     if (saved.my) s.loadMyConfig(saved.my);
+    persistInfo.fromBrowser = Boolean(saved.config || saved.my);
+    // 時間切れなら、遅れて来た結果を待って（人がまだ触っていなければ）あとから戻す
+    if (saved.timedOut) hydrateLate = p;
   }
 
-  // 2) 机に出していた作業中案件を戻す（机は白紙なので、しまう側は何も起きない）
+  // 2) ブラウザに何も残っていなければ、共有フォルダの写しから戻す（新しい PC・消えたブラウザ）。
+  //    残っていれば待たずに先へ進み、写しのほうが新しいときだけあとで知らせる
+  if (!persistInfo.fromBrowser && !hydrateLate) {
+    const sc = await sidecarP;
+    if (isBundle(sc)) {
+      loadBundle(sc);
+      persistInfo.fromSidecar = true;
+    }
+  } else {
+    void sidecarP.then((sc) => {
+      if (!isBundle(sc) || !sc.savedAt) return;
+      if (sc.savedAt > loadBackupSeen()) useStore.getState().setNewerBackup({ savedAt: sc.savedAt, bundle: sc });
+    });
+  }
+
+  // 3) 机に出していた作業中案件を戻す（机は白紙なので、しまう側は何も起きない）
   {
     const id = readCurrentDraft();
     const s = useStore.getState();
     if (id && s.drafts.some((d) => d.id === id)) s.switchDraft(id);
   }
 
-  // 3) 見張る（外形線の軽量化は見張りを付けてから。軽くした結果を IndexedDB へ書くのは見張り側）
+  // 4) 見張る（外形線の軽量化は見張りを付けてから。軽くした結果を IndexedDB へ書くのは見張り側）
   let cfgTimer: ReturnType<typeof setTimeout> | null = null;
   let myTimer: ReturnType<typeof setTimeout> | null = null;
   let deskTimer: ReturnType<typeof setTimeout> | null = null;
   let liteTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 人が部品表・設定に触ったか。時間切れのあと遅れて来た IndexedDB の中身を当てていいかの判断用 */
+  let touched = false;
   const write = (key: string, value: unknown) =>
-    available()
+    available() && persistInfo.settled
       ? idb('readwrite', (st) => st.put(value, key)).catch(() => {
           /* 書けなくてもこのセッションは動く。次の変更でまた試す */
         })
@@ -153,10 +205,12 @@ export async function startPersisting(): Promise<void> {
       now.ducts !== before.ducts ||
       now.prices !== before.prices
     ) {
+      touched = true;
       if (cfgTimer) clearTimeout(cfgTimer);
       cfgTimer = setTimeout(() => void write(CONFIG_KEY, snapshotConfig()), DEBOUNCE_MS);
     }
     if (now.owners !== before.owners || now.myDevices !== before.myDevices) {
+      touched = true;
       if (myTimer) clearTimeout(myTimer);
       myTimer = setTimeout(() => void write(MY_KEY, snapshotMy()), DEBOUNCE_MS);
     }
@@ -182,7 +236,37 @@ export async function startPersisting(): Promise<void> {
     if (now.currentDraftId !== before.currentDraftId) writeCurrentDraft(now.currentDraftId);
   });
 
-  // 4) 外形線をまだ軽くしていないものは、ここで一度だけ軽くする（旧データの取り込み分）。
+  if (hydrateLate) {
+    /*
+     * IndexedDB が時間切れだったとき。結果が来るまで IndexedDB へは書かない（settled=false）。
+     * 来たら、人がまだ触っていなければそれを戻す。触っていれば人の側を採る
+     * （既定値の上に部品を足した・一括読み込みした、など。それを消すほうが痛い）
+     */
+    void hydrateLate.then((saved) => {
+      const s = useStore.getState();
+      if (!touched) {
+        if (saved.config) s.loadConfig(saved.config);
+        if (saved.my) s.loadMyConfig(saved.my);
+        persistInfo.fromBrowser = Boolean(saved.config || saved.my);
+      }
+      persistInfo.settled = true;
+      // 触っていたぶんは、settled になったいま書く
+      if (touched) {
+        void write(CONFIG_KEY, snapshotConfig());
+        void write(MY_KEY, snapshotMy());
+      }
+      liteMasters();
+    });
+  } else {
+    persistInfo.settled = true;
+    // 写しから戻したぶんは、まだ IndexedDB に無いのでここで書いておく
+    if (persistInfo.fromSidecar) {
+      void write(CONFIG_KEY, snapshotConfig());
+      void write(MY_KEY, snapshotMy());
+    }
+  }
+
+  // 5) 外形線をまだ軽くしていないものは、ここで一度だけ軽くする（旧データの取り込み分）。
   //    見張りを付けたあとなので、軽くした結果はそのまま IndexedDB へ書かれる
   liteMasters();
 

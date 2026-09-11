@@ -32,6 +32,7 @@ import type {
   RailSettings,
   Rotation,
 } from './types';
+import { markBackupSeen } from './lib/backup';
 import { effectiveDepth } from './lib/layout';
 import type { LayoutItem } from './lib/layout';
 import { rotatedSize, hasTapCuts } from './types';
@@ -247,6 +248,12 @@ type State = {
    * 設計の途中で寸法が動くと、並べた機器・加工がずれたまま図が出てしまうため。
    */
   sizeLocked: boolean;
+  /**
+   * 起動時に見つけた、このブラウザが最後に見たものより**新しい**バックアップ
+   * （共有フォルダの写し。別の PC で書かれたもの）。帯に出して、読むかどうかを人に決めてもらう
+   */
+  newerBackup: { savedAt: string; bundle: BackupBundle } | null;
+  setNewerBackup: (v: { savedAt: string; bundle: BackupBundle } | null) => void;
 
   go: (screen: Screen) => void;
   /** 盤サイズを確定して面選択へ。以後、盤サイズ画面の入力は触れなくなる */
@@ -523,6 +530,8 @@ export const useStore = create<State>((set) => ({
   removedDucts: {},
   underlays: {},
   sizeLocked: false,
+  newerBackup: null,
+  setNewerBackup: (v) => set({ newerBackup: v }),
 
   go: (screen) => set({ screen, selectedUid: null }),
   confirmSize: () => set({ sizeLocked: true, screen: 'faces', selectedUid: null }),
@@ -1303,6 +1312,8 @@ export function deviceLookup(devices: DeviceSpec[], myDevices: DeviceSpec[]) {
 export type BackupBundle = {
   schemaVersion: 1;
   kind: 'bundle';
+  /** 書いた時刻（ISO）。別の PC で書かれた新しいものかを見分ける。古いファイルには無い */
+  savedAt?: string;
   config: ConfigFile;
   my: MyConfigFile;
   projects: ProjectFile;
@@ -1314,6 +1325,7 @@ export function makeBundle(): BackupBundle {
   return {
     schemaVersion: 1,
     kind: 'bundle',
+    savedAt: new Date().toISOString(),
     config: {
       schemaVersion: 1,
       categories: s.categories,
@@ -1337,4 +1349,13 @@ export function loadBundle(b: BackupBundle): void {
   if (b.my) s.loadMyConfig(b.my);
   if (b.projects && (b.projects.projects.length > 0 || (b.projects.drafts ?? []).length > 0))
     s.loadProjectFile(b.projects);
+  // 読んだものは「見た」扱い。同じ写しで起動時に知らせない
+  markBackupSeen(b.savedAt);
+  if (s.newerBackup && s.newerBackup.savedAt <= (b.savedAt ?? '')) s.setNewerBackup(null);
+}
+
+/** 全部入りバックアップの形をしているか（ファイルの中身で判定する） */
+export function isBundle(v: unknown): v is BackupBundle {
+  const d = v as Record<string, unknown> | null;
+  return Boolean(d && d.schemaVersion === 1 && d.kind === 'bundle' && d.config && d.my);
 }

@@ -151,8 +151,16 @@ export function ConfigScreen() {
         <b>ふだんは操作不要です。</b>画面上の帯でバックアップ先フォルダを決めておけば、
         設定・My部品・完了案件が<b>変わるたびに自動で書き出されます</b>
         （打っている最中は書かず、手が止まってから。動きがなくても一定時間ごとに書きます）。
-        書き出されるのは<b>全部入りの1ファイル（panel-studio-backup.json）だけ</b>です。
+        書き出されるのは<b>全部入りの1ファイル（panel-studio-backup.json）</b>と、
+        起動時に自動で戻すための写し（panel-studio-backup.js）です。
         旧版が書いた3ファイル（settings / myparts / projects）は読み込みだけ対応しています。
+      </p>
+      <p className="note">
+        <b>開き直すたびに一括読み込みをする必要はありません。</b>部品表・設定・My部品・案件は
+        このブラウザに残ります。ブラウザのデータが消えていても、バックアップ先が
+        <b>この HTML と同じフォルダ</b>（またはその backup サブフォルダ）なら、
+        開くだけで写しから自動で戻ります。別の PC で書かれた新しいバックアップがあるときは、
+        画面上の帯で知らせて読み込むかどうかを聞きます。
       </p>
       <div className="row-buttons">
         <button onClick={exportAll}>一括書き出し（1ファイルに全部）</button>
