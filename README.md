@@ -22,6 +22,16 @@ npm run build:single   # release/panel-studio.html を出力（HTML 1ファイ�
 
 出力された HTML 1ファイルを共有フォルダに置けば、ダブルクリックで開けます。
 
+### アイコン
+
+タブのアイコン（制御盤の扉）は `docs/icon.svg` が元で、`index.html` に SVG を直接埋め込んでいます
+（HTML 1 枚で完結させるため。別ファイルは要りません）。
+
+デスクトップにショートカットを置くときは `release/panel-studio.ico` を使ってください
+（ショートカットのプロパティ → アイコンの変更 → 参照）。同じ絵の `panel-studio.png`（256px）もあります。
+どちらも `npm run icons` で `docs/icon.svg` から作り直せ（Chromium で描いて撮る）、
+`build:single` のたびに `docs/` から `release/` へ写されます。
+
 ## 設計の要点
 
 | 項目 | 方針 |

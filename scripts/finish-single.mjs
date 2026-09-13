@@ -1,11 +1,17 @@
 // build:single のあと、出力された index.html を配布しやすい名前に変える。
-import { readdir, rename, rm, stat } from 'node:fs/promises';
+import { copyFile, readdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const OUT_DIR = 'release';
 const FILE_NAME = 'panel-studio.html';
 
 await rename(join(OUT_DIR, 'index.html'), join(OUT_DIR, FILE_NAME));
+
+// Windows のショートカット用アイコン（npm run icons で docs/ に作ったもの）も一緒に置く。
+// タブのアイコンは HTML に埋め込み済みなので、これは無くてもアプリは動く
+for (const name of ['panel-studio.ico', 'panel-studio.png']) {
+  await copyFile(join('docs', name), join(OUT_DIR, name)).catch(() => {});
+}
 
 // 埋め込み済みで不要になった空フォルダ（assets など）を片付ける
 for (const entry of await readdir(OUT_DIR)) {

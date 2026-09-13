@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "build:single": "tsc -b && vite build --mode single && node scripts/finish-single.mjs"
+    "build:single": "tsc -b && vite build --mode single && node scripts/finish-single.mjs",
+    "icons": "node scripts/make-icons.mjs"
   },
   "dependencies": {
     "dxf-parser": "^1.1.2",
