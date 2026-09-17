@@ -8,7 +8,6 @@ import {
   LEGACY_BACKUP_FILES,
   loadAutoFlag,
   loadDir,
-  markBackupSeen,
   pickDir,
   readFile,
   saveAutoFlag,
@@ -45,8 +44,6 @@ export function BackupBar() {
   });
   const [busy, setBusy] = useState(false);
   const [auto, setAuto] = useState(loadAutoFlag);
-  const newer = useStore((s) => s.newerBackup);
-  const setNewerBackup = useStore((s) => s.setNewerBackup);
   const writerRef = useRef<BackupWriter | null>(null);
   const dirRef = useRef<FileSystemDirectoryHandle | null>(null);
 
@@ -158,32 +155,6 @@ export function BackupBar() {
     }
   };
 
-  /** 別の PC で書かれた新しいバックアップを、人が「読み込む」と決めたとき */
-  const takeNewer = () => {
-    if (!newer) return;
-    loadBundle(newer.bundle);
-    setNewerBackup(null);
-  };
-  const ignoreNewer = () => {
-    if (!newer) return;
-    markBackupSeen(newer.savedAt);
-    setNewerBackup(null);
-  };
-  const newerNotice = newer && (
-    <div className="backupbar notice">
-      <span className="mark">!</span>
-      <span>
-        共有フォルダに<b>このブラウザより新しいバックアップ</b>があります（
-        {new Date(newer.savedAt).toLocaleString('ja-JP')} 保存・別の PC で書かれたもの）。
-        読み込むと、いまの部品表・設定・案件は置き換わります。
-      </span>
-      <button className="primary" onClick={takeNewer}>
-        読み込む
-      </button>
-      <button onClick={ignoreNewer}>今回は無視</button>
-    </div>
-  );
-
   if (!state.supported) {
     return (
       <div className="backupbar warn">
@@ -199,20 +170,17 @@ export function BackupBar() {
 
   if (!state.dirName) {
     return (
-      <>
-        {newerNotice}
-        <div className="backupbar warn">
-          <span className="mark">!</span>
-          <span>
-            データは<b>このブラウザの中だけ</b>に保存されています。
-            <b>バックアップ先フォルダ</b>を決めておくと、変わるたびに自動で書き出します。
-            <b>この HTML と同じフォルダ</b>にしておくと、ブラウザのデータが消えても開くだけで戻ります。
-          </span>
-          <button className="primary" disabled={busy} onClick={() => void choose()}>
-            バックアップ先を選ぶ
-          </button>
-        </div>
-      </>
+      <div className="backupbar warn">
+        <span className="mark">!</span>
+        <span>
+          データは<b>このブラウザの中</b>に保存されています。
+          <b>バックアップ先フォルダ</b>を決めておくと、変わるたびに控えを書き出します（ブラウザの中身が本体で、
+          フォルダは書くだけ）。<b>この HTML と同じフォルダ</b>にしておくと、ブラウザのデータが消えても開くだけで戻ります。
+        </span>
+        <button className="primary" disabled={busy} onClick={() => void choose()}>
+          バックアップ先を選ぶ
+        </button>
+      </div>
     );
   }
 
@@ -220,8 +188,6 @@ export function BackupBar() {
   const unsaved = !auto && state.pending && !state.writing;
 
   return (
-    <>
-    {newerNotice}
     <div className={`backupbar${state.error || unsaved ? ' warn' : ' ok'}`}>
       <span className="mark">{state.error || unsaved ? '!' : '✓'}</span>
       <span>
@@ -284,7 +250,6 @@ export function BackupBar() {
         変更
       </button>
     </div>
-    </>
   );
 
   /** 1つ前のバックアップを読み込む。無ければその旨を出す。 */
@@ -351,13 +316,16 @@ async function restoreMissing(dir: FileSystemDirectoryHandle) {
 }
 
 /**
- * バックアップ先に既にファイルがあれば、読み込むか聞く。
+ * バックアップ先に既にファイルがあれば、読み込むか聞く。**ブラウザが空のときだけ。**
  *
  * 新しい PC でこのアプリを開いた直後は中身が空なので、
  * 何もしないと**空の状態でフォルダを上書きしてしまう**。そこを塞ぐのが狙い。
+ * ブラウザに中身があるときは聞かない。ブラウザの中身が本体で、フォルダは書くだけ
+ * （フォルダから読ませると、別の PC の中身でこちらの案件が置き換わって混ざる）。
  */
 async function offerRestore(dir: FileSystemDirectoryHandle) {
   const s = useStore.getState();
+  if (s.projects.length > 0 || s.drafts.length > 0 || s.myDevices.length > 0 || persistInfo.fromBrowser) return;
 
   // いまの形式（全部入りの1ファイル）を先に見る。無ければ「1つ前」も拾う
   const bundleText = (await readFile(dir, BACKUP_FILE)) ?? (await readFile(dir, BACKUP_PREV_FILE));
@@ -373,11 +341,10 @@ async function offerRestore(dir: FileSystemDirectoryHandle) {
   if (projects) found.push('完了案件');
   if (found.length === 0) return;
 
-  const dirty = s.projects.length > 0 || s.myDevices.length > 0;
   const msg =
     `このフォルダには既にバックアップがあります（${found.join('・')}）。\n` +
-    `読み込んで、いまの内容を置き換えますか？\n\n` +
-    (dirty ? '※ いまこのブラウザにある内容は上書きされます。' : '※ 別の PC で作った内容を引き継げます。');
+    `このブラウザはまだ空なので、読み込んで引き継ぎますか？\n\n` +
+    '※ 「キャンセル」にすると、空の状態でこのフォルダのバックアップを上書きします。';
   if (!window.confirm(msg)) return;
 
   try {

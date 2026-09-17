@@ -45,6 +45,18 @@ export const BACKUP_JS_FILE = 'panel-studio-backup.js';
 /** script として読んだときに中身が入る窓口 */
 export const BACKUP_JS_GLOBAL = '__panelStudioBackup';
 
+/**
+ * 日付つきの控え。`history/panel-studio-backup-YYYY-MM-DD.json` に**その日の最新**を置き、
+ * 直近 HISTORY_KEEP 日ぶんを残す。
+ *
+ * 「最新」と「1つ前」だけだと、気づかずに数日たった間違い（消した案件・壊れた部品表）は
+ * 戻す先が無い。実際に作業中案件を1件失った。日ごとに1つ残しておけば、その日の
+ * 終わりの状態まで戻れる。書くのは 30 分に 1 回までにして、数 MB を何度も書かない
+ */
+export const HISTORY_DIR = 'history';
+export const HISTORY_KEEP = 30;
+const HISTORY_MIN_INTERVAL_MS = 30 * 60 * 1000;
+
 /** 旧版が書いていたファイル名。読み込み（復元）のときだけ使う。書くのはもうしない */
 export const LEGACY_BACKUP_FILES = {
   config: 'panel-studio-settings.json',
@@ -287,6 +299,8 @@ export class BackupWriter {
    * - 「1つ前」へ退避するとき、フォルダから読み直さずに済む
    */
   private lastText: string | null = null;
+  /** 日付つきの控えを最後に書いた時刻。30 分に 1 回まで */
+  private lastHistoryAt = 0;
 
   constructor(
     /** 書き出す中身（全部入りの1ファイルぶん）を取り出す。呼ばれた時点の最新を返すこと */
@@ -391,6 +405,8 @@ export class BackupWriter {
       }
       // 自分で書いたものは「見た」扱い。次に開いたとき自分の書いた写しで知らせない
       markBackupSeen((snap as { savedAt?: string } | null)?.savedAt);
+      // 日付つきの控え（その日の最新）。失敗しても本体は書けている
+      await this.writeHistory(text).catch(() => {});
       this.onChange({ lastAt: Date.now(), error: null, pending: false });
     } catch (e) {
       // 失敗したぶんは次にもう一度書く
@@ -399,6 +415,30 @@ export class BackupWriter {
     } finally {
       this.busy = false;
       this.onChange({ writing: false });
+    }
+  }
+
+  /**
+   * history/ にその日の控えを書き、古い日を消す。
+   * 日付はローカル（日本時間）で付ける。作業した日で探せるように
+   */
+  private async writeHistory(text: string): Promise<void> {
+    if (!this.dir) return;
+    const now = Date.now();
+    if (now - this.lastHistoryAt < HISTORY_MIN_INTERVAL_MS) return;
+    const d = new Date(now);
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const sub = await this.dir.getDirectoryHandle(HISTORY_DIR, { create: true });
+    await writeFile(sub, `panel-studio-backup-${day}.json`, text);
+    this.lastHistoryAt = now;
+    // 直近 HISTORY_KEEP 日ぶんだけ残す（名前に日付が入っているので名前順＝日付順）
+    const names: string[] = [];
+    const iter = (sub as unknown as { keys?: () => AsyncIterable<string> }).keys?.();
+    if (!iter) return;
+    for await (const name of iter) if (/^panel-studio-backup-\d{4}-\d{2}-\d{2}\.json$/.test(name)) names.push(name);
+    names.sort();
+    for (const name of names.slice(0, Math.max(0, names.length - HISTORY_KEEP))) {
+      await sub.removeEntry(name).catch(() => {});
     }
   }
 

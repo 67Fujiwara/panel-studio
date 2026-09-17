@@ -26,15 +26,23 @@
  *
  * ⚠ API キーは残さない。キーは panel-studio.ai（localStorage）だけに置き、ここには入れない。
  */
-import type { ConfigFile, MyConfigFile } from '../store';
+import type { ConfigFile, Draft, MyConfigFile, Project } from '../store';
 import { isBundle, loadBundle, useStore } from '../store';
-import { loadBackupSeen, loadSidecar } from './backup';
+import { loadSidecar } from './backup';
 import { liteMasters } from './liteMasters';
 
 const DB = 'panel-studio-state';
 const STORE = 'kv';
 const CONFIG_KEY = 'config';
 const MY_KEY = 'my';
+/**
+ * 完了案件と作業中案件も IndexedDB に持つ。
+ * localStorage は 5MB で頭打ちなので、案件に下敷き（DXF）や部品の写しが付くと入り切らず、
+ * 黙って保存に失敗して「開き直したら消えていた」になる。localStorage には従来どおり
+ * 書き続けるが（旧版との互換）、開くときは IndexedDB にあればそちらを採る
+ */
+const PROJECTS_KEY = 'projects';
+const DRAFTS_KEY = 'drafts';
 /** 机に出している作業中案件の id（localStorage） */
 const CURRENT_DRAFT_KEY = 'panel-studio.current-draft';
 /** 変更が止まってから書くまで(ms) */
@@ -79,20 +87,32 @@ async function idb<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBR
 
 const available = () => typeof indexedDB !== 'undefined';
 
-/** 残してある部品表・設定と My部品。無ければ null。 */
-export async function loadPersisted(): Promise<{ config: ConfigFile | null; my: MyConfigFile | null }> {
-  if (!available()) return { config: null, my: null };
+type Persisted = {
+  config: ConfigFile | null;
+  my: MyConfigFile | null;
+  projects: Project[] | null;
+  drafts: Draft[] | null;
+};
+const NONE: Persisted = { config: null, my: null, projects: null, drafts: null };
+
+/** 残してある部品表・設定・My部品・案件。無ければ null。 */
+export async function loadPersisted(): Promise<Persisted> {
+  if (!available()) return NONE;
   try {
-    const [config, my] = await Promise.all([
+    const [config, my, projects, drafts] = await Promise.all([
       idb<ConfigFile | undefined>('readonly', (s) => s.get(CONFIG_KEY)),
       idb<MyConfigFile | undefined>('readonly', (s) => s.get(MY_KEY)),
+      idb<Project[] | undefined>('readonly', (s) => s.get(PROJECTS_KEY)),
+      idb<Draft[] | undefined>('readonly', (s) => s.get(DRAFTS_KEY)),
     ]);
     return {
       config: config && config.schemaVersion === 1 ? config : null,
       my: my && my.schemaVersion === 1 ? my : null,
+      projects: Array.isArray(projects) ? projects : null,
+      drafts: Array.isArray(drafts) ? drafts : null,
     };
   } catch {
-    return { config: null, my: null };
+    return NONE;
   }
 }
 
@@ -145,33 +165,44 @@ export async function startPersisting(): Promise<void> {
   // 共有フォルダの写しは読むのに時間がかかることがあるので、先に読み始めておく
   const sidecarP = loadSidecar(SIDECAR_TIMEOUT_MS).catch(() => null);
 
-  // 1) 部品表・設定・My部品を IndexedDB から戻す。長くても HYDRATE_TIMEOUT_MS で切り上げて画面を出す
-  let hydrateLate: Promise<{ config: ConfigFile | null; my: MyConfigFile | null }> | null = null;
-  if (available()) {
-    type Loaded = { config: ConfigFile | null; my: MyConfigFile | null; timedOut?: boolean };
-    const p: Promise<Loaded> = loadPersisted();
-    const saved = await withTimeout<Loaded>(p, HYDRATE_TIMEOUT_MS, { config: null, my: null, timedOut: true });
+  /** IndexedDB の中身をストアへ。案件は IndexedDB にあればそちらが正（localStorage は入り切らないことがある） */
+  const apply = (saved: Persisted) => {
     const s = useStore.getState();
     if (saved.config) s.loadConfig(saved.config);
     if (saved.my) s.loadMyConfig(saved.my);
-    persistInfo.fromBrowser = Boolean(saved.config || saved.my);
+    if (saved.projects) useStore.setState({ projects: saved.projects });
+    if (saved.drafts) useStore.setState({ drafts: saved.drafts });
+  };
+
+  // 1) 部品表・設定・My部品・案件を IndexedDB から戻す。長くても HYDRATE_TIMEOUT_MS で切り上げて画面を出す
+  let hydrateLate: Promise<Persisted> | null = null;
+  if (available()) {
+    type Loaded = Persisted & { timedOut?: boolean };
+    const p: Promise<Loaded> = loadPersisted();
+    const saved = await withTimeout<Loaded>(p, HYDRATE_TIMEOUT_MS, { ...NONE, timedOut: true });
+    apply(saved);
+    persistInfo.fromBrowser = Boolean(saved.config || saved.my || saved.projects?.length || saved.drafts?.length);
     // 時間切れなら、遅れて来た結果を待って（人がまだ触っていなければ）あとから戻す
     if (saved.timedOut) hydrateLate = p;
   }
+  // 旧版が localStorage にだけ残した案件も「ブラウザにある」うち
+  {
+    const s = useStore.getState();
+    if (s.projects.length > 0 || s.drafts.length > 0) persistInfo.fromBrowser = true;
+  }
 
-  // 2) ブラウザに何も残っていなければ、共有フォルダの写しから戻す（新しい PC・消えたブラウザ）。
-  //    残っていれば待たずに先へ進み、写しのほうが新しいときだけあとで知らせる
+  /*
+   * 2) ブラウザに何も残っていないときだけ、共有フォルダの写しから戻す（新しい PC・消えたブラウザ）。
+   *    ブラウザに残っていれば写しは見ない。**ブラウザの中身が本体で、バックアップは書くだけ。**
+   *    以前は「写しのほうが新しい」と帯で知らせて読み込ませていたが、別の PC の中身で
+   *    こちらの案件が置き換わり、データが混ざる元になったのでやめた
+   */
   if (!persistInfo.fromBrowser && !hydrateLate) {
     const sc = await sidecarP;
     if (isBundle(sc)) {
       loadBundle(sc);
       persistInfo.fromSidecar = true;
     }
-  } else {
-    void sidecarP.then((sc) => {
-      if (!isBundle(sc) || !sc.savedAt) return;
-      if (sc.savedAt > loadBackupSeen()) useStore.getState().setNewerBackup({ savedAt: sc.savedAt, bundle: sc });
-    });
   }
 
   // 3) 机に出していた作業中案件を戻す（机は白紙なので、しまう側は何も起きない）
@@ -184,6 +215,7 @@ export async function startPersisting(): Promise<void> {
   // 4) 見張る（外形線の軽量化は見張りを付けてから。軽くした結果を IndexedDB へ書くのは見張り側）
   let cfgTimer: ReturnType<typeof setTimeout> | null = null;
   let myTimer: ReturnType<typeof setTimeout> | null = null;
+  let prjTimer: ReturnType<typeof setTimeout> | null = null;
   let deskTimer: ReturnType<typeof setTimeout> | null = null;
   let liteTimer: ReturnType<typeof setTimeout> | null = null;
   /** 人が部品表・設定に触ったか。時間切れのあと遅れて来た IndexedDB の中身を当てていいかの判断用 */
@@ -214,6 +246,15 @@ export async function startPersisting(): Promise<void> {
       if (myTimer) clearTimeout(myTimer);
       myTimer = setTimeout(() => void write(MY_KEY, snapshotMy()), DEBOUNCE_MS);
     }
+    // 完了案件・作業中案件（机の自動しまいで頻繁に変わるので、まとめて書く）
+    if (now.projects !== before.projects || now.drafts !== before.drafts) {
+      if (prjTimer) clearTimeout(prjTimer);
+      prjTimer = setTimeout(() => {
+        const s = useStore.getState();
+        void write(PROJECTS_KEY, s.projects);
+        void write(DRAFTS_KEY, s.drafts);
+      }, DEBOUNCE_MS);
+    }
     // 部品表が入れ替わったら（読み込み・復元）、軽くしていない外形線を軽くする
     if (now.devices !== before.devices || now.myDevices !== before.myDevices) {
       if (liteTimer) clearTimeout(liteTimer);
@@ -243,27 +284,31 @@ export async function startPersisting(): Promise<void> {
      * （既定値の上に部品を足した・一括読み込みした、など。それを消すほうが痛い）
      */
     void hydrateLate.then((saved) => {
-      const s = useStore.getState();
       if (!touched) {
-        if (saved.config) s.loadConfig(saved.config);
-        if (saved.my) s.loadMyConfig(saved.my);
-        persistInfo.fromBrowser = Boolean(saved.config || saved.my);
+        apply(saved);
+        persistInfo.fromBrowser = Boolean(saved.config || saved.my || saved.projects?.length || saved.drafts?.length);
       }
       persistInfo.settled = true;
       // 触っていたぶんは、settled になったいま書く
       if (touched) {
+        const s = useStore.getState();
         void write(CONFIG_KEY, snapshotConfig());
         void write(MY_KEY, snapshotMy());
+        void write(PROJECTS_KEY, s.projects);
+        void write(DRAFTS_KEY, s.drafts);
       }
       liteMasters();
     });
   } else {
     persistInfo.settled = true;
-    // 写しから戻したぶんは、まだ IndexedDB に無いのでここで書いておく
+    // 写し・localStorage から戻したぶんは、まだ IndexedDB に無いのでここで書いておく
+    const s = useStore.getState();
     if (persistInfo.fromSidecar) {
       void write(CONFIG_KEY, snapshotConfig());
       void write(MY_KEY, snapshotMy());
     }
+    void write(PROJECTS_KEY, s.projects);
+    void write(DRAFTS_KEY, s.drafts);
   }
 
   // 5) 外形線をまだ軽くしていないものは、ここで一度だけ軽くする（旧データの取り込み分）。
@@ -287,5 +332,11 @@ export async function startPersisting(): Promise<void> {
       deskTimer = null;
       useStore.getState().autoStash();
     }
+    // 机をしまった直後は案件が変わっている。待ち中でなくても最後に一度書く
+    if (prjTimer) clearTimeout(prjTimer);
+    prjTimer = null;
+    const s = useStore.getState();
+    void write(PROJECTS_KEY, s.projects);
+    void write(DRAFTS_KEY, s.drafts);
   });
 }

@@ -248,12 +248,6 @@ export type State = {
    * 設計の途中で寸法が動くと、並べた機器・加工がずれたまま図が出てしまうため。
    */
   sizeLocked: boolean;
-  /**
-   * 起動時に見つけた、このブラウザが最後に見たものより**新しい**バックアップ
-   * （共有フォルダの写し。別の PC で書かれたもの）。帯に出して、読むかどうかを人に決めてもらう
-   */
-  newerBackup: { savedAt: string; bundle: BackupBundle } | null;
-  setNewerBackup: (v: { savedAt: string; bundle: BackupBundle } | null) => void;
 
   go: (screen: Screen) => void;
   /** 盤サイズを確定して面選択へ。以後、盤サイズ画面の入力は触れなくなる */
@@ -530,8 +524,6 @@ export const useStore = create<State>((set) => ({
   removedDucts: {},
   underlays: {},
   sizeLocked: false,
-  newerBackup: null,
-  setNewerBackup: (v) => set({ newerBackup: v }),
 
   go: (screen) => set({ screen, selectedUid: null }),
   confirmSize: () => set({ sizeLocked: true, screen: 'faces', selectedUid: null }),
@@ -1349,9 +1341,7 @@ export function loadBundle(b: BackupBundle): void {
   if (b.my) s.loadMyConfig(b.my);
   if (b.projects && (b.projects.projects.length > 0 || (b.projects.drafts ?? []).length > 0))
     s.loadProjectFile(b.projects);
-  // 読んだものは「見た」扱い。同じ写しで起動時に知らせない
   markBackupSeen(b.savedAt);
-  if (s.newerBackup && s.newerBackup.savedAt <= (b.savedAt ?? '')) s.setNewerBackup(null);
 }
 
 /** 全部入りバックアップの形をしているか（ファイルの中身で判定する） */
