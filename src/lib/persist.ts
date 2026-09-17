@@ -26,9 +26,9 @@
  *
  * ⚠ API キーは残さない。キーは panel-studio.ai（localStorage）だけに置き、ここには入れない。
  */
-import type { ConfigFile, Draft, MyConfigFile, Project } from '../store';
-import { isBundle, loadBundle, useStore } from '../store';
-import { loadSidecar } from './backup';
+import type { BackupBundle, ConfigFile, Draft, MyConfigFile, Project } from '../store';
+import { isBundle, useStore } from '../store';
+import { loadSidecar, markBackupSeen } from './backup';
 import { liteMasters } from './liteMasters';
 
 const DB = 'panel-studio-state';
@@ -57,13 +57,56 @@ const SIDECAR_TIMEOUT_MS = 20000;
  * の判断に使う。
  */
 export const persistInfo = {
-  /** IndexedDB に部品表・設定が残っていて、それを戻した */
+  /** ブラウザに何かしら残っていて、それを戻した */
   fromBrowser: false,
-  /** 共有フォルダの写し（panel-studio-backup.js）から戻した */
+  /** 共有フォルダの写し（panel-studio-backup.js）やフォルダの JSON から戻したものがある */
   fromSidecar: false,
+  /**
+   * 種類ごとに「ブラウザに残っていたか」。設定・部品表 / My部品 / 案件（完了・作業中）は
+   * 別々に消えることがある（IndexedDB の一部だけ失われる、旧版が localStorage にだけ残した等）ので、
+   * 無い種類だけをバックアップから戻す。残っている種類はバックアップで上書きしない
+   */
+  has: { config: false, my: false, projects: false },
   /** 起動時の戻しが済んだ（これより前に IndexedDB へ書くと、残してあるものを既定値で潰す） */
   settled: false,
 };
+
+export const KIND_LABEL = { config: '設定・部品表', my: 'My部品', projects: '案件' } as const;
+export type PersistKind = keyof typeof KIND_LABEL;
+
+/** ブラウザに無い種類 */
+export function missingKinds(): PersistKind[] {
+  return (Object.keys(KIND_LABEL) as PersistKind[]).filter((k) => !persistInfo.has[k]);
+}
+
+/**
+ * バックアップ（全部入り）から、**ブラウザに無い種類だけ**を戻す。戻した種類を返す。
+ * ブラウザに残っている種類には触らない — ブラウザの中身が本体で、バックアップは書くだけ
+ */
+export function restoreMissingFrom(b: BackupBundle): PersistKind[] {
+  const s = useStore.getState();
+  const done: PersistKind[] = [];
+  if (!persistInfo.has.config && b.config) {
+    s.loadConfig(b.config);
+    persistInfo.has.config = true;
+    done.push('config');
+  }
+  if (!persistInfo.has.my && b.my) {
+    s.loadMyConfig(b.my);
+    persistInfo.has.my = true;
+    done.push('my');
+  }
+  if (!persistInfo.has.projects && b.projects && (b.projects.projects.length > 0 || (b.projects.drafts ?? []).length > 0)) {
+    s.loadProjectFile(b.projects);
+    persistInfo.has.projects = true;
+    done.push('projects');
+  }
+  if (done.length > 0) {
+    persistInfo.fromSidecar = true;
+    markBackupSeen(b.savedAt);
+  }
+  return done;
+}
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -165,6 +208,15 @@ export async function startPersisting(): Promise<void> {
   // 共有フォルダの写しは読むのに時間がかかることがあるので、先に読み始めておく
   const sidecarP = loadSidecar(SIDECAR_TIMEOUT_MS).catch(() => null);
 
+  /** 種類ごとに「ブラウザに残っていた」印を付ける。旧版が localStorage にだけ残した案件も数える */
+  const noteHas = (saved: Persisted) => {
+    const s = useStore.getState();
+    if (saved.config) persistInfo.has.config = true;
+    if (saved.my) persistInfo.has.my = true;
+    if (saved.projects || saved.drafts || s.projects.length > 0 || s.drafts.length > 0) persistInfo.has.projects = true;
+    persistInfo.fromBrowser = persistInfo.has.config || persistInfo.has.my || persistInfo.has.projects;
+  };
+
   /** IndexedDB の中身をストアへ。案件は IndexedDB にあればそちらが正（localStorage は入り切らないことがある） */
   const apply = (saved: Persisted) => {
     const s = useStore.getState();
@@ -181,28 +233,20 @@ export async function startPersisting(): Promise<void> {
     const p: Promise<Loaded> = loadPersisted();
     const saved = await withTimeout<Loaded>(p, HYDRATE_TIMEOUT_MS, { ...NONE, timedOut: true });
     apply(saved);
-    persistInfo.fromBrowser = Boolean(saved.config || saved.my || saved.projects?.length || saved.drafts?.length);
+    noteHas(saved);
     // 時間切れなら、遅れて来た結果を待って（人がまだ触っていなければ）あとから戻す
     if (saved.timedOut) hydrateLate = p;
   }
-  // 旧版が localStorage にだけ残した案件も「ブラウザにある」うち
-  {
-    const s = useStore.getState();
-    if (s.projects.length > 0 || s.drafts.length > 0) persistInfo.fromBrowser = true;
-  }
 
   /*
-   * 2) ブラウザに何も残っていないときだけ、共有フォルダの写しから戻す（新しい PC・消えたブラウザ）。
-   *    ブラウザに残っていれば写しは見ない。**ブラウザの中身が本体で、バックアップは書くだけ。**
+   * 2) ブラウザに無い種類だけ、共有フォルダの写しから戻す（新しい PC・消えたブラウザ・一部だけ消えたとき）。
+   *    ブラウザに残っている種類は写しで上書きしない。**ブラウザの中身が本体で、バックアップは書くだけ。**
    *    以前は「写しのほうが新しい」と帯で知らせて読み込ませていたが、別の PC の中身で
    *    こちらの案件が置き換わり、データが混ざる元になったのでやめた
    */
-  if (!persistInfo.fromBrowser && !hydrateLate) {
+  if (!hydrateLate && missingKinds().length > 0) {
     const sc = await sidecarP;
-    if (isBundle(sc)) {
-      loadBundle(sc);
-      persistInfo.fromSidecar = true;
-    }
+    if (isBundle(sc)) restoreMissingFrom(sc);
   }
 
   // 3) 机に出していた作業中案件を戻す（机は白紙なので、しまう側は何も起きない）
@@ -286,7 +330,7 @@ export async function startPersisting(): Promise<void> {
     void hydrateLate.then((saved) => {
       if (!touched) {
         apply(saved);
-        persistInfo.fromBrowser = Boolean(saved.config || saved.my || saved.projects?.length || saved.drafts?.length);
+        noteHas(saved);
       }
       persistInfo.settled = true;
       // 触っていたぶんは、settled になったいま書く

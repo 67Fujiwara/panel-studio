@@ -14,7 +14,7 @@ import {
   type BackupKind,
   type BackupState,
 } from '../lib/backup';
-import { persistInfo } from '../lib/persist';
+import { KIND_LABEL, missingKinds, restoreMissingFrom } from '../lib/persist';
 import {
   isBundle,
   loadBundle,
@@ -75,9 +75,10 @@ export function BackupBar() {
       } else
         setState((v) => ({
           ...v,
-          error: persistInfo.fromBrowser || persistInfo.fromSidecar
-            ? '書き込みの許可を確かめてください（「許可し直す」を押す）'
-            : 'ブラウザに保存がありません。「許可し直す」を押すとバックアップから戻します',
+          error:
+            missingKinds().length === 0
+              ? '書き込みの許可を確かめてください（「許可し直す」を押す）'
+              : `ブラウザに ${missingKinds().map((k) => KIND_LABEL[k]).join('・')} がありません。「許可し直す」を押すとバックアップから戻します`,
         }));
     })();
 
@@ -298,18 +299,13 @@ export function BackupBar() {
  * 既定の21件でバックアップを上書きしてしまう。失うものが無いので聞かずに戻す。
  */
 async function restoreMissing(dir: FileSystemDirectoryHandle) {
-  if (persistInfo.fromBrowser || persistInfo.fromSidecar) return;
-  const s = useStore.getState();
-  // 起動後に人が既に一括読み込みなどで入れていれば、それを消さない
-  if (s.myDevices.length > 0 || s.projects.length > 0) return;
+  // ブラウザに無い種類（設定・部品表 / My部品 / 案件）だけ。全部あれば何もしない
+  if (missingKinds().length === 0) return;
   const text = (await readFile(dir, BACKUP_FILE)) ?? (await readFile(dir, BACKUP_PREV_FILE));
   if (!text) return;
   try {
     const b = JSON.parse(text) as unknown;
-    if (isBundle(b)) {
-      loadBundle(b);
-      persistInfo.fromSidecar = true;
-    }
+    if (isBundle(b)) restoreMissingFrom(b);
   } catch {
     /* 壊れたファイルは読まない。人が一括読み込みで別のものを選べる */
   }
@@ -325,7 +321,8 @@ async function restoreMissing(dir: FileSystemDirectoryHandle) {
  */
 async function offerRestore(dir: FileSystemDirectoryHandle) {
   const s = useStore.getState();
-  if (s.projects.length > 0 || s.drafts.length > 0 || s.myDevices.length > 0 || persistInfo.fromBrowser) return;
+  const missing = missingKinds();
+  if (missing.length === 0) return;
 
   // いまの形式（全部入りの1ファイル）を先に見る。無ければ「1つ前」も拾う
   const bundleText = (await readFile(dir, BACKUP_FILE)) ?? (await readFile(dir, BACKUP_PREV_FILE));
@@ -343,25 +340,27 @@ async function offerRestore(dir: FileSystemDirectoryHandle) {
 
   const msg =
     `このフォルダには既にバックアップがあります（${found.join('・')}）。\n` +
-    `このブラウザはまだ空なので、読み込んで引き継ぎますか？\n\n` +
-    '※ 「キャンセル」にすると、空の状態でこのフォルダのバックアップを上書きします。';
+    `このブラウザに無い ${missing.map((k) => KIND_LABEL[k]).join('・')} だけ、そこから引き継ぎますか？\n` +
+    '（ブラウザに残っているものはそのままです）\n\n' +
+    '※ 「キャンセル」にすると、いまのブラウザの中身でこのフォルダのバックアップを上書きします。';
   if (!window.confirm(msg)) return;
 
   try {
     if (bundleText) {
       const b = JSON.parse(bundleText) as BackupBundle;
-      if (b.schemaVersion === 1 && b.kind === 'bundle') loadBundle(b);
+      if (isBundle(b)) restoreMissingFrom(b);
       return;
     }
-    if (config) {
+    // 旧版の3ファイル。こちらも無い種類だけ
+    if (config && missing.includes('config')) {
       const f = JSON.parse(config) as ConfigFile;
       if (f.schemaVersion === 1) s.loadConfig(f);
     }
-    if (my) {
+    if (my && missing.includes('my')) {
       const f = JSON.parse(my) as MyConfigFile;
       if (f.schemaVersion === 1) s.loadMyConfig(f);
     }
-    if (projects) {
+    if (projects && missing.includes('projects')) {
       const f = JSON.parse(projects) as ProjectFile;
       if (f.schemaVersion === 1) s.loadProjectFile(f);
     }
