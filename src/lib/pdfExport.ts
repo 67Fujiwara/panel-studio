@@ -31,6 +31,8 @@ const STROKE: Record<string, [number, number, number]> = {
   [LAYER.tap]: [0.75, 0.1, 0.6],
   [LAYER.notch]: [0.9, 0.45, 0.05],
   [LAYER.note]: [0, 0, 0],
+  [LAYER.balloon]: [0.1, 0.5, 0.2],
+  [LAYER.table]: [0, 0, 0],
 };
 
 type Op =

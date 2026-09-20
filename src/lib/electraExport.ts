@@ -35,6 +35,8 @@ export const LAYER_STYLE: Record<string, { color: string; aci: number }> = {
   [LAYER.tap]: { color: '#bf1a99', aci: 2 },
   [LAYER.notch]: { color: '#e6730d', aci: 6 },
   [LAYER.note]: { color: '#000000', aci: 7 },
+  [LAYER.balloon]: { color: '#1a8033', aci: 3 },
+  [LAYER.table]: { color: '#000000', aci: 7 },
 };
 
 export type ElectraEntity =

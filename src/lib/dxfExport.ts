@@ -9,9 +9,11 @@ import { unfoldCells } from './unfold';
 import { LAYER, type Drawer } from './drawing';
 import { PdfWriter } from './pdfExport';
 import { ElectraSheetWriter, buildElectraFile } from './electraExport';
+import { balloonIndex, balloonRadius, drawBalloons, drawPartsTable, mergeRuns } from './balloons';
+import type { Anchor, Balloons } from './balloons';
 import type { ElectraJob, ElectraSheet } from './electraExport';
 import { baseSlots, rotatedSize, slotUseOf } from '../types';
-import type { DeviceShape, DuctSpec, FaceId, Machining, PanelSpec, PlacedDevice, Profile } from '../types';
+import type { DeviceShape, DeviceSpec, DuctSpec, FaceId, Machining, PanelSpec, PlacedDevice, Profile } from '../types';
 
 /**
  * DXF 書き出し。
@@ -38,6 +40,8 @@ const LAYER_COLOR: Record<string, number> = {
   [LAYER.tap]: 2,
   [LAYER.notch]: 6,
   [LAYER.note]: 7,
+  [LAYER.balloon]: 3,
+  [LAYER.table]: 7,
 };
 
 const n = (v: number) => (Number.isFinite(v) ? Number(v.toFixed(3)) : 0);
@@ -252,6 +256,35 @@ function drawBase(w: Drawer, shape: DeviceShape | undefined, ox: number, oy: num
 /** 書き出す中身。加工屋には穴だけ渡したいので切り替えられるようにする。 */
 export type ExportKind = 'full' | 'holes';
 
+/** 面を回る順。番号はこの順（中板 → 扉 → …、面の中は上から下・左から右）に振る */
+const FACE_ORDER: FaceId[] = ['plate', ...FACES.map((f) => f.id).filter((id) => id !== 'plate')];
+
+/** 面の中の機器を、上から下・左から右の順に */
+function placedInOrder(layout: ReturnType<typeof autoLayout>) {
+  return [...layout.placed].sort((a, b) => b.y - a.y || a.x - b.x);
+}
+
+/**
+ * 盤全体の風船番号（型式ごとに 1 つ）と部品表の行。
+ * 4 枚のシートで同じ番号を使うので、書き出しの最初に 1 回だけ作る
+ */
+export function buildBalloons(input: ExportInput): Balloons {
+  const idx = balloonIndex();
+  for (const face of FACE_ORDER) {
+    const layout = autoLayout(input.panel, input.profile, face, input.items, input.pinned, input.devices, input.removedDucts[face] ?? []);
+    for (const p of placedInOrder(layout)) {
+      const spec = input.devices.get(p.specId);
+      if (!spec) continue;
+      idx.add(spec);
+      for (const o of p.opts ?? []) {
+        const os = input.devices.get(o);
+        if (os) idx.add(os);
+      }
+    }
+  }
+  return { no: idx.no, rows: idx.rows };
+}
+
 /** 面1つぶんを、指定した位置を左下として書き込む。 */
 function drawFace(
   w: Drawer,
@@ -262,6 +295,8 @@ function drawFace(
   kind: ExportKind,
   /** 型式などの文字を書くか。加工屋へ渡す図と中板は、文字が切断線に化けるので出さない */
   withText: boolean,
+  /** 風船番号。null なら付けない（穴だけの図） */
+  balloons: { index: Balloons; r: number } | null = null,
 ) {
   const { panel, profile, items, pinned, machining, removedDucts, underlays, devices } = input;
   const size = faceSize(panel, face);
@@ -278,7 +313,11 @@ function drawFace(
     for (const r of computeRails(layout, devices, profile.rail.endMargin)) {
       w.rect(LAYER.rail, ox + r.x, oy + r.y - DIN_RAIL_WIDTH / 2, r.length, DIN_RAIL_WIDTH);
     }
-    for (const p of layout.placed) {
+    /** 風船を付ける相手。親の機器は隣り合う同型式をまとめ、OP・ユニットは 1 台ずつ */
+    const parents: Anchor[] = [];
+    const children: Anchor[] = [];
+    const noOf = (spec: DeviceSpec) => balloons?.index.no.get(spec.model) ?? 0;
+    for (const p of placedInOrder(layout)) {
       const spec = devices.get(p.specId);
       if (!spec) continue;
       const s = rotatedSize(spec.size, p.rot);
@@ -291,6 +330,7 @@ function drawFace(
       if (withText) {
         w.text(LAYER.deviceText, ox + p.x + 2, oy + p.y + 2, Math.min(8, s.h / 3), spec.model);
       }
+      if (balloons) parents.push({ no: noOf(spec), x: p.x, y: p.y, w: s.w, h: s.h });
 
       /*
        * 重ねた部品（OP）とベースに載せたユニットも書く。図に見えているものが
@@ -324,7 +364,21 @@ function drawFace(
           const os = rotatedSize(opt.size, rot);
           w.text(LAYER.deviceText, cx - os.w / 2 + 2, cy - os.h / 2 + 2, Math.min(6, os.h / 3), opt.model);
         }
+        if (balloons) {
+          const os = rotatedSize(opt.size, rot);
+          children.push({ no: noOf(opt), x: cx - ox - os.w / 2, y: cy - oy - os.h / 2, w: os.w, h: os.h });
+        }
       });
+    }
+    /*
+     * 風船番号。親は隣り合う同型式（端子台の列など）を 1 つにまとめ、OP・ユニットは 1 台ずつ。
+     * 機器の外形を描き終えてから付けるので、引き出し線が機器の上を横切ることはあっても
+     * 機器の線に埋もれることはない
+     */
+    if (balloons) {
+      const taken: { x: number; y: number }[] = [];
+      drawBalloons(w, mergeRuns(parents), balloons.r, ox, oy, size, taken);
+      drawBalloons(w, children, balloons.r, ox, oy, size, taken);
     }
   }
 
@@ -333,9 +387,32 @@ function drawFace(
   for (const m of machining.filter((q) => q.face === face)) drawMachining(w, m, ox, oy);
 }
 
+/** 何も描かない Drawer。表の大きさを測るのに使う */
+const NULL_DRAWER: Drawer = { line() {}, rect() {}, circle() {}, arc() {}, text() {} };
+
+/**
+ * 図の右の余白に部品表を置く。表のぶん図の範囲が広がるので、広がった範囲を返す。
+ * 表が図より高いときは、表の下端を 0 に合わせて上へ伸ばす（原点は動かさない。座標が狂うと困る）
+ */
+function addPartsTable(w: Drawer, extent: { w: number; h: number }, index: Balloons, r: number) {
+  if (index.rows.length === 0) return extent;
+  const u = r / 12; // 風船と同じ比で拡大（中板 720mm 高で 1）
+  const gap = 30 * u;
+  const measured = drawPartsTable(NULL_DRAWER, index.rows, 0, 0, u);
+  const yTop = Math.max(extent.h, measured.h);
+  const table = drawPartsTable(w, index.rows, extent.w + gap, yTop, u);
+  return { w: extent.w + gap + table.w, h: yTop };
+}
+
 /** キャビネット（中板以外の6面）を三面図の並びで描く。DXF と PDF で共通 */
-function drawCabinet(w: Drawer, input: ExportInput, kind: ExportKind): { w: number; h: number } {
+function drawCabinet(
+  w: Drawer,
+  input: ExportInput,
+  kind: ExportKind,
+  balloons: Balloons | null,
+): { w: number; h: number } {
   const { cells, h, w: totalW } = unfoldCells(input.panel);
+  const r = balloonRadius(h);
   for (const c of cells) {
     if (c.id === 'plate') continue;
     /*
@@ -344,25 +421,42 @@ function drawCabinet(w: Drawer, input: ExportInput, kind: ExportKind): { w: numb
      * 面の中身は各面の座標（Y 上向き）で描くので、直すのは置き場所の変換だけ。
      */
     const oy = h - (c.y + c.h);
-    drawFace(w, input, c.id, c.x, oy, kind, kind === 'full');
+    drawFace(w, input, c.id, c.x, oy, kind, kind === 'full', kind === 'full' && balloons ? { index: balloons, r } : null);
     // 面の名前は参考用。加工屋へ渡す穴だけの図には文字を出さない（切断線に化ける）
     if (kind === 'full') w.text(LAYER.note, c.x, oy - 14, 10, `${FACE_LABEL(c.id)} ${c.w}x${c.h}`);
   }
-  return { w: totalW, h };
+  const extent = { w: totalW, h };
+  return kind === 'full' && balloons ? addPartsTable(w, extent, balloons, r) : extent;
+}
+
+/** 中板を描く（風船・部品表つき）。広がった範囲を返す */
+function drawPlate(
+  w: Drawer,
+  input: ExportInput,
+  kind: ExportKind,
+  withText: boolean,
+  balloons: Balloons | null,
+): { w: number; h: number } {
+  const size = faceSize(input.panel, 'plate');
+  const r = balloonRadius(size.h);
+  drawFace(w, input, 'plate', 0, 0, kind, withText, kind === 'full' && balloons ? { index: balloons, r } : null);
+  const extent = { w: size.w, h: size.h };
+  return kind === 'full' && balloons ? addPartsTable(w, extent, balloons, r) : extent;
 }
 
 /** キャビネット（中板以外の6面）を三面図の並びで1枚に書き出す。 */
-export function cabinetDxf(input: ExportInput, kind: ExportKind): string {
+export function cabinetDxf(input: ExportInput, kind: ExportKind, balloons: Balloons | null = null): string {
   const w = new DxfWriter();
-  drawCabinet(w, input, kind);
+  drawCabinet(w, input, kind, balloons);
   return w.finish();
 }
 
 /** 中板だけを1枚に書き出す。 */
-export function plateDxf(input: ExportInput, kind: ExportKind): string {
+export function plateDxf(input: ExportInput, kind: ExportKind, balloons: Balloons | null = null): string {
   const w = new DxfWriter();
-  // 中板は文字なしで出す（型式・寸法の注記とも）。そのまま加工へ回る図のため
-  drawFace(w, input, 'plate', 0, 0, kind, false);
+  // 中板は型式の文字なしで出す（そのまま加工へ回る図のため）。機器の判別は風船番号と部品表で
+  // （別レイヤなので、加工へ渡すときはレイヤごと消せる）
+  drawPlate(w, input, kind, false, balloons);
   return w.finish();
 }
 
@@ -370,45 +464,43 @@ export function plateDxf(input: ExportInput, kind: ExportKind): string {
  * PDF 版。CAD の無い人（現場・営業・客先）が見るためのもので、DXF と同じ絵を A3 横 1 枚に収める。
  * 機器つきの中板には型式も入れる（PDF は切断線に化ける心配がないので）。
  */
-export function cabinetPdf(input: ExportInput, kind: ExportKind, title: string): Uint8Array {
+export function cabinetPdf(input: ExportInput, kind: ExportKind, title: string, balloons: Balloons | null = null): Uint8Array {
   const w = new PdfWriter();
-  const extent = drawCabinet(w, input, kind);
+  const extent = drawCabinet(w, input, kind, balloons);
   return w.finish(extent, `${title}  キャビネット（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`);
 }
 
-export function platePdf(input: ExportInput, kind: ExportKind, title: string): Uint8Array {
+export function platePdf(input: ExportInput, kind: ExportKind, title: string, balloons: Balloons | null = null): Uint8Array {
   const w = new PdfWriter();
-  drawFace(w, input, 'plate', 0, 0, kind, kind === 'full');
-  const size = faceSize(input.panel, 'plate');
-  return w.finish({ w: size.w, h: size.h }, `${title}  中板（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`);
+  const extent = drawPlate(w, input, kind, kind === 'full', balloons);
+  return w.finish(extent, `${title}  中板（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`);
 }
 
 /**
  * ElectraCAD Studio 用のシート（図枠なし・中身だけ）。DXF・PDF と同じ描画を JSON に溜める。
  * 中板は PDF と同じく型式も入れる（ElectraCAD 側で図枠に入れて見る図なので、切断線の心配がない）。
  */
-export function cabinetElectra(input: ExportInput, kind: ExportKind): ElectraSheet {
+export function cabinetElectra(input: ExportInput, kind: ExportKind, balloons: Balloons | null = null): ElectraSheet {
   const w = new ElectraSheetWriter();
-  const extent = drawCabinet(w, input, kind);
+  const extent = drawCabinet(w, input, kind, balloons);
   return w.finish(`cabinet_${kind}`, `キャビネット（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`, extent);
 }
 
-export function plateElectra(input: ExportInput, kind: ExportKind): ElectraSheet {
+export function plateElectra(input: ExportInput, kind: ExportKind, balloons: Balloons | null = null): ElectraSheet {
   const w = new ElectraSheetWriter();
-  drawFace(w, input, 'plate', 0, 0, kind, kind === 'full');
-  const size = faceSize(input.panel, 'plate');
-  return w.finish(`plate_${kind}`, `中板（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`, { w: size.w, h: size.h });
+  const extent = drawPlate(w, input, kind, kind === 'full', balloons);
+  return w.finish(`plate_${kind}`, `中板（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`, extent);
 }
 
 /** ElectraCAD Studio へ差し込む 1 ファイル（JSON・UTF-8）。4 シートをまとめて持つ */
-export function electraJson(input: ExportInput, job: ElectraJob): string {
+export function electraJson(input: ExportInput, job: ElectraJob, balloons: Balloons | null = null): string {
   const file = buildElectraFile(
     job,
     { model: input.panel.model, outer: { ...input.panel.outer }, plate: { ...input.panel.plate } },
     [
-      cabinetElectra(input, 'full'),
+      cabinetElectra(input, 'full', balloons),
       cabinetElectra(input, 'holes'),
-      plateElectra(input, 'full'),
+      plateElectra(input, 'full', balloons),
       plateElectra(input, 'holes'),
     ],
   );
@@ -548,18 +640,20 @@ export type DxfSet = { name: string; text?: string; bytes?: Uint8Array }[];
 export function buildDxfSet(input: ExportInput, base: string, job?: ElectraJob): DxfSet {
   const title = base || 'panel';
   const meta: ElectraJob = job ?? { company: '', jobNo: '', owner: '', completedAt: '', note: '' };
+  // 風船番号は盤全体で 1 つの表。4 枚のシートで同じ番号を使う
+  const balloons = buildBalloons(input);
   return [
-    { name: `${base}_cabinet_full.dxf`, text: cabinetDxf(input, 'full') },
+    { name: `${base}_cabinet_full.dxf`, text: cabinetDxf(input, 'full', balloons) },
     { name: `${base}_cabinet_holes.dxf`, text: cabinetDxf(input, 'holes') },
-    { name: `${base}_plate_full.dxf`, text: plateDxf(input, 'full') },
+    { name: `${base}_plate_full.dxf`, text: plateDxf(input, 'full', balloons) },
     { name: `${base}_plate_holes.dxf`, text: plateDxf(input, 'holes') },
     // 同じ4枚を PDF でも。CAD の無い人がそのまま開ける
-    { name: `${base}_cabinet_full.pdf`, bytes: cabinetPdf(input, 'full', title) },
+    { name: `${base}_cabinet_full.pdf`, bytes: cabinetPdf(input, 'full', title, balloons) },
     { name: `${base}_cabinet_holes.pdf`, bytes: cabinetPdf(input, 'holes', title) },
-    { name: `${base}_plate_full.pdf`, bytes: platePdf(input, 'full', title) },
+    { name: `${base}_plate_full.pdf`, bytes: platePdf(input, 'full', title, balloons) },
     { name: `${base}_plate_holes.pdf`, bytes: platePdf(input, 'holes', title) },
     // ElectraCAD Studio へ差し込む用。図枠なしの中身だけを JSON（UTF-8）で
-    { name: `${base}_electracad.json`, bytes: new TextEncoder().encode(electraJson(input, meta)) },
+    { name: `${base}_electracad.json`, bytes: new TextEncoder().encode(electraJson(input, meta, balloons)) },
   ];
 }
 
