@@ -62,32 +62,29 @@ export function textWidth(s: string, h: number): number {
 export type Anchor = { no: number; x: number; y: number; w: number; h: number };
 
 /**
- * 同じ型式が同じ段（同じ高さ）にあるものは、1 つの風船にまとめる。
- * 隙間なく並ぶ端子台の列は左端に 1 つ、段の両端にあるエンドストッパも段に 1 つ。
- * 1 台ずつ付けると風船だけで図が埋まり、かえって読めない。台数は部品表で分かる
+ * 同じ型式（同じ番号）の機器を 1 つの風船にまとめ、**風船から全部の機器へ引き出し線を引く**。
+ * 風船が 1 つなら読めるし、線が機器の数だけあれば「どれがそれか」も分かる。
+ * 風船は最初の 1 台（いちばん上・左）の近くに置く
  */
-export function mergeRuns(anchors: Anchor[]): Anchor[] {
-  const sorted = [...anchors].sort((a, b) => a.y - b.y || a.x - b.x);
-  const out: Anchor[] = [];
+export function groupByNo(anchors: Anchor[]): { no: number; anchors: Anchor[] }[] {
+  const sorted = [...anchors].sort((a, b) => b.y - a.y || a.x - b.x);
+  const groups = new Map<number, Anchor[]>();
   for (const a of sorted) {
-    const same = out.find((o) => o.no === a.no && Math.abs(o.y - a.y) < 1);
-    if (same) {
-      // 隣接していれば右へ伸ばす（風船は左端に付くので、幅だけ広げておく）。離れていれば省く
-      if (a.x - (same.x + same.w) < 5) same.w = a.x + a.w - same.x;
-      continue;
-    }
-    out.push({ ...a });
+    const g = groups.get(a.no);
+    if (g) g.push(a);
+    else groups.set(a.no, [a]);
   }
-  return out;
+  return [...groups].map(([no, anchors]) => ({ no, anchors }));
 }
 
 /**
- * 風船を描く。図の右上へ斜めに出し、重なるものは上へずらす。
- * @param bounds 面の大きさ。右端に近い機器は左上へ出す
+ * 風船を描く。最初の機器の右上（右端に近ければ左上）に置き、先に置いた風船と重なる・面からはみ出す
+ * ときは周りの空きを探す。引き出し線は同じ番号の全部の機器へ、機器の近いほうの上の角まで引く
+ * @param bounds 面の大きさ。風船はこの中に収める
  */
 export function drawBalloons(
   w: Drawer,
-  anchors: Anchor[],
+  groups: { no: number; anchors: Anchor[] }[],
   r: number,
   ox: number,
   oy: number,
@@ -95,30 +92,46 @@ export function drawBalloons(
   taken: { x: number; y: number }[] = [],
 ) {
   const th = r * 1.1;
-  for (const a of anchors) {
-    // 右上へ。右端に近ければ左上へ。ただし左端も近い（面が狭い）なら右へ出して図の外にはみ出させない
+  const inside = (cx: number, cy: number) => cx - r >= 0 && cx + r <= bounds.w && cy - r >= 0 && cy + r <= bounds.h;
+  const free = (cx: number, cy: number) => !taken.some((t) => Math.hypot(t.x - cx, t.y - cy) < 2.1 * r);
+  for (const g of groups) {
+    const a = g.anchors[0]!;
     const right = a.x + a.w + 2.4 * r <= bounds.w || a.x - 2.4 * r < 0;
-    // 引き出しの起点は機器の上の角
     const ax = right ? a.x + a.w : a.x;
     const ay = a.y + a.h;
-    let cx = right ? ax + r * 1.1 : ax - r * 1.1;
+    // 候補: 斜め上 → 上へ順に → 横へ → 斜め下。面の中で空いている最初の場所
+    const dirs: [number, number][] = right
+      ? [[1, 1], [-1, 1], [0, 1], [1, 0], [-1, 0], [1, -1], [-1, -1], [0, -1]]
+      : [[-1, 1], [1, 1], [0, 1], [-1, 0], [1, 0], [-1, -1], [1, -1], [0, -1]];
+    let cx = ax + (right ? 1 : -1) * r * 1.1;
     let cy = ay + r * 1.1;
-    // 先に置いた風船と重なるなら上へ
-    for (let i = 0; i < 20; i++) {
-      const hit = taken.some((t) => Math.hypot(t.x - cx, t.y - cy) < 2.1 * r);
-      if (!hit) break;
-      cy += 2.2 * r;
+    let found = false;
+    for (let k = 1.1; k <= 12 && !found; k += 2.2) {
+      for (const [dx, dy] of dirs) {
+        const px = ax + dx * r * k;
+        const py = ay + dy * r * k;
+        if (inside(px, py) && free(px, py)) {
+          cx = px;
+          cy = py;
+          found = true;
+          break;
+        }
+      }
     }
-    if (cy + r > bounds.h + 4 * r) cx += right ? 2.2 * r : -2.2 * r; // 上に逃げ場がなければ横へ
     taken.push({ x: cx, y: cy });
 
-    // 引き出し線は円の縁まで
-    const dx = ax - cx;
-    const dy = ay - cy;
-    const d = Math.hypot(dx, dy) || 1;
-    w.line(LAYER.balloon, ox + cx + (dx / d) * r, oy + cy + (dy / d) * r, ox + ax, oy + ay);
+    for (const t of g.anchors) {
+      // 機器の上の角のうち、風船に近いほう
+      const tx = Math.abs(t.x - cx) < Math.abs(t.x + t.w - cx) ? t.x : t.x + t.w;
+      const ty = cy >= t.y + t.h / 2 ? t.y + t.h : t.y;
+      const dx = tx - cx;
+      const dy = ty - cy;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d <= r) continue; // 風船の中にある角には引かない
+      w.line(LAYER.balloon, ox + cx + (dx / d) * r, oy + cy + (dy / d) * r, ox + tx, oy + ty);
+    }
     w.circle(LAYER.balloon, ox + cx, oy + cy, r);
-    const s = String(a.no);
+    const s = String(g.no);
     w.text(LAYER.balloon, ox + cx - textWidth(s, th) / 2, oy + cy - th * 0.36, th, s);
   }
 }
