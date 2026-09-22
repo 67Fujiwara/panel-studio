@@ -18,6 +18,7 @@ import type {
   DuctLayoutId,
   FaceId,
   LayoutResult,
+  MountSide,
   MountType,
   PanelSpec,
   PlacedDevice,
@@ -233,6 +234,10 @@ export type LayoutItem = {
   opts?: string[];
   /** DIN アタッチメントで取付方式を切り替える前の方式。OP を外したらここへ戻す */
   mountBeforeOp?: MountType;
+  /** 面の外側か内側か（キャビネットの面だけ）。未指定は外側 */
+  side?: MountSide;
+  /** 付けた面のほかに、どの面の図にも投影として出すか */
+  showOn?: FaceId[];
   /**
    * ゾーン分割のときにどの区画へ置くか（0=左）。未指定なら分類で決める
    * （動力系は左・制御系は右）。図の上でドラッグして区画をまたぐと入る。
@@ -1390,6 +1395,16 @@ function depthViolations(
             ` が有効奥行き ${limit}mm を超えています`,
         });
       }
+    } else if (face === 'door' && p.side === 'in') {
+      // 扉の内側に付けた機器は、扉と中板のあいだ（有効奥行き）に収まっているか
+      const limit = effectiveDepth(panel);
+      if (limit !== null && spec.size.d > limit) {
+        out.push({
+          uid: p.uid,
+          kind: 'depth',
+          message: `${spec.model}: 扉の内側へ ${spec.size.d}mm 出て、有効奥行き ${limit}mm を超えています（中板の機器に当たります）`,
+        });
+      }
     } else if (face === 'door') {
       // 扉の機器は「扉裏の突出量」の設定に収まっているか
       const limit = panel.depth.doorProjection;
@@ -1449,7 +1464,12 @@ export function autoLayout(
 
   // auto モードでは段の高さを中身から決めるため、手動配置した機器は
   // 段の割り付けに参加させず、置かれた座標のまま残す。干渉は重なり検出で拾う。
-  const placed = auto ? [...pinned, ...result.placed] : result.placed;
+  // 外側／内側と「他の面にも出す」は配置には関わらないので、items から写すだけ
+  const extra = new Map(faceItems.map((i) => [i.uid, i]));
+  const placed = (auto ? [...pinned, ...result.placed] : result.placed).map((p) => {
+    const it = extra.get(p.uid);
+    return it && (it.side || it.showOn) ? { ...p, side: it.side, showOn: it.showOn } : p;
+  });
 
   // 消したダクトは配列から外さず印を付けて残す。図の上に薄く出して押し戻せるようにする
   const gone = new Set(removedDucts);

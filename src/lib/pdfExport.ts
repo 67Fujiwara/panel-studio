@@ -33,7 +33,12 @@ const STROKE: Record<string, [number, number, number]> = {
   [LAYER.note]: [0, 0, 0],
   [LAYER.balloon]: [0.1, 0.5, 0.2],
   [LAYER.table]: [0, 0, 0],
+  [LAYER.inside]: [0.16, 0.36, 0.7],
+  [LAYER.proj]: [0.55, 0.55, 0.6],
 };
+
+/** 破線で描くレイヤ（内側取付の機器・ほかの面からの投影）。見えていないものを実線にしない */
+const DASHED = new Set<string>([LAYER.inside, LAYER.proj]);
 
 type Op =
   | { k: 'line'; layer: string; x1: number; y1: number; x2: number; y2: number }
@@ -109,7 +114,9 @@ export class PdfWriter implements Drawer {
     let cur = '';
     const setColor = (layer: string) => {
       const rgb = STROKE[layer] ?? [0, 0, 0];
-      const s = `${rgb.map((v) => f(v)).join(' ')} RG ${rgb.map((v) => f(v)).join(' ')} rg`;
+      const s =
+        `${rgb.map((v) => f(v)).join(' ')} RG ${rgb.map((v) => f(v)).join(' ')} rg ` +
+        (DASHED.has(layer) ? '[3 2] 0 d' : '[] 0 d');
       if (s !== cur) {
         c.push(s);
         cur = s;

@@ -1626,6 +1626,66 @@ body.dragging * {
   opacity: 0.35;
   pointer-events: none;
 }
+/* ほかの面に付けた機器の投影。破線・薄い色。触れない */
+.proj {
+  color: var(--muted);
+  pointer-events: none;
+}
+.proj rect {
+  fill: rgba(120, 130, 150, 0.08);
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.proj g {
+  opacity: 0.4;
+}
+.proj text {
+  fill: var(--muted);
+  font-size: 8px;
+}
+/* 面の内側に付けた機器。外からは見えないので破線・薄い塗り */
+.device.inside > rect {
+  stroke-dasharray: 5 3;
+  fill-opacity: 0.35;
+}
+.device.inside.shaped > rect {
+  stroke: rgba(0, 0, 0, 0.35);
+}
+/* 座標欄の外側／内側・他の面にも表示 */
+tr.coord-opts td {
+  padding: 4px 6px 8px;
+  font-size: 11px;
+}
+.coord-side,
+.coord-show {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 4px;
+}
+.coord-side > span,
+.coord-show > span {
+  color: var(--muted);
+  min-width: 90px;
+}
+/* 部品編集のグループ見出し（共通／中板／キャビネット外観／加工） */
+.parteditor .grouphead {
+  margin: 18px 0 4px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  font-size: 13px;
+  border-radius: 0 6px 6px 0;
+}
+.parteditor .grouphead small {
+  display: block;
+  margin-top: 2px;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+}
 .canvas-overlay {
   position: absolute;
   right: 10px;

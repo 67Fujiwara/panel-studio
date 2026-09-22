@@ -37,7 +37,12 @@ export const LAYER_STYLE: Record<string, { color: string; aci: number }> = {
   [LAYER.note]: { color: '#000000', aci: 7 },
   [LAYER.balloon]: { color: '#1a8033', aci: 3 },
   [LAYER.table]: { color: '#000000', aci: 7 },
+  [LAYER.inside]: { color: '#295cb3', aci: 4 },
+  [LAYER.proj]: { color: '#8c8c99', aci: 9 },
 };
+
+/** SVG で破線にするレイヤ（内側取付の機器・ほかの面からの投影） */
+const DASHED = new Set<string>([LAYER.inside, LAYER.proj]);
 
 export type ElectraEntity =
   | { t: 'line'; layer: string; x1: number; y1: number; x2: number; y2: number }
@@ -182,8 +187,9 @@ function toSvg(entities: ElectraEntity[], extent: { w: number; h: number }, laye
   const groups: string[] = [];
   for (const [layer, items] of byLayer) {
     const style = layers[layer] ?? { color: '#000000' };
+    const dash = DASHED.has(layer) ? ' stroke-dasharray="3 2"' : '';
     groups.push(
-      `<g class="layer" data-layer="${esc(layer)}" stroke="${style.color}" fill="${style.color}">${items.join('')}</g>`,
+      `<g class="layer" data-layer="${esc(layer)}" stroke="${style.color}" fill="${style.color}"${dash}>${items.join('')}</g>`,
     );
   }
   return (

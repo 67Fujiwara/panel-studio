@@ -14,7 +14,15 @@
 import { LAYER, type Drawer } from './drawing';
 import type { DeviceSpec } from '../types';
 
-export type BalloonRow = { no: number; model: string; name: string; maker: string; qty: number };
+export type BalloonRow = {
+  no: number;
+  model: string;
+  name: string;
+  maker: string;
+  qty: number;
+  /** 面の内側に付けたものが含まれる（表の品名に「内側取付」と添える） */
+  inside?: boolean;
+};
 
 /** 盤全体の番号表。型式 → 番号と、部品表の行 */
 export type Balloons = {
@@ -23,13 +31,13 @@ export type Balloons = {
 };
 
 /** 型式に番号を振る。呼ぶ順（面・上から下・左から右）が番号の順になる */
-export function balloonIndex(): Balloons & { add: (spec: DeviceSpec) => number } {
+export function balloonIndex(): Balloons & { add: (spec: DeviceSpec, inside?: boolean) => number } {
   const no = new Map<string, number>();
   const rows: BalloonRow[] = [];
   return {
     no,
     rows,
-    add(spec) {
+    add(spec, inside = false) {
       let n = no.get(spec.model);
       if (!n) {
         n = rows.length + 1;
@@ -37,6 +45,7 @@ export function balloonIndex(): Balloons & { add: (spec: DeviceSpec) => number }
         rows.push({ no: n, model: spec.model, name: spec.name, maker: spec.maker, qty: 0 });
       }
       rows[n - 1]!.qty++;
+      if (inside) rows[n - 1]!.inside = true;
       return n;
     },
   };
@@ -160,7 +169,7 @@ export function drawPartsTable(
   const cells = rows.map((r) => ({
     no: [String(r.no)],
     model: chunk(r.model, wrapAt),
-    name: chunk(r.name || '—', 24),
+    name: chunk((r.name || '—') + (r.inside ? '（内側取付）' : ''), 24),
     maker: chunk(r.maker || '—', 16),
     qty: [String(r.qty)],
   }));

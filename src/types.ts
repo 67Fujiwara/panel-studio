@@ -221,12 +221,24 @@ export function rotatedSize(size: { w: number; h: number }, rot: Rotation | unde
   return rot === 90 || rot === 270 ? { w: size.h, h: size.w } : { w: size.w, h: size.h };
 }
 
+/**
+ * キャビネットの面（中板以外）に付ける機器の、面のどちら側に付けるか。
+ * - out: 外側（既定）。押ボタン・ファンのように面の外から付け、本体は面の裏（内側）へ奥行きぶん出る
+ * - in: 内側。端子台・ルーバーの内フードのように、面の内側に付ける。外からは見えない
+ * どちらも本体は面の内側へ「奥行き」ぶん出る。違うのは外から見えるか（図の描き方）と、風船・表の印
+ */
+export type MountSide = 'out' | 'in';
+
 /** 面上に配置された機器1台。 */
 export type PlacedDevice = {
   uid: string;
   specId: string;
   face: FaceId;
   mount: MountType;
+  /** 面の外側か内側か（キャビネットの面だけ）。未指定は外側 */
+  side?: MountSide;
+  /** この機器を、付けた面のほかにどの面の図にも（投影として）出すか */
+  showOn?: FaceId[];
   /**
    * この1台に重ねて付ける OP（DINレール取付アタッチメントなど）の specId。
    * OP は独立した配置物ではないので、重なり判定に出ない・親と一緒に動く。

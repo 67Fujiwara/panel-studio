@@ -4,6 +4,7 @@ import { FACE_BY_ID, FACE_LABEL, faceSize } from '../data/faces';
 import { computeRails, independentRails, isStopper, SOLO_RAIL_MARGIN } from '../lib/layout';
 import { beginUndoGroup, endUndoGroup, redo, undo, useUndoCounts } from '../lib/undo';
 import { sideSilhouettes } from '../lib/sideView';
+import { projectionsFor } from '../lib/projection';
 import { ShapeGeometry } from './ShapeGeometry';
 import { autoMachining } from '../lib/machining';
 import { cutOutline, outlinePolys, pilotDia, pilotPoints } from '../lib/holes';
@@ -141,6 +142,14 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
       face === 'left' || face === 'right'
         ? sideSilhouettes(face, panel, profile, items, pinnedAll, devices, removedDuctsAll)
         : [],
+    [face, panel, profile, items, pinnedAll, devices, removedDuctsAll],
+  );
+  /*
+   * ほかの面に付けた機器の投影。その機器の「他の面にも表示」にこの面が入っているものだけ。
+   * 破線・薄い線で描き、押せない・選べない・加工にも出ない
+   */
+  const projs = useMemo(
+    () => projectionsFor(face, panel, profile, items, pinnedAll, devices, removedDuctsAll),
     [face, panel, profile, items, pinnedAll, devices, removedDuctsAll],
   );
   /** ダクトをダブルクリックしたときに出す型式の一覧。位置は canvas-wrap の中の座標 */
@@ -853,6 +862,28 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           );
         })}
 
+        {/* ほかの面に付けた機器の投影（破線）。付けた面の名前を添える */}
+        {projs.map((s) => {
+          const top = toSvgY(faceH, s.y, s.h);
+          return (
+            <g key={`proj-${s.uid}`} className="proj">
+              <rect x={s.x} y={top} width={s.w} height={s.h} />
+              {s.shape && (
+                <g
+                  transform={`translate(${s.x + (s.mirror ? s.w : 0)} ${top + s.h}) scale(${
+                    ((s.mirror ? -1 : 1) * s.w) / (s.shape.w || 1)
+                  } ${-s.h / (s.shape.h || 1)})`}
+                >
+                  <ShapeGeometry shape={s.shape} color="currentColor" />
+                </g>
+              )}
+              <text x={s.x + 2} y={top + s.h - 2} fontSize={Math.min(9, Math.max(4, s.h / 4))}>
+                {s.model}（{FACE_LABEL(s.from)}）
+              </text>
+            </g>
+          );
+        })}
+
         {/* 機器 */}
         {layout.placed.map((p) => {
           const spec = devices.get(p.specId);
@@ -874,7 +905,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
               key={p.uid}
               className={`device${spec.shape ? ' shaped' : ''}${
                 selectedUid === p.uid ? ' selected' : ''
-              }${bad ? ' violation' : ''}`}
+              }${bad ? ' violation' : ''}${p.side === 'in' ? ' inside' : ''}`}
               onPointerDown={(e) => {
                 e.stopPropagation();
                 e.preventDefault();

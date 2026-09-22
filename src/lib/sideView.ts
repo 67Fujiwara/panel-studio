@@ -4,11 +4,13 @@ import { rotatedSize } from '../types';
 import type { DeviceShape, FaceId, PanelSpec, PlacedDevice, Profile } from '../types';
 
 /**
- * 側面図への機器の投影（干渉確認用）。
+ * 側面図への**中板の機器**の投影（干渉確認用）。
  *
- * 中板・扉に付けた機器のうち、**側面の外形線（sideShape）を登録したものだけ**を
+ * 中板に付けた機器のうち、**側面の外形線（sideShape）を登録したものだけ**を
  * 左右側面のビューに薄く写す。奥行き方向の当たり（機器と扉、機器同士の前後）を
  * 目で確認するためのもので、配置・加工の対象にはならない。
+ * キャビネットの面（扉など）に付けた機器の投影は projection.ts が担当する
+ * （どの面に出すかを機器ごとに選べる）。
  *
  * 前提と約束:
  * - 奥行きの内訳（背面〜中板）が未入力なら何も出さない。数字を仮置きすると
@@ -44,38 +46,25 @@ export function sideSilhouettes(
   const backToPlate = panel.depth.backToPlate;
   if (backToPlate === null) return [];
   const D = panel.outer.d;
-  // 扉の内面。内訳の「扉の出っ張り」が未入力なら扉面そのものとみなす
-  const doorInner = D - (panel.depth.doorProjection ?? 0);
   // 中板の上下の取付位置（中央付き前提の目安）
   const plateLift = (panel.outer.h - panel.plate.h) / 2;
 
   const out: SideSilhouette[] = [];
-  for (const face of ['plate', 'door'] as const) {
-    const layout = autoLayout(panel, profile, face, items, pinned, devices, removedDucts[face] ?? []);
-    for (const p of layout.placed) {
-      const spec = devices.get(p.specId);
-      if (!spec?.sideShape) continue;
-      const d = spec.size.d;
-      const h = rotatedSize(spec.size, p.rot).h;
-      const y = p.y + (face === 'plate' ? plateLift : 0);
-      if (face === 'plate') {
-        // 機器本体の手前側の始まり。中板上面 + DINレール高さ + OP（下に挟まる）の厚み
-        const optD = (p.opts ?? []).reduce((s, id) => s + (devices.get(id)?.size.d ?? 0), 0);
-        const start = backToPlate + optD + (deviceProjection(spec, p.mount) - d);
-        out.push(
-          side === 'left'
-            ? { uid: p.uid, model: spec.model, x: start, y, w: d, h, shape: spec.sideShape, mirror: false }
-            : { uid: p.uid, model: spec.model, x: D - start - d, y, w: d, h, shape: spec.sideShape, mirror: true },
-        );
-      } else {
-        // 扉の機器は取付面が扉側。取込の向き（中板側=左）と逆になるビューで反転する
-        out.push(
-          side === 'left'
-            ? { uid: p.uid, model: spec.model, x: doorInner - d, y, w: d, h, shape: spec.sideShape, mirror: true }
-            : { uid: p.uid, model: spec.model, x: D - doorInner, y, w: d, h, shape: spec.sideShape, mirror: false },
-        );
-      }
-    }
+  const layout = autoLayout(panel, profile, 'plate', items, pinned, devices, removedDucts.plate ?? []);
+  for (const p of layout.placed) {
+    const spec = devices.get(p.specId);
+    if (!spec?.sideShape) continue;
+    const d = spec.size.d;
+    const h = rotatedSize(spec.size, p.rot).h;
+    const y = p.y + plateLift;
+    // 機器本体の手前側の始まり。中板上面 + DINレール高さ + OP（下に挟まる）の厚み
+    const optD = (p.opts ?? []).reduce((s, id) => s + (devices.get(id)?.size.d ?? 0), 0);
+    const start = backToPlate + optD + (deviceProjection(spec, p.mount) - d);
+    out.push(
+      side === 'left'
+        ? { uid: p.uid, model: spec.model, x: start, y, w: d, h, shape: spec.sideShape, mirror: false }
+        : { uid: p.uid, model: spec.model, x: D - start - d, y, w: d, h, shape: spec.sideShape, mirror: true },
+    );
   }
   return out;
 }

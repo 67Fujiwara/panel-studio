@@ -24,6 +24,7 @@ import type {
   PriceBook,
   Machining,
   MachiningDraft,
+  MountSide,
   MountType,
   PanelSpec,
   PlacedDevice,
@@ -372,6 +373,10 @@ export type State = {
   setItemOpts: (uid: string, opts: string[]) => void;
   /** その面のその型式を何段目に置くか。undefined で自動 */
   setItemRow: (specId: string, row: number | undefined) => void;
+  /** その1台を面の外側に付けるか内側に付けるか（キャビネットの面だけ） */
+  setItemSide: (uid: string, side: MountSide) => void;
+  /** その1台を、付けた面のほかにどの面の図にも出すか */
+  setItemShowOn: (uid: string, faces: FaceId[]) => void;
   /** 選択中の機器またはダクトを消す（Delete キー用） */
   removeSelected: () => void;
   /** 消したダクトを戻す。id を省くとその面のぶんを全部戻す */
@@ -1185,6 +1190,15 @@ export const useStore = create<State>((set) => ({
         i.specId === specId && i.face === s.face ? { ...i, row } : i,
       ),
       pinned: s.pinned.filter((p) => !(p.specId === specId && p.face === s.face)),
+    })),
+
+  setItemSide: (uid, side) =>
+    set((s) => ({
+      items: s.items.map((i) => (i.uid === uid ? { ...i, side: side === 'out' ? undefined : side } : i)),
+    })),
+  setItemShowOn: (uid, faces) =>
+    set((s) => ({
+      items: s.items.map((i) => (i.uid === uid ? { ...i, showOn: faces } : i)),
     })),
 
   removeSelected: () =>

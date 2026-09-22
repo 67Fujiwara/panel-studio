@@ -223,6 +223,8 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
         </p>
       )}
 
+      <h4 className="grouphead">共通<small>外形と取付方式。中板でも外観でも使う</small></h4>
+
       {sect(
         'shape',
         '外形線（CAD から取り込む）',
@@ -247,36 +249,6 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
               )}
             </div>
             {part.shape && <ShapePreview shape={part.shape} color={color} />}
-          </div>
-        </>,
-      )}
-
-      {sect(
-        'side',
-        '側面の外形線（干渉確認用）',
-        part.sideShape ? `取り込み済み — 線 ${part.sideShape.entities.length} 本` : 'なし',
-        <>
-          <p className="note">
-            側面から見た形の DXF を登録すると、左右側面の図に<b>薄く投影</b>されます。
-            奥行き方向の当たり（扉に届かないか等）を目で確認するためのもので、
-            配置や加工には使いません。<b>中板側を左・扉側を右</b>にした図で取り込んでください
-            （縮尺は問いません。表示時に 奥行き×高さ に合わせます）。
-          </p>
-          <div className="shaperow">
-            <div>
-              <input
-                type="file"
-                accept=".dxf"
-                onChange={(e) => void importSideShape(e.target.files?.[0] ?? undefined)}
-              />
-              {sideMsg && <p className="calc">{sideMsg}</p>}
-              {part.sideShape && (
-                <button onClick={() => update(part.id, { sideShape: undefined })}>
-                  側面の形状を消す
-                </button>
-              )}
-            </div>
-            {part.sideShape && <ShapePreview shape={part.sideShape} color={color} />}
           </div>
         </>,
       )}
@@ -341,6 +313,8 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
           </p>
         </>,
       )}
+
+      <h4 className="grouphead">中板（基板）に付けるときの設定<small>段の流し込み・DINレール・離隔。キャビネットの面には効かない</small></h4>
 
       {sect(
         'base',
@@ -449,6 +423,92 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
           </div>
         </>,
       )}
+
+      {sect(
+        'clearance',
+        'メーカー指定の最小離隔・発熱',
+        (isStopper(part) ? '止め金具（隣に密着）' : '') +
+          (hasClearance
+            ? `${isStopper(part) ? ' / ' : ''}上${mm(cl.top ?? 0)} 下${mm(cl.bottom ?? 0)} 左${mm(cl.left ?? 0)} 右${mm(cl.right ?? 0)}` +
+              (nz(part.heatW) ? ` / ${mm(part.heatW ?? 0)}W` : '')
+            : isStopper(part)
+              ? ''
+              : '指定なし'),
+        <div className="grid2">
+          <Num
+            label="上"
+            value={cl.top ?? 0}
+            onChange={(top) => update(part.id, { clearance: { ...cl, top } })}
+          />
+          <Num
+            label="下"
+            value={cl.bottom ?? 0}
+            onChange={(bottom) => update(part.id, { clearance: { ...cl, bottom } })}
+          />
+          <Num
+            label="左"
+            value={cl.left ?? 0}
+            onChange={(left) => update(part.id, { clearance: { ...cl, left } })}
+          />
+          <Num
+            label="右"
+            value={cl.right ?? 0}
+            onChange={(right) => update(part.id, { clearance: { ...cl, right } })}
+          />
+          <Num
+            label="発熱 W"
+            value={part.heatW ?? 0}
+            onChange={(heatW) => update(part.id, { heatW })}
+            step={0.5}
+          />
+          <label className="check" style={{ gridColumn: '1 / -1' }}>
+            <input
+              type="checkbox"
+              checked={isStopper(part)}
+              onChange={(e) => update(part.id, { stopper: e.target.checked })}
+            />
+            <span>
+              <b>止め金具（エンドストッパ）</b> — 隣の機器との離隔を無視して<b>密着</b>させる。
+              図の上で機器の横へ寄せると隣り合わせに吸い付きます
+            </span>
+          </label>
+        </div>,
+      )}
+
+      <h4 className="grouphead">キャビネット外観（扉・側面など）に付けるときの設定<small>外側／内側と他の面への表示はレイアウト画面の座標欄で決める。ここは側面図と開口</small></h4>
+
+      {sect(
+        'side',
+        '側面の外形線（干渉確認用）',
+        part.sideShape ? `取り込み済み — 線 ${part.sideShape.entities.length} 本` : 'なし',
+        <>
+          <p className="note">
+            側面から見た形の DXF を登録すると、左右側面の図に<b>薄く投影</b>されます。
+            奥行き方向の当たり（扉に届かないか等）を目で確認するためのもので、
+            配置や加工には使いません。<b>中板側を左・扉側を右</b>にした図で取り込んでください
+            （縮尺は問いません。表示時に 奥行き×高さ に合わせます）。
+          </p>
+          <div className="shaperow">
+            <div>
+              <input
+                type="file"
+                accept=".dxf"
+                onChange={(e) => void importSideShape(e.target.files?.[0] ?? undefined)}
+              />
+              {sideMsg && <p className="calc">{sideMsg}</p>}
+              {part.sideShape && (
+                <button onClick={() => update(part.id, { sideShape: undefined })}>
+                  側面の形状を消す
+                </button>
+              )}
+            </div>
+            {part.sideShape && <ShapePreview shape={part.sideShape} color={color} />}
+          </div>
+        </>,
+      )}
+
+
+      <h4 className="grouphead">加工（取付穴・開口・追加加工）<small>直付けのとき面に出る穴。中板でも外観でも使う</small></h4>
 
       {/*
         加工まわりは2列にして、右に実寸比のプレビューを出す。
@@ -637,56 +697,6 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
         {machOpen && <PartFigure part={part} color={color} />}
       </div>
 
-      {sect(
-        'clearance',
-        'メーカー指定の最小離隔・発熱',
-        (isStopper(part) ? '止め金具（隣に密着）' : '') +
-          (hasClearance
-            ? `${isStopper(part) ? ' / ' : ''}上${mm(cl.top ?? 0)} 下${mm(cl.bottom ?? 0)} 左${mm(cl.left ?? 0)} 右${mm(cl.right ?? 0)}` +
-              (nz(part.heatW) ? ` / ${mm(part.heatW ?? 0)}W` : '')
-            : isStopper(part)
-              ? ''
-              : '指定なし'),
-        <div className="grid2">
-          <Num
-            label="上"
-            value={cl.top ?? 0}
-            onChange={(top) => update(part.id, { clearance: { ...cl, top } })}
-          />
-          <Num
-            label="下"
-            value={cl.bottom ?? 0}
-            onChange={(bottom) => update(part.id, { clearance: { ...cl, bottom } })}
-          />
-          <Num
-            label="左"
-            value={cl.left ?? 0}
-            onChange={(left) => update(part.id, { clearance: { ...cl, left } })}
-          />
-          <Num
-            label="右"
-            value={cl.right ?? 0}
-            onChange={(right) => update(part.id, { clearance: { ...cl, right } })}
-          />
-          <Num
-            label="発熱 W"
-            value={part.heatW ?? 0}
-            onChange={(heatW) => update(part.id, { heatW })}
-            step={0.5}
-          />
-          <label className="check" style={{ gridColumn: '1 / -1' }}>
-            <input
-              type="checkbox"
-              checked={isStopper(part)}
-              onChange={(e) => update(part.id, { stopper: e.target.checked })}
-            />
-            <span>
-              <b>止め金具（エンドストッパ）</b> — 隣の機器との離隔を無視して<b>密着</b>させる。
-              図の上で機器の横へ寄せると隣り合わせに吸い付きます
-            </span>
-          </label>
-        </div>,
-      )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { LAYER, type Drawer } from './drawing';
 import { PdfWriter } from './pdfExport';
 import { ElectraSheetWriter, buildElectraFile } from './electraExport';
 import { balloonIndex, balloonRadius, drawBalloons, drawPartsTable, groupByNo } from './balloons';
+import { projectionsFor } from './projection';
 import type { Anchor, Balloons } from './balloons';
 import type { ElectraJob, ElectraSheet } from './electraExport';
 import { baseSlots, rotatedSize, slotUseOf } from '../types';
@@ -42,6 +43,8 @@ const LAYER_COLOR: Record<string, number> = {
   [LAYER.note]: 7,
   [LAYER.balloon]: 3,
   [LAYER.table]: 7,
+  [LAYER.inside]: 4,
+  [LAYER.proj]: 9,
 };
 
 const n = (v: number) => (Number.isFinite(v) ? Number(v.toFixed(3)) : 0);
@@ -153,6 +156,9 @@ function drawShape(
   at: { x: number; y: number },
   size: { w: number; h: number },
   rot: number,
+  layer: string = LAYER.device,
+  /** 左右反転（裏から見た投影・側面図の向き合わせ） */
+  mirror = false,
 ) {
   const sx = size.w / (shape.w || 1);
   const sy = size.h / (shape.h || 1);
@@ -162,7 +168,7 @@ function drawShape(
   const cx = size.w / 2;
   const cy = size.h / 2;
   const map = (px: number, py: number) => {
-    const x = px * sx - cx;
+    const x = (mirror ? shape.w - px : px) * sx - cx;
     const y = py * sy - cy;
     return { x: at.x + x * cos - y * sin, y: at.y + x * sin + y * cos };
   };
@@ -170,16 +176,18 @@ function drawShape(
   for (const e of shape.entities) {
     if (e.t === 'c') {
       const c = map(e.x, e.y);
-      w.circle(LAYER.device, c.x, c.y, e.r * Math.abs(sx));
+      w.circle(layer, c.x, c.y, e.r * Math.abs(sx));
     } else if (e.t === 'a') {
       const c = map(e.x, e.y);
       const r = (rot * Math.PI) / 180;
-      w.arc(LAYER.device, c.x, c.y, e.r * Math.abs(sx), e.a0 + r, e.a1 + r);
+      // 反転すると弧の向きも変わる（角度は 180°−a）。折れ線にはしないので弧のまま
+      if (mirror) w.arc(layer, c.x, c.y, e.r * Math.abs(sx), Math.PI - e.a1 + r, Math.PI - e.a0 + r);
+      else w.arc(layer, c.x, c.y, e.r * Math.abs(sx), e.a0 + r, e.a1 + r);
     } else {
       for (let i = 0; i + 3 < e.pts.length; i += 2) {
         const a = map(e.pts[i]!, e.pts[i + 1]!);
         const b = map(e.pts[i + 2]!, e.pts[i + 3]!);
-        w.line(LAYER.device, a.x, a.y, b.x, b.y);
+        w.line(layer, a.x, a.y, b.x, b.y);
       }
     }
   }
@@ -279,10 +287,10 @@ export function buildBalloons(input: ExportInput): Balloons {
     for (const p of placedInOrder(layout)) {
       const spec = input.devices.get(p.specId);
       if (!spec) continue;
-      idx.add(spec);
+      idx.add(spec, p.side === 'in');
       for (const o of p.opts ?? []) {
         const os = input.devices.get(o);
-        if (os) idx.add(os);
+        if (os) idx.add(os, p.side === 'in');
       }
     }
   }
@@ -325,14 +333,16 @@ function drawFace(
       const spec = devices.get(p.specId);
       if (!spec) continue;
       const s = rotatedSize(spec.size, p.rot);
+      // 内側に付けた機器は外から見えないので、別レイヤ（PDF・SVG では破線）
+      const devLayer = p.side === 'in' ? LAYER.inside : LAYER.device;
       if (spec.shape) {
-        drawShape(w, spec.shape, { x: ox + p.x + s.w / 2, y: oy + p.y + s.h / 2 }, spec.size, p.rot ?? 0);
+        drawShape(w, spec.shape, { x: ox + p.x + s.w / 2, y: oy + p.y + s.h / 2 }, spec.size, p.rot ?? 0, devLayer);
       } else {
-        w.rect(LAYER.device, ox + p.x, oy + p.y, s.w, s.h);
+        w.rect(devLayer, ox + p.x, oy + p.y, s.w, s.h);
       }
       // 型式は機器の左下に小さく。図面上で拾えるようにする
       if (withText) {
-        w.text(LAYER.deviceText, ox + p.x + 2, oy + p.y + 2, Math.min(8, s.h / 3), spec.model);
+        w.text(LAYER.deviceText, ox + p.x + 2, oy + p.y + 2, Math.min(8, s.h / 3), p.side === 'in' ? `${spec.model}（内側）` : spec.model);
       }
       if (balloons) parents.push({ no: noOf(spec), x: p.x, y: p.y, w: s.w, h: s.h });
 
@@ -380,6 +390,18 @@ function drawFace(
      * 機器の線に埋もれることはない
      */
     if (balloons) drawBalloons(w, groupByNo([...parents, ...children]), balloons.r, ox, oy, size);
+
+    // ほかの面に付けた機器の投影（「他の面にも表示」で選んだもの）。薄い別レイヤ・破線
+    for (const pr of projectionsFor(face, panel, profile, items, pinned, devices, removedDucts)) {
+      if (pr.shape) {
+        drawShape(w, pr.shape, { x: ox + pr.x + pr.w / 2, y: oy + pr.y + pr.h / 2 }, { w: pr.w, h: pr.h }, 0, LAYER.proj, pr.mirror);
+      } else {
+        w.rect(LAYER.proj, ox + pr.x, oy + pr.y, pr.w, pr.h);
+      }
+      if (withText) {
+        w.text(LAYER.proj, ox + pr.x + 2, oy + pr.y + 2, Math.min(6, pr.h / 3), `${pr.model}（${FACE_LABEL(pr.from)}）`);
+      }
+    }
   }
 
   // 加工は full / holes のどちらにも出す。これが書き出しの主目的
