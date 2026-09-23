@@ -8,3 +8,6 @@ tsconfig.tsbuildinfo
 # （各自が N-TEC からダウンロードしてアプリに読み込む運用）
 *.dxf
 *.dwg
+
+# ビルド時に scripts/version.mjs が書く（git のコミット数）
+src/version.ts

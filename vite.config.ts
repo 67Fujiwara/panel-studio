@@ -4,6 +4,7 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 
 // mode=single のときは JS/CSS を1つの HTML に埋め込む。
 // 共有フォルダに置いてダブルクリックで開く配布用。
+// タイトル横のバージョン（V91 など）は scripts/version.mjs が src/version.ts に書く（npm scripts の先頭で走る）。
 export default defineConfig(({ mode }) => {
   const single = mode === 'single';
 

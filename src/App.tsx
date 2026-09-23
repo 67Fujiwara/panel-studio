@@ -17,6 +17,7 @@ import { StartScreen } from './components/StartScreen';
 import { FACE_BY_ID, FACE_LABEL } from './data/faces';
 import { autoLayout, effectiveDepth } from './lib/layout';
 import { deviceLookup, useStore, type Screen } from './store';
+import { APP_VERSION } from './version';
 
 export default function App() {
   const screen = useStore((s) => s.screen);
@@ -93,7 +94,9 @@ export default function App() {
           <button className="back" onClick={() => go('faces')}>
             ← 面選択
           </button>
-          <h1>{FACE_LABEL(face)}</h1>
+          <h1>
+            {FACE_LABEL(face)} <span className="ver">V{APP_VERSION}</span>
+          </h1>
           <span className="tag">
             {panel.model || '型式未設定'}
             {hasDucts ? '' : ' — 直接取り付け'}
@@ -143,7 +146,9 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>Panel Studio</h1>
+        <h1>
+          Panel Studio <span className="ver">V{APP_VERSION}</span>
+        </h1>
         <span className="tag">制御盤 盤内レイアウト &amp; BOM</span>
         {nav}
       </header>

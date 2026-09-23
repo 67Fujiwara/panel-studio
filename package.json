@@ -4,12 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "node scripts/version.mjs && vite",
+    "build": "node scripts/version.mjs && tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit",
-    "build:single": "tsc -b && vite build --mode single && node scripts/finish-single.mjs",
-    "icons": "node scripts/make-icons.mjs"
+    "typecheck": "node scripts/version.mjs && tsc -b --noEmit",
+    "build:single": "node scripts/version.mjs && tsc -b && vite build --mode single && node scripts/finish-single.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "ver": "node scripts/version.mjs"
   },
   "dependencies": {
     "dxf-parser": "^1.1.2",

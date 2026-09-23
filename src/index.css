@@ -52,6 +52,18 @@ header .tag {
   color: var(--muted);
   font-size: 12px;
 }
+/* タイトル横のバージョン（V91 のような整数。ビルド時に git のコミット数から入る） */
+header h1 .ver {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  vertical-align: 2px;
+}
 header button.back {
   padding: 4px 10px;
 }

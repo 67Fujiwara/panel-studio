@@ -22,6 +22,14 @@ npm run build:single   # release/panel-studio.html を出力（HTML 1ファイ�
 
 出力された HTML 1ファイルを共有フォルダに置けば、ダブルクリックで開けます。
 
+### バージョン表示
+
+タイトルの横に **V91** のような整数のバージョンが出ます。ビルド時に `scripts/version.mjs` が
+git のコミット数から `src/version.ts` に書き込むので（ビルドはコミットの前に行うので +1）、
+番号を手で上げる必要はなく、共有フォルダの HTML がどの版かを見ただけで言えます。
+`src/version.ts` は生成物なのでリポジトリには入れていません（`npm run dev` / `build:single` の先頭で作られます）。
+git の無い環境でビルドすると V0 になります。
+
 ### アイコン
 
 タブのアイコン（制御盤の扉）は `docs/icon.svg` が元で、`index.html` に SVG を直接埋め込んでいます
