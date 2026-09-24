@@ -1674,7 +1674,7 @@ tr.coord-opts td {
 .coord-side,
 .coord-show {
   display: grid;
-  grid-template-columns: 96px repeat(3, minmax(0, 1fr));
+  grid-template-columns: 84px repeat(2, minmax(0, 1fr));
   align-items: center;
   gap: 4px 6px;
   margin-top: 4px;
@@ -1682,9 +1682,16 @@ tr.coord-opts td {
 .coord-side > span,
 .coord-show > span {
   color: var(--muted);
-  grid-row: 1 / span 2;
+  grid-row: 1 / span 3;
   align-self: start;
   padding-top: 2px;
+}
+/* 座標の数値欄の幅（66px）をチェック・ラジオに効かせない。効くと箱と文字が離れて並びが崩れる */
+table.coords td input[type='checkbox'],
+table.coords td input[type='radio'] {
+  width: auto;
+  padding: 0;
+  border: 0;
 }
 .coord-side > label,
 .coord-show > label {
