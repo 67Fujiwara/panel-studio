@@ -475,7 +475,7 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
         </div>,
       )}
 
-      <h4 className="grouphead">キャビネット外観（扉・側面など）に付けるときの設定<small>外側／内側と他の面への表示はレイアウト画面の座標欄で決める。ここは側面図と開口</small></h4>
+      <h4 className="grouphead">キャビネット外観（扉・側面など）に付けるときの設定<small>横から見た形。外側／内側と他の面への表示はレイアウト画面で決める</small></h4>
 
       {sect(
         'side',
@@ -483,10 +483,9 @@ export function PartEditor({ part, categories }: { part: DeviceSpec; categories:
         part.sideShape ? `取り込み済み — 線 ${part.sideShape.entities.length} 本` : 'なし',
         <>
           <p className="note">
-            側面から見た形の DXF を登録すると、左右側面の図に<b>薄く投影</b>されます。
-            奥行き方向の当たり（扉に届かないか等）を目で確認するためのもので、
-            配置や加工には使いません。<b>中板側を左・扉側を右</b>にした図で取り込んでください
-            （縮尺は問いません。表示時に 奥行き×高さ に合わせます）。
+            機器を<b>横から見た形</b>の DXF。「他の面にも表示」で隣の面に出すときと、側面図の投影に使います。
+            <b>取付面を左</b>にした図で取り込んでください（縮尺は自動で 奥行き×高さ に合わせます）。
+            配置や加工には使いません。
           </p>
           <div className="shaperow">
             <div>

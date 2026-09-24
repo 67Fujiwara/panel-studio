@@ -1644,13 +1644,14 @@ body.dragging * {
   pointer-events: none;
 }
 .proj rect {
-  fill: rgba(120, 130, 150, 0.08);
-  stroke: var(--muted);
-  stroke-width: 1;
+  fill: rgba(47, 111, 208, 0.08);
+  stroke: var(--accent);
+  stroke-width: 1.2;
   stroke-dasharray: 4 3;
 }
 .proj g {
-  opacity: 0.4;
+  color: var(--accent);
+  opacity: 0.55;
 }
 .proj text {
   fill: var(--muted);
@@ -1669,18 +1670,34 @@ tr.coord-opts td {
   padding: 4px 6px 8px;
   font-size: 11px;
 }
+/* 見出し（取付／他の面にも表示）を左の列に、選択肢を 3 列の格子に。チェックと文字は隣り合わせで揃える */
 .coord-side,
 .coord-show {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 96px repeat(3, minmax(0, 1fr));
   align-items: center;
-  gap: 4px 10px;
+  gap: 4px 6px;
   margin-top: 4px;
 }
 .coord-side > span,
 .coord-show > span {
   color: var(--muted);
-  min-width: 90px;
+  grid-row: 1 / span 2;
+  align-self: start;
+  padding-top: 2px;
+}
+.coord-side > label,
+.coord-show > label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  white-space: nowrap;
+}
+.coord-side > label input,
+.coord-show > label input {
+  margin: 0;
+  flex: 0 0 auto;
 }
 /* 部品編集のグループ見出し（共通／中板／キャビネット外観／加工） */
 .parteditor .grouphead {

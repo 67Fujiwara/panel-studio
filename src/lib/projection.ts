@@ -131,22 +131,33 @@ export function projectionsFor(
       if (!box) continue;
       const r = boxToFaceRect(view, panel, box);
       if (!r) continue;
-      const opposite = (from === 'door' && view === 'back') || (from === 'back' && view === 'door');
-      const sideView = (view === 'left' || view === 'right') && (from === 'door' || from === 'back');
+      const vertical = (f: FaceId) => f === 'door' || f === 'back' || f === 'left' || f === 'right';
+      const opposite =
+        (from === 'door' && view === 'back') ||
+        (from === 'back' && view === 'door') ||
+        (from === 'left' && view === 'right') ||
+        (from === 'right' && view === 'left');
+      // 縦の面どうしで直角なら、見えるのはその機器の側面（奥行き×高さ）
+      const perpendicular = vertical(from) && vertical(view) && !opposite;
       let shape: DeviceShape | undefined;
       let mirror = false;
       if (opposite && spec.shape) {
         shape = spec.shape;
         mirror = true; // 裏から見るので左右が逆
-      } else if (sideView && spec.sideShape) {
+      } else if (perpendicular && spec.sideShape) {
         shape = spec.sideShape;
         /*
          * 側面の外形線は「取付面を左」にした図で取り込む約束。
-         * 左側面ビュー(u=Z)では取付面が z1 側（扉）なら右にあるので反転、背面(z0)なら反転なし。
-         * 右側面ビュー(u=D−Z)はその逆
+         * 出す面の横軸で取付面が左端に来る組み合わせならそのまま、右端に来るなら反転
+         * （左側面ビューは u=Z なので背面が左、右側面ビューは u=D−Z なので扉が左。
+         *   正面ビューは u=X なので左側面が左、背面ビューは u=W−X なので右側面が左）
          */
-        const mountAtFront = from === 'door';
-        mirror = view === 'left' ? mountAtFront : !mountAtFront;
+        const mountAtLeft =
+          (view === 'left' && from === 'back') ||
+          (view === 'right' && from === 'door') ||
+          (view === 'door' && from === 'left') ||
+          (view === 'back' && from === 'right');
+        mirror = !mountAtLeft;
       }
       out.push({ uid: p.uid, model: spec.model, from, x: r.x, y: r.y, w: r.w, h: r.h, shape, mirror });
     }
