@@ -515,7 +515,15 @@ function buildQueue(items: LayoutItem[], skip: Set<string>, devices: DeviceLooku
  * 段の中で場所を取っている座標置きの機器（矢印キーで寄せた1台など）。
  * 流し込みはここを避けて詰める。避けないと、寄せた1台の跡へ隣が詰まってきて重なる
  */
-type Obstacle = { row: number; x0: number; x1: number; stopper: boolean };
+type Obstacle = {
+  row: number;
+  x0: number;
+  x1: number;
+  stopper: boolean;
+  /** 基準線の上下に要る高さ。段の高さに入れ、その段を「使っている段」として数えるため */
+  up: number;
+  down: number;
+};
 
 function packAuto(
   panel: PanelSpec,
@@ -546,10 +554,11 @@ function packAuto(
     used: boolean;
   };
   /** up/down は基準線（レール中心）から上下それぞれに要る高さ。段の高さはその和 */
-  type Bucket = { entries: Placed[]; up: number; down: number; slots: Slot[] };
+  type Bucket = { entries: Placed[]; pinnedCount: number; up: number; down: number; slots: Slot[] };
 
   const newBucket = (i: number): Bucket => ({
     entries: [],
+    pinnedCount: 0,
     up: 0,
     down: 0,
     slots: rowSegments(panel, face, profile, i, bands).map((s) => ({
@@ -685,7 +694,19 @@ function packAuto(
     for (const e of tail) place(e, true);
   }
 
-  const used = buckets.filter((b) => b.entries.length > 0);
+  /*
+   * 座標で置いた機器（obstacles）もその段の一員として数える。
+   * 流し込みの機器が 1 台も無くなった段（例: 座標で置いた電源とインバータの段から、流し込みだった
+   * エンドストッパを消した）を空とみなして詰めてしまうと、下の段が繰り上がって、座標で置いた
+   * 機器だけがその場に残り、図がばらばらになる。段の高さにも入れて、下のダクトが当たらないようにする
+   */
+  for (const o of obstacles) {
+    const b = bucketAt(o.row);
+    b.pinnedCount++;
+    b.up = Math.max(b.up, o.up);
+    b.down = Math.max(b.down, o.down);
+  }
+  const used = buckets.filter((b) => b.entries.length > 0 || b.pinnedCount > 0);
   const rows: DeviceRow[] = [];
   const ducts: Duct[] = [];
   const placed: PlacedDevice[] = [];
@@ -1460,7 +1481,18 @@ export function autoLayout(
   const obstacles: Obstacle[] = pinned.flatMap((p) => {
     const spec = devices.get(p.specId);
     if (!spec || p.row === undefined || p.row < 0) return [];
-    return [{ row: p.row, x0: p.x, x1: p.x + rotatedSize(spec.size, p.rot).w, stopper: isStopper(spec) }];
+    // 段の高さに入れるぶん。流し込みの機器と同じ計算（基準線の上下＋離隔）
+    const need = vertSpan(spec, p.mount, p.rot, effectiveClearance(spec, profile.clearance, rowGap(profile, p.row)));
+    return [
+      {
+        row: p.row,
+        x0: p.x,
+        x1: p.x + rotatedSize(spec.size, p.rot).w,
+        stopper: isStopper(spec),
+        up: need.up,
+        down: need.down,
+      },
+    ];
   });
   const auto = profile.duct.rowHeightMode === 'auto';
   const result = auto

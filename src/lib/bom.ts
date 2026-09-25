@@ -1,4 +1,4 @@
-import { computeRails } from './layout';
+import { computeRails, isStopper } from './layout';
 import type { DeviceLookup } from './layout';
 import { ductSpecAt, splitModels } from '../types';
 import type { BomLine, DuctSpec, LayoutResult, Profile } from '../types';
@@ -67,6 +67,15 @@ export function buildBom(
   const rails = layouts.flatMap((l) => computeRails(l, devices, profile.rail.endMargin));
   const railTotal = rails.reduce((s, r) => s + Math.ceil(r.length), 0);
   const railCount = rails.length;
+  /*
+   * 止め金具（エンドストッパ）を部品として図に置いているなら、自動の「レール 1 本に 2 個」は足さない。
+   * 両方数えると二重になる（GTY13 を 14 個置いた案件で、さらにエンドストッパ 2×レール数 が載っていた）。
+   * 置いた止め金具は機器本体の行で型式ごとに数えられている
+   */
+  const placesStoppers = placed.some((p) => {
+    const s = devices.get(p.specId);
+    return s ? isStopper(s) : false;
+  });
   if (railCount > 0) {
     lines.push({
       model: `DINレール TH35-7.5（切断 計${railTotal}mm / ${railCount}本）`,
@@ -77,15 +86,17 @@ export function buildBom(
       unit: `本(${RAIL_STOCK_LENGTH}mm定尺)`,
       source: 'derived',
     });
-    lines.push({
-      model: 'エンドストッパ',
-      key: 'エンドストッパ',
-      maker: '—',
-      name: 'DINレール用エンドストッパ',
-      qty: railCount * 2,
-      unit: '個',
-      source: 'derived',
-    });
+    if (!placesStoppers) {
+      lines.push({
+        model: 'エンドストッパ',
+        key: 'エンドストッパ',
+        maker: '—',
+        name: 'DINレール用エンドストッパ',
+        qty: railCount * 2,
+        unit: '個',
+        source: 'derived',
+      });
+    }
   }
 
   // --- 配線ダクト（レイアウト上のダクト矩形の総延長から。消したぶんは数えない） ---
