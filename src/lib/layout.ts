@@ -700,11 +700,26 @@ function packAuto(
    * エンドストッパを消した）を空とみなして詰めてしまうと、下の段が繰り上がって、座標で置いた
    * 機器だけがその場に残り、図がばらばらになる。段の高さにも入れて、下のダクトが当たらないようにする
    */
+  /**
+   * 横ダクトの左右の範囲（段ごとの左右の余白で短くできる）。
+   * 座標で置いた機器の高さは、**その機器の上／下をダクトが実際に通るときだけ**段の高さに入れる。
+   * ダクトを短くしてあって機器の下を通らないなら、長さ的に当たらないのだから避けない
+   * （避けると、当たりもしないダクトが下へ逃げて段が間延びする）
+   */
+  const ductSpan = (ductIndex: number) => {
+    const g = ductGap(profile, ductIndex);
+    return { x: g.left, w: size.w - g.left - g.right };
+  };
+  const ductCrosses = (ductIndex: number, x0: number, x1: number) => {
+    if (!(rule.horizontals && dw > 0)) return true; // 横ダクトの無い組み方は段間クリアランスが相手なので常に数える
+    const sp = ductSpan(ductIndex);
+    return x0 < sp.x + sp.w && sp.x < x1;
+  };
   for (const o of obstacles) {
     const b = bucketAt(o.row);
     b.pinnedCount++;
-    b.up = Math.max(b.up, o.up);
-    b.down = Math.max(b.down, o.down);
+    if (ductCrosses(o.row, o.x0, o.x1)) b.up = Math.max(b.up, o.up);
+    if (ductCrosses(o.row + 1, o.x0, o.x1)) b.down = Math.max(b.down, o.down);
   }
   const used = buckets.filter((b) => b.entries.length > 0 || b.pinnedCount > 0);
   const rows: DeviceRow[] = [];
@@ -720,14 +735,6 @@ function packAuto(
     (rule.horizontals && dw > 0
       ? Array.from({ length: used.length + 1 }, (_, i) => bandW(i)).reduce((a, b) => a + b, 0)
       : rowSpacing * Math.max(0, used.length - 1));
-
-  // ダクトはその段に指定した左右の余白に合わせる。段ごとに余白を変えたとき、
-  // ダクトだけ元の位置に残ると図が食い違うため。
-  // 機器⇔端のクリアランスは機器に効かせるもので、ダクトは端まで伸ばしてよい。
-  const ductSpan = (ductIndex: number) => {
-    const g = ductGap(profile, ductIndex);
-    return { x: g.left, w: size.w - g.left - g.right };
-  };
 
   const pushHorizontal = (yAt: number) => {
     const span = ductSpan(id);
