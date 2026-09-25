@@ -195,6 +195,10 @@ export function SettingsPanel({ ductCount }: { ductCount: number }) {
                       value={g.right ?? profile.duct.margin.right}
                       onChange={(right) => setDuctGap(i, { ...g, right })}
                     />
+                    <p className="note span2">
+                      左・右は<b>このダクトを短くするだけ</b>です。機器を並べられる幅は変わりません
+                      （幅は「中板の端からの余白」で決まります）。
+                    </p>
                   </div>
                 )}
               </div>

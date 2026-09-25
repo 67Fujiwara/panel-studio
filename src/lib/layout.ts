@@ -79,9 +79,14 @@ export function rowGap(
   return {
     top: above.below,
     bottom: below.above,
-    // 機器を置ける幅は、その段の上のダクトに合わせる
-    left: above.left,
-    right: above.right,
+    /*
+     * 機器を置ける幅は**面の余白**で決める。ダクト 1 本ごとの左右は、そのダクトを短くするだけで
+     * 段の幅には効かせない。以前は上のダクトの左右に合わせていたため、ダクトを短くすると
+     * その先に並んだ機器が「横幅が足りません」（赤枠）になっていた。ダクトを短くするのは
+     * 端に別のものを置く・配線が要らない、といった理由で、機器を置けなくしたいわけではない
+     */
+    left: profile.duct.margin.left,
+    right: profile.duct.margin.right,
   };
 }
 
