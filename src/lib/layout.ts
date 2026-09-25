@@ -554,13 +554,20 @@ function packAuto(
     used: boolean;
   };
   /** up/down は基準線（レール中心）から上下それぞれに要る高さ。段の高さはその和 */
-  type Bucket = { entries: Placed[]; pinnedCount: number; up: number; down: number; slots: Slot[] };
+  /**
+   * 段。up/down は基準線の上下に要る高さ（全部の機器）。
+   * downDuct は**下のダクトが避けるべき高さ**で、下のダクトが実際に通る機器だけで決める。
+   * 段の基準線（axis）は up/down で決めるので、機器を座標置きにしても基準線が動かず、
+   * レールがばらけない。ダクトの位置だけが downDuct で決まる
+   */
+  type Bucket = { entries: Placed[]; pinnedCount: number; up: number; down: number; downDuct: number; slots: Slot[] };
 
   const newBucket = (i: number): Bucket => ({
     entries: [],
     pinnedCount: 0,
     up: 0,
     down: 0,
+    downDuct: 0,
     slots: rowSegments(panel, face, profile, i, bands).map((s) => ({
       ...s,
       cursor: s.x0,
@@ -685,6 +692,7 @@ function packAuto(
     const need = vertSpan(e.spec, e.item.mount, e.item.rot, eff);
     b.up = Math.max(b.up, need.up);
     b.down = Math.max(b.down, need.down);
+    b.downDuct = Math.max(b.downDuct, need.down);
   };
 
   for (const e of main) place(e, false);
@@ -718,8 +726,12 @@ function packAuto(
   for (const o of obstacles) {
     const b = bucketAt(o.row);
     b.pinnedCount++;
-    if (ductCrosses(o.row, o.x0, o.x1)) b.up = Math.max(b.up, o.up);
-    if (ductCrosses(o.row + 1, o.x0, o.x1)) b.down = Math.max(b.down, o.down);
+    // 基準線の位置（up/down）には常に入れる。座標置きにした瞬間に基準線が動くと、
+    // その機器だけが元の高さに残って共通レールから外れ、レールがばらける
+    b.up = Math.max(b.up, o.up);
+    b.down = Math.max(b.down, o.down);
+    // 下のダクトが避けるかどうかは、ダクトがその機器の下を実際に通るときだけ
+    if (ductCrosses(o.row + 1, o.x0, o.x1)) b.downDuct = Math.max(b.downDuct, o.down);
   }
   const used = buckets.filter((b) => b.entries.length > 0 || b.pinnedCount > 0);
   const rows: DeviceRow[] = [];
@@ -731,7 +743,7 @@ function packAuto(
   /** 段の高さ＝基準線の上下に積んだ高さの和 */
   const bucketH = (b: { up: number; down: number }) => b.up + b.down;
   const requiredH =
-    used.reduce((s, b) => s + bucketH(b), 0) +
+    used.reduce((s, b) => s + b.up + b.downDuct, 0) +
     (rule.horizontals && dw > 0
       ? Array.from({ length: used.length + 1 }, (_, i) => bandW(i)).reduce((a, b) => a + b, 0)
       : rowSpacing * Math.max(0, used.length - 1));
@@ -754,10 +766,12 @@ function packAuto(
     } else if (index > 0) {
       y -= rowSpacing;
     }
-    y -= bucketH(b);
     // 基準線は段の中心ではなく「下に要る高さ」の位置。オフセットした逆側を詰める
-    const row: DeviceRow = { index, y, h: bucketH(b), axis: b.down };
+    const axisY = y - b.up;
+    const row: DeviceRow = { index, y: axisY - b.down, h: bucketH(b), axis: b.down };
     rows.push(row);
+    // 次のダクトの上端。下のダクトが通らない座標置きの機器は避けない（downDuct）
+    y = axisY - b.downDuct;
     for (const { e, x } of b.entries) {
       placed.push({
         uid: e.item.uid,
@@ -1280,6 +1294,25 @@ function pushRowsUp(
     }
 
     if (!Number.isFinite(shift) || shift <= 0.01) continue;
+
+    /*
+     * その段の共通レールに乗っている座標置きの機器（矢印キーで左右に寄せた 1 台など）があれば、
+     * 段の基準線は**その機器のレールの高さに合わせる**。座標置きの機器は動かさないので、
+     * 流し込みの機器だけを上へ詰めると、レールが 2 つの高さに割れて「レールが崩れる」。
+     * 合わせるのは、その高さが詰められる範囲（0〜shift）に入っているときだけ。
+     * 上下に大きく動かした機器（レールから外した 1 台）に段ごと引っ張られないため
+     */
+    const axis0 = rowAxisY(row);
+    const railed = placed
+      .filter((p) => p.row === row.index && p.pinned && p.mount === 'din')
+      .map((p) => {
+        const spec = devices.get(p.specId);
+        if (!spec) return null;
+        return p.y + rotatedSize(spec.size, p.rot).h / 2 - (spec.dinOffset ?? 0) - axis0;
+      })
+      .filter((d): d is number => d !== null && d >= -0.01 && d <= shift + 0.01);
+    if (railed.length > 0) shift = Math.max(0, railed[0]!);
+    if (shift <= 0.01) continue;
     row.axis = (row.axis ?? row.h / 2) + shift;
     for (const p of mine) p.y += shift;
   }
