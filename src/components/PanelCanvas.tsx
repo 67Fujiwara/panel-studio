@@ -164,6 +164,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   /** そのダクトに効いている型式名。ツールチップに出す */
   const ductNameOf = (d: Duct) => ductSpecAt(profile, ductMaster, targetOf(d)).model;
   const restoreDucts = useStore((s) => s.restoreDucts);
+  const nudgeNote = useStore((s) => s.nudgeNote);
   const removedHere = useStore((s) => s.removedDucts[face]?.length ?? 0);
 
   const undoCounts = useUndoCounts();
@@ -1269,6 +1270,11 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         )}
       </div>
 
+      {nudgeNote && (
+        <div className="nudge-note" role="status">
+          {nudgeNote}
+        </div>
+      )}
       <div className="canvas-hint">
         {FACE_LABEL(face)}（{faceW} × {faceH}）／ 原点は左下 0,0 ／ ホイールで拡大縮小・背景ドラッグで移動 ／
         <b>機器をドラッグすると上下左右どこへでも入れ込めます</b>

@@ -1431,6 +1431,17 @@ body.dragging * {
   pointer-events: none;
 }
 
+/* 矢印キーでダクトが動かせなかった理由。案内欄のすぐ上に出す */
+.nudge-note {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-top: 1px solid #f2c94c;
+  background: #fff8e1;
+  color: #7a5a00;
+  font-size: 12px;
+  pointer-events: none;
+}
+
 .plate {
   fill: var(--plate);
   stroke: #9aa5b1;

@@ -32,7 +32,7 @@ import type {
 export type DeviceLookup = Map<string, DeviceSpec>;
 
 /** 発熱機器とみなすしきい値(W)。これを超えると上下に追加離隔を取る。 */
-const HEAT_THRESHOLD_W = 10;
+export const HEAT_THRESHOLD_W = 10;
 
 /**
  * ダクト1本ぶんの調整値。指定がなければ共通の設定。
