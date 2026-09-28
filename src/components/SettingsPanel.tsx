@@ -198,6 +198,8 @@ export function SettingsPanel({ ductCount }: { ductCount: number }) {
                     <p className="note span2">
                       左・右は<b>このダクトを短くするだけ</b>です。機器を並べられる幅は変わりません
                       （幅は「中板の端からの余白」で決まります）。
+                      図の上でこのダクトを選んで<b>矢印キー</b>を押すと、ここの数字が動きます
+                      （←→で左右、↑↓で上下の余白）。
                     </p>
                   </div>
                 )}

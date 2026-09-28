@@ -34,7 +34,8 @@ import type {
   Rotation,
 } from './types';
 import { markBackupSeen } from './lib/backup';
-import { effectiveDepth } from './lib/layout';
+import { effectiveDepth, vertBandOf } from './lib/layout';
+import { faceSize } from './data/faces';
 import type { LayoutItem } from './lib/layout';
 import { rotatedSize, hasTapCuts } from './types';
 
@@ -356,6 +357,14 @@ export type State = {
    * 'all' で盤ぜんたい。id を空にすると指定を外して盤ぜんたいの型式に戻す。
    */
   setDuctSpecAt: (target: DuctTarget, id: string) => void;
+  /**
+   * ダクト 1 本を矢印キーで微調整する。
+   * - 横ダクト ←→: 左右の余白を同時に動かして全体をずらす（面の外へは出さない）
+   * - 横ダクト ↑↓: 上の余白と下の余白を付け替えてダクトだけ動かす（下の段は動かない）。
+   *   `edge: 'bottom'`（最下段のダクト）は上の余白だけ。いちばん上のダクトは面の上端で決まるので呼ばない
+   * - 縦ダクト ←→: 帯ごとずらす（機器はよけ直す）
+   */
+  nudgeDuct: (target: DuctTarget, dx: number, dy: number, edge?: 'bottom') => void;
 
   /** 単価表。型番をキーに持つ。ミスミの一括見積 CSV から取り込む */
   prices: PriceBook;
@@ -1092,6 +1101,41 @@ export const useStore = create<State>((set) => ({
           duct: vertical ? { ...duct, vertGaps: gaps } : { ...duct, ductGaps: gaps },
         },
       };
+    }),
+
+  nudgeDuct: (target, dx, dy, edge) =>
+    set((s) => {
+      const duct = s.profile.duct;
+      if (typeof target !== 'number') {
+        if (target === 'all' || !dx) return s;
+        // 面の外へ出る分は溜めない（戻すときに空振りしないように）
+        const band = vertBandOf(s.panel, s.face, s.profile, target.vert);
+        const w = faceSize(s.panel, s.face).w;
+        const step = band ? Math.max(-band.x0, Math.min(w - band.x1, dx)) : dx;
+        if (!step) return s;
+        const gaps = { ...duct.vertGaps };
+        const cur = gaps[target.vert] ?? {};
+        gaps[target.vert] = { ...cur, dx: (cur.dx ?? 0) + step };
+        return { profile: { ...s.profile, duct: { ...duct, vertGaps: gaps } } };
+      }
+      const gaps = { ...duct.ductGaps };
+      const cur = gaps[target] ?? {};
+      const left = cur.left ?? duct.margin.left;
+      const right = cur.right ?? duct.margin.right;
+      // 左右は余白を同時に動かして全体をずらす。面の外へは出さない
+      const shift = Math.max(-left, Math.min(right, dx));
+      // 上下は「上の余白」を削って「下の余白」に足す（逆も）。余白は 0 未満にしない。
+      // 最下段のダクトは下に段が無いので上の余白だけ動かす
+      const above = cur.above ?? s.profile.clearance.deviceToDuct.bottom;
+      const below = cur.below ?? s.profile.clearance.deviceToDuct.top;
+      const up = edge === 'bottom' ? Math.min(above, dy) : Math.max(-below, Math.min(above, dy));
+      if (!shift && !up) return s;
+      gaps[target] = {
+        ...cur,
+        ...(shift ? { left: left + shift, right: right - shift } : {}),
+        ...(up ? { above: above - up, ...(edge === 'bottom' ? {} : { below: below + up }) } : {}),
+      };
+      return { profile: { ...s.profile, duct: { ...duct, ductGaps: gaps } } };
     }),
 
   mergePrices: (book) => set((s) => ({ prices: { ...s.prices, ...book } })),

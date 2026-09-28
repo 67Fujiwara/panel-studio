@@ -1452,6 +1452,13 @@ body.dragging * {
   stroke-width: 3;
   vector-effect: non-scaling-stroke;
 }
+/* ダクトの通し番号（設定欄の「n 本目」と同じ番号）。触れない */
+.duct-no {
+  fill: #5b6b7f;
+  dominant-baseline: central;
+  pointer-events: none;
+  opacity: 0.8;
+}
 /* ダクトの型式を選ぶ一覧。ダブルクリックした場所に出す */
 .pick-veil {
   position: absolute;

@@ -210,7 +210,25 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
       if (!step) return;
       const el = document.activeElement;
       if (el instanceof HTMLElement && /INPUT|TEXTAREA|SELECT/.test(el.tagName)) return;
-      const uid = useStore.getState().selectedUid;
+      const st = useStore.getState();
+      // ダクトを選んでいれば、そのダクトを動かす（横: ←→で全体・↑↓で上下の余白の付け替え、縦: ←→）
+      if (st.selectedDuct !== null) {
+        const d = layout.ducts.find((q) => q.id === st.selectedDuct);
+        if (!d) return;
+        e.preventDefault();
+        const k = e.shiftKey ? 10 : 1;
+        let dy = step[1]! * k;
+        if (d.vert === undefined && dy) {
+          // いちばん上のダクトは面の上端（余白）で決まる。全段そろえるモードは段の高さが固定なので動かせない
+          const lastId = Math.max(...layout.ducts.filter((q) => q.vert === undefined).map((q) => q.id));
+          if (d.id === 0 || st.profile.duct.rowHeightMode === 'equal') dy = 0;
+          st.nudgeDuct(targetOf(d), step[0]! * k, dy, d.id === lastId ? 'bottom' : undefined);
+          return;
+        }
+        st.nudgeDuct(targetOf(d), step[0]! * k, dy);
+        return;
+      }
+      const uid = st.selectedUid;
       if (!uid) return;
       const p = layout.placed.find((q) => q.uid === uid);
       const spec = p && devices.get(p.specId);
@@ -834,10 +852,40 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                   ? `横ダクト ${d.id + 1} 本目（幅 ${Math.round(d.h)}mm）`
                   : `縦ダクト 左から ${d.vert + 1} 本目（幅 ${Math.round(d.w)}mm）`}
                 {'\n'}ダブルクリックで型式を選ぶ・Delete キーで削除
+                {'\n'}
+                {d.vert === undefined
+                  ? '矢印キー ←→ で左右へ、↑↓ で上下へ 1mm ずつ（Shift で 10mm）。上下は上下の余白を付け替えます'
+                  : '矢印キー ←→ で左右へ 1mm ずつ（Shift で 10mm）。機器はよけ直します'}
               </title>
             </rect>
           );
         })}
+        {/*
+          ダクトの番号。「ダクトごとの調整」の何本目がどれかを図で確かめられるように、
+          横は上から、縦は左からの通し番号を端に書く（設定欄の番号と同じ）
+        */}
+        {layout.ducts
+          // 縦ダクトで切られた横ダクトは同じ番号の切れ端が複数あるので、左端の 1 つにだけ書く
+          .filter((d, i, all) => !d.removed && all.findIndex((q) => q.id === d.id && !q.removed) === i)
+          .map((d) => {
+            const y = toSvgY(faceH, d.y, d.h);
+            const horizontal = d.vert === undefined;
+            const label = horizontal ? `ダクト ${d.id + 1}` : `縦 ${d.vert! + 1}`;
+            const fs = Math.min(horizontal ? d.h * 0.4 : d.w * 0.4, 12);
+            return (
+              <text
+                key={`ductno${d.id}`}
+                className="duct-no"
+                // 固定穴の印（横は高さの中央・縦は幅の中央）に重ねないよう、横は上寄せ・縦は上端に置く
+                x={horizontal ? d.x + 6 : d.x + d.w / 2}
+                y={horizontal ? y + fs + 2 : y + fs + 4}
+                fontSize={fs}
+                textAnchor={horizontal ? 'start' : 'middle'}
+              >
+                {label}
+              </text>
+            );
+          })}
 
         {/*
           DINレール。両端の余長は設定で決まる。機器の下に敷く。
@@ -1225,7 +1273,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         {FACE_LABEL(face)}（{faceW} × {faceH}）／ 原点は左下 0,0 ／ ホイールで拡大縮小・背景ドラッグで移動 ／
         <b>機器をドラッグすると上下左右どこへでも入れ込めます</b>
         （Shift＋ドラッグで自由に置く・{SNAP}mm スナップ）／
-        機器を選んで<b>矢印キー</b>で 1mm ずつ移動（Shift で 10mm）／ 機器・ダクトを選んで{' '}
+        機器やダクトを選んで<b>矢印キー</b>で 1mm ずつ移動（Shift で 10mm）／ 機器・ダクトを選んで{' '}
         <b>Delete</b> で削除 ／ <b>Ctrl+Z</b> で戻す・<b>Ctrl+Y</b> でやり直す ／
         止め金具は機器の横へ寄せると<b>密着</b>します ／
         <b>ダブルクリック</b>で機器は90°回転・ダクトは型式を選ぶ

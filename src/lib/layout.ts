@@ -188,7 +188,7 @@ export function computeRows(
   let id = 0;
   const pushHorizontal = (y: number) => {
     const s = span(id);
-    for (const p of splitByBands(bands, s.x, s.w)) {
+    for (const p of splitByBands(bands, s.x, s.w, bandW(id))) {
       ducts.push({ id, x: p.x0, y, w: p.x1 - p.x0, h: bandW(id) });
     }
     id++;
@@ -383,9 +383,25 @@ function verticalBands(panel: PanelSpec, face: FaceId, profile: Profile): VertBa
   const m = profile.duct.margin;
   return rule.verticals.map((t, v) => {
     const dw = vertWidth(profile, v);
-    const center = t === 0 ? m.left + dw / 2 : t === 1 ? w - m.right - dw / 2 : w * t;
+    // 矢印キーの微調整（dx）で左右へずらせる。帯ごと動かすので機器はよけ直し、
+    // 横ダクトもずれた位置で切れる。面の外へは出さない
+    const base = t === 0 ? m.left + dw / 2 : t === 1 ? w - m.right - dw / 2 : w * t;
+    const center = Math.max(dw / 2, Math.min(w - dw / 2, base + (profile.duct.vertGaps?.[v]?.dx ?? 0)));
     return { x0: center - dw / 2, x1: center + dw / 2, v };
   });
+}
+
+/**
+ * 縦ダクト v の帯（矢印キーのずらし込み・面の内側に収めた後）。
+ * 図の上の微調整で、面の外へ出る分をずらし値に溜めないために使う。
+ */
+export function vertBandOf(
+  panel: PanelSpec,
+  face: FaceId,
+  profile: Profile,
+  v: number,
+): { x0: number; x1: number } | undefined {
+  return verticalBands(panel, face, profile).find((b) => b.v === v);
 }
 
 /** その段で機器を置ける X 区画。縦ダクトで分断された残りを左から順に返す。 */
@@ -423,7 +439,7 @@ function rowSegments(
  * 実物は同じ場所に2本置けないので、**縦ダクトを通し**にして横ダクトを
  * その幅ぶん短くする。切られて2本以上になることもあるので、切れ端ごとに1本として返す。
  */
-function splitByBands(bands: Segment[], x: number, w: number): Segment[] {
+function splitByBands(bands: Segment[], x: number, w: number, minW = 1): Segment[] {
   let parts: Segment[] = [{ x0: x, x1: x + w }];
   for (const b of bands) {
     const next: Segment[] = [];
@@ -434,8 +450,9 @@ function splitByBands(bands: Segment[], x: number, w: number): Segment[] {
     }
     parts = next;
   }
-  // 切れ端が細すぎるものは実物として成り立たないので落とす
-  return parts.filter((s) => s.x1 - s.x0 >= 1);
+  // 切れ端が細すぎるものは実物として成り立たないので落とす。
+  // 端の縦ダクトを矢印キーで内側へ寄せたときに、その外側へできる数 mm の切れ端もここで消える
+  return parts.filter((s) => s.x1 - s.x0 >= Math.max(1, minW));
 }
 
 /** 機器同士の水平方向の間隔。 */
@@ -750,7 +767,7 @@ function packAuto(
 
   const pushHorizontal = (yAt: number) => {
     const span = ductSpan(id);
-    for (const s of splitByBands(bands, span.x, span.w)) {
+    for (const s of splitByBands(bands, span.x, span.w, bandW(id))) {
       ducts.push({ id, x: s.x0, y: yAt, w: s.x1 - s.x0, h: bandW(id) });
     }
     id++;
