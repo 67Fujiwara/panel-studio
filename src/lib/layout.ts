@@ -1249,10 +1249,11 @@ function pushRowsUp(
   const live = ducts.filter((d) => !d.removed);
 
   for (const row of [...rows].sort((a, b) => b.y - a.y)) {
-    // その段を流れている機器だけ。座標で置いた1台は動かさない
-    const mine = placed.filter((p) => p.row === row.index && !p.pinned);
+    // その段を流れている機器と、段のレールに乗ったままの座標置き（onRail）。
+    // 上下に動かしてレールから外した座標置きは動かさない
+    const mine = placed.filter((p) => p.row === row.index && (!p.pinned || p.onRail));
     if (mine.length === 0) continue;
-    const others = placed.filter((p) => p.row !== row.index || p.pinned);
+    const others = placed.filter((p) => !mine.includes(p));
     const gap = rowGap(profile, row.index);
 
     let shift = Infinity;
@@ -1303,8 +1304,9 @@ function pushRowsUp(
      * 上下に大きく動かした機器（レールから外した 1 台）に段ごと引っ張られないため
      */
     const axis0 = rowAxisY(row);
+    // onRail の印が無い古いデータだけ。印があるものは mine として段と一緒に動く
     const railed = placed
-      .filter((p) => p.row === row.index && p.pinned && p.mount === 'din')
+      .filter((p) => p.row === row.index && p.pinned && p.onRail === undefined && p.mount === 'din')
       .map((p) => {
         const spec = devices.get(p.specId);
         if (!spec) return null;
@@ -1543,9 +1545,19 @@ export function autoLayout(
   // 段の割り付けに参加させず、置かれた座標のまま残す。干渉は重なり検出で拾う。
   // 外側／内側と「他の面にも出す」は配置には関わらないので、items から写すだけ
   const extra = new Map(faceItems.map((i) => [i.uid, i]));
+  const rowByIndex = new Map(result.rows.map((r) => [r.index, r]));
   const placed = (auto ? [...pinned, ...result.placed] : result.placed).map((p) => {
     const it = extra.get(p.uid);
-    return it && (it.side || it.showOn) ? { ...p, side: it.side, showOn: it.showOn } : p;
+    // 座標置きでも段のレールに乗ったままのもの（onRail）は、上下を段のレールに合わせ直す。
+    // ダクトの余白を変えて段が動いたとき、レールから外れて取り残されないように
+    let y = p.y;
+    if (p.pinned && p.onRail) {
+      const row = rowByIndex.get(p.row);
+      const spec = devices.get(p.specId);
+      if (row && spec) y = placeY(row, spec, p.mount, p.rot);
+    }
+    // ストアの pinned をそのまま返さない（pushRowsUp が y を動かすので、写しにする）
+    return { ...p, y, ...(it && (it.side || it.showOn) ? { side: it.side, showOn: it.showOn } : {}) };
   });
 
   // 消したダクトは配列から外さず印を付けて残す。図の上に薄く出して押し戻せるようにする

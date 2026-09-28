@@ -11,7 +11,7 @@ import { cutOutline, outlinePolys, pilotDia, pilotPoints } from '../lib/holes';
 import { resolveArea } from '../lib/workArea';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
-import { baseSlots, ductSpecAt, isRailMount, rotatedSize, slotUseOf, splitModels } from '../types';
+import { baseSlots, ductSpecAt, isRailMount, rotatedSize, rowAxisY, slotUseOf, splitModels } from '../types';
 import type {
   CategoryDef,
   Duct,
@@ -20,6 +20,7 @@ import type {
   LayoutResult,
   Machining,
   PanelSpec,
+  PlacedDevice,
 } from '../types';
 
 /** 手動配置時のスナップ間隔(mm) */
@@ -219,7 +220,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
       const k = e.shiftKey ? 10 : 1;
       const x = Math.max(0, Math.min(faceW - size.w, p.x + step[0]! * k));
       const y = Math.max(0, Math.min(faceH - size.h, p.y + step[1]! * k));
-      pin({ ...p, x, y });
+      pinAt(p, x, y);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -475,6 +476,22 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     };
   };
 
+  /**
+   * 座標で置く。置いた高さが段のレールの高さなら「レールに乗ったまま」（onRail）の印を付ける。
+   * 印があるものは、ダクトの余白を変えて段が動いてもレールに付いていく。
+   * 上下に動かしてレールから外したものは印なし（その高さに留まる）
+   */
+  const pinAt = (p: PlacedDevice, x: number, y: number) => {
+    const spec = devices.get(p.specId);
+    const row = layout.rows.find((r) => r.index === p.row);
+    let onRail = false;
+    if (spec && row && p.mount === 'din') {
+      const axis = y + rotatedSize(spec.size, p.rot).h / 2 - (spec.dinOffset ?? 0);
+      onRail = Math.abs(axis - rowAxisY(row)) < 0.5;
+    }
+    pin({ ...p, x, y, onRail });
+  };
+
   /** ドラッグ中の1台の、いまのポインタ位置に対応する面の座標（左下角）。 */
   const draggedPos = (e: React.PointerEvent, d: NonNullable<typeof dragRef.current>) => {
     const k = mmPerPx();
@@ -522,7 +539,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           (at.self.stopper ? snapStopperToDevice(dodged.x, dodged.y, at.size, at.self) : null) ??
           snapToSoloRails(dodged.x, dodged.y, at.size, at.self) ??
           dodged;
-        pin({ ...at.placed, x: snapped.x, y: snapped.y });
+        pinAt(at.placed, snapped.x, snapped.y);
         return;
       }
       /*
@@ -534,7 +551,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         const snapped = snapStopperToDevice(at.x, at.y, at.size, at.self);
         if (snapped) {
           d.snapped = true;
-          pin({ ...at.placed, x: snapped.x, y: snapped.y });
+          pinAt(at.placed, snapped.x, snapped.y);
           return;
         }
       }
@@ -547,7 +564,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         const snapped = snapToSoloRails(at.x, at.y, at.size, at.self);
         if (snapped) {
           d.snapped = true;
-          pin({ ...at.placed, x: snapped.x, y: snapped.y });
+          pinAt(at.placed, snapped.x, snapped.y);
           return;
         }
       }
