@@ -267,27 +267,17 @@ function polyLines(w: Drawer, layer: string, pts: { x: number; y: number }[], cl
  * 形の定義は holes.ts が持ち、弧は折れ線にせず ARC のまま出す
  * （レーザー加工に渡す図なので、円弧は円弧で残す）。
  */
-function drawMachining(
-  w: Drawer,
-  m: Machining,
-  ox: number,
-  oy: number,
-  /**
-   * キャビスタ向け。穴は「閉じた図形 1 つ＝穴 1 つ」として読まれるので、
-   * タップの二重丸（呼び径＋下穴）は呼び径の円 1 つにする。それ以外はふだんの図と同じ
-   */
-  forCabista = false,
-) {
+function drawMachining(w: Drawer, m: Machining, ox: number, oy: number) {
   const cx = ox + m.x;
   const cy = oy + m.y;
 
   if (m.kind === 'hole' && m.tap) {
+    /*
+     * 二重丸。外が呼び径、内が下穴（JIS のねじ穴の描き方）。
+     * キャビスタ向けも同じ。呼び径の円 1 つにしたらキャビスタでタップ穴が消えたので、
+     * ふだんの図と同じ二重丸で出す（下穴の円がタップの目印になる）
+     */
     const outer = Number(m.tap.slice(1));
-    if (forCabista) {
-      w.circle(LAYER.tap, cx, cy, outer / 2);
-      return;
-    }
-    // 二重丸。外が呼び径、内が下穴
     w.circle(LAYER.tap, cx, cy, outer / 2);
     w.circle(LAYER.tap, cx, cy, (TAP_DRILL[m.tap] ?? m.dia) / 2);
     return;
@@ -357,8 +347,8 @@ function drawFaceRect(w: Drawer, ox: number, oy: number, size: { w: number; h: n
  * 書き出す中身。
  * - full   : 機器・ダクト・レール・加工を全部
  * - holes  : 加工穴だけ（加工屋へ渡す）。下地はメーカーの図
- * - cabista: 日東工業キャビスタの「DXF 図面データ取込み」向け。**面の外形は寸法どおりの四角 1 つ**にし、
- *            穴は「閉じた図形 1 つ＝穴 1 つ」（タップは呼び径の円 1 つ）。穴の中身は holes と同じ。
+ * - cabista: 日東工業キャビスタの「DXF 図面データ取込み」向け。**面の外形は寸法どおりの四角 1 つ**にする。
+ *            穴の中身は holes とまったく同じ（タップの二重丸も同じ）。
  *            メーカーの図を下地にするとキャビスタが面を見つけられない（「キャビネットの解析に失敗しました」）
  */
 export type ExportKind = 'full' | 'holes' | 'cabista';
@@ -504,9 +494,8 @@ function drawFace(
   }
 
   // 加工はどの種類にも出す。これが書き出しの主目的
-  const cab = kind === 'cabista';
-  for (const m of autoMachining(face, layout, devices, profile, input.ducts)) drawMachining(w, m, ox, oy, cab);
-  for (const m of machining.filter((q) => q.face === face)) drawMachining(w, m, ox, oy, cab);
+  for (const m of autoMachining(face, layout, devices, profile, input.ducts)) drawMachining(w, m, ox, oy);
+  for (const m of machining.filter((q) => q.face === face)) drawMachining(w, m, ox, oy);
 }
 
 /** 何も描かない Drawer。表の大きさを測るのに使う */
