@@ -434,7 +434,7 @@ export type State = {
    * 古いデータの座標置きに onRail の印を付け直し、段が動かないようにダクトの下の余白を今の隙間に合わせる。
    * legacyRailMigration（layout.ts）の結果をそのまま渡す。図は変わらない
    */
-  applyRailMigration: (marks: { uid: string; onRail: boolean }[], below: Record<number, number>) => void;
+  applyRailMigration: (marks: { uid: string; onRail: boolean }[], gaps: Record<number, DuctGap>) => void;
 };
 
 /**
@@ -1408,18 +1408,15 @@ export const useStore = create<State>((set) => ({
 
   resetLayout: () => set((s) => ({ pinned: s.pinned.filter((p) => p.face !== s.face) })),
 
-  applyRailMigration: (marks, below) =>
+  applyRailMigration: (marks, gaps) =>
     set((s) => {
       const m = new Map(marks.map((x) => [x.uid, x.onRail]));
       const pinned = s.pinned.map((p) => (m.has(p.uid) ? { ...p, onRail: m.get(p.uid)! } : p));
-      const ids = Object.keys(below);
-      if (ids.length === 0) return { pinned };
-      const gaps = { ...s.profile.duct.ductGaps };
-      for (const k of ids) {
-        const id = Number(k);
-        gaps[id] = { ...(gaps[id] ?? {}), below: below[id]! };
-      }
-      return { pinned, profile: { ...s.profile, duct: { ...s.profile.duct, ductGaps: gaps } } };
+      if (Object.keys(gaps).length === 0) return { pinned };
+      return {
+        pinned,
+        profile: { ...s.profile, duct: { ...s.profile.duct, ductGaps: { ...s.profile.duct.ductGaps, ...gaps } } },
+      };
     }),
 }));
 

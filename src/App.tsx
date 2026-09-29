@@ -49,10 +49,10 @@ export default function App() {
    */
   useEffect(() => {
     if (screen !== 'layout' || !hasDucts || profile.duct.rowHeightMode !== 'auto') return;
-    const mig = legacyRailMigration(layout, lookup, profile);
+    const mig = legacyRailMigration(layout, lookup, profile, panel, face, items, pinned, removedDucts[face] ?? []);
     if (mig.marks.length === 0) return;
-    silently(() => useStore.getState().applyRailMigration(mig.marks, mig.below));
-  }, [screen, hasDucts, layout, lookup, profile]);
+    silently(() => useStore.getState().applyRailMigration(mig.marks, mig.gaps));
+  }, [screen, hasDucts, layout, lookup, profile, panel, face, items, pinned, removedDucts]);
 
   /**
    * 新規作成。作りかけは**捨てずに作業中案件へしまってから**白紙にする。

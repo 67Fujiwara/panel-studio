@@ -15,6 +15,7 @@ import type {
   DeviceRow,
   DeviceSpec,
   Duct,
+  DuctGap,
   DuctLayoutId,
   FaceId,
   LayoutResult,
@@ -540,6 +541,15 @@ type Obstacle = {
   /** 基準線の上下に要る高さ。段の高さに入れ、その段を「使っている段」として数えるため */
   up: number;
   down: number;
+  /**
+   * レールから外してある座標置き（onRail: false）。段の基準線（up/down）は決めない。
+   * 上下に動かした 1 台や、段の中に立てた背の高い直付け（アースバーなど）が段の高さを
+   * 押し下げ、レールに乗っている機器の位置と段の基準線がずれるのを防ぐ。
+   * 下のダクトが通るなら、その機器の実際の下端（floor）までしかダクトを上げない
+   */
+  offRail?: boolean;
+  /** offRail のとき: 下のダクトの上端が来てよい上限（機器の下端 − 離隔）。絶対座標 */
+  floor?: number;
 };
 
 function packAuto(
@@ -577,7 +587,16 @@ function packAuto(
    * 段の基準線（axis）は up/down で決めるので、機器を座標置きにしても基準線が動かず、
    * レールがばらけない。ダクトの位置だけが downDuct で決まる
    */
-  type Bucket = { entries: Placed[]; pinnedCount: number; up: number; down: number; downDuct: number; slots: Slot[] };
+  type Bucket = {
+    entries: Placed[];
+    pinnedCount: number;
+    up: number;
+    down: number;
+    downDuct: number;
+    /** レールから外した座標置きの下を通る下のダクトの上端の上限（絶対座標）。無ければ Infinity */
+    floor: number;
+    slots: Slot[];
+  };
 
   const newBucket = (i: number): Bucket => ({
     entries: [],
@@ -585,6 +604,7 @@ function packAuto(
     up: 0,
     down: 0,
     downDuct: 0,
+    floor: Infinity,
     slots: rowSegments(panel, face, profile, i, bands).map((s) => ({
       ...s,
       cursor: s.x0,
@@ -743,6 +763,11 @@ function packAuto(
   for (const o of obstacles) {
     const b = bucketAt(o.row);
     b.pinnedCount++;
+    if (o.offRail) {
+      // レールから外してある機器は基準線を決めない。下のダクトが通るなら実際の下端までしか上げない
+      if (o.floor !== undefined && ductCrosses(o.row + 1, o.x0, o.x1)) b.floor = Math.min(b.floor, o.floor);
+      continue;
+    }
     // 基準線の位置（up/down）には常に入れる。座標置きにした瞬間に基準線が動くと、
     // その機器だけが元の高さに残って共通レールから外れ、レールがばらける
     b.up = Math.max(b.up, o.up);
@@ -787,8 +812,9 @@ function packAuto(
     const axisY = y - b.up;
     const row: DeviceRow = { index, y: axisY - b.down, h: bucketH(b), axis: b.down };
     rows.push(row);
-    // 次のダクトの上端。下のダクトが通らない座標置きの機器は避けない（downDuct）
-    y = axisY - b.downDuct;
+    // 次のダクトの上端。下のダクトが通らない座標置きの機器は避けない（downDuct）。
+    // レールから外した機器の下を通るなら、その機器の実際の下端までしか上げない（floor）
+    y = Math.min(axisY - b.downDuct, b.floor);
     for (const { e, x } of b.entries) {
       placed.push({
         uid: e.item.uid,
@@ -1344,66 +1370,202 @@ function pushRowsUp(
  * pushRowsUp が段のほうをその機器の高さへ引っ張るので、ダクトの「下の余白」を増やしても
  * 段が元の高さに戻り、**端子台の上に隙間を空けられない**。
  *
- * ここでは、いまの図で段のレールの高さに乗っている座標置きに onRail の印を付け、
- * 乗っていないものには「外してある」印（false）を付ける。
- * 印を付けると pushRowsUp がその段を上へ詰めるので、いま空いている隙間が消えないように、
- * 段の上のダクトの「下の余白」を**いまの隙間そのもの**に合わせて返す（図は 1mm も動かない）。
- * 上のダクトを消してある段は詰める先が読めないので、印を付けずに残す。
+ * やること:
+ *  1. 段ごとに「レールの高さ」を決める。流し込み・印ありの機器があればその段の基準線、
+ *     全部が座標置きなら、DIN の機器のレール中心がいちばん多く集まる高さ
+ *     （段の基準線は、レールから外れた背の高い座標置き — アースバーなど — に押し下げられて
+ *     いることがあるので、基準線ではなく機器の実際の高さから見る）
+ *  2. その高さに乗っている座標置きに onRail、乗っていないものに false を付ける
+ *  3. 印を付けると段が詰まるので、上のダクトまでの今の隙間を「下の余白」に、
+ *     下のダクトまでの今の隙間をそのダクトの「上の余白」に写す
+ *  4. 付け直した状態で配置をやり直し、**機器もダクトも 1 つも動かない**ことを確かめる。
+ *     動くなら見送る（結果は空）。図が勝手に動くくらいなら、調整できないほうがまし
  *
- * 戻り値が空なら古いデータは無い（毎回呼んでよい）
+ * 上のダクトを消してある段や、乗っている機器が 1 台も無い段は触らない。
+ * 戻り値が空なら何もしない（毎回呼んでよい）
  */
 export function legacyRailMigration(
   layout: LayoutResult,
   devices: DeviceLookup,
   profile: Profile,
-): { marks: { uid: string; onRail: boolean }[]; below: Record<number, number> } {
-  const marks: { uid: string; onRail: boolean }[] = [];
-  const below: Record<number, number> = {};
+  panel: PanelSpec,
+  face: FaceId,
+  items: LayoutItem[],
+  pinned: PlacedDevice[],
+  removedDucts: number[],
+): { marks: { uid: string; onRail: boolean }[]; gaps: Record<number, DuctGap> } {
+  const empty = { marks: [], gaps: {} };
   const legacy = layout.placed.filter((p) => p.pinned && p.onRail === undefined);
-  if (legacy.length === 0) return { marks, below };
+  if (legacy.length === 0) return empty;
 
+  const r2 = (v: number) => Math.round(v * 100) / 100;
   const rowBy = new Map(layout.rows.map((r) => [r.index, r]));
-  const rowsTouched = new Set(legacy.map((p) => p.row));
-  for (const r of rowsTouched) {
-    const row = rowBy.get(r);
-    const duct = layout.ducts.find((d) => d.vert === undefined && d.id === r);
-    // 段が無い（面の外など）か、上のダクトが消してあるなら触らない
-    if (!row || !duct || duct.removed) continue;
-    const rowMarks: { uid: string; onRail: boolean }[] = [];
-    const onRail = new Set<string>();
-    for (const p of legacy) {
-      if (p.row !== r) continue;
-      const spec = devices.get(p.specId);
-      // 段の流し込みが置く高さ（レール中心＋掛かり方、直付けは段の中心）にぴったり乗っているものだけ。
-      // 直付けの機器も、その高さに乗っていれば段の一員として一緒に動かす
-      const on = Boolean(spec) && Math.abs(p.y - placeY(row, spec!, p.mount, p.rot)) < 0.5;
-      rowMarks.push({ uid: p.uid, onRail: on });
-      if (on) onRail.add(p.uid);
+  const hDucts = layout.ducts.filter((d) => d.vert === undefined);
+  /** レール中心の高さ（直付けは機器の中心） */
+  const axisOf = (p: PlacedDevice, spec: DeviceSpec) =>
+    p.y + rotatedSize(spec.size, p.rot).h / 2 - (p.mount === 'din' ? (spec.dinOffset ?? 0) : 0);
+  const crossing = (d: Duct, p: PlacedDevice, s: { w: number }) => !(d.x + d.w <= p.x + 0.01 || p.x + s.w <= d.x + 0.01);
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.05;
+
+  /**
+   * 印と余白の候補を作る。
+   * gapMode は上のダクトまでの隙間の測り方。'under' はそのダクトの下を通る機器だけ（詰め処理と同じ見方。
+   * 余白の数字が実態に合う）、'all' は段の機器全部（段の割り付けと同じ見方。ダクトが短くて
+   * その先に立つ背の高い機器があるとき、'under' では下のダクトが動くので、こちらで逃がす）
+   */
+  const build = (gapMode: 'under' | 'all', offMode: 'false' | 'keep') => {
+    const marks: { uid: string; onRail: boolean }[] = [];
+    const gaps: Record<number, DuctGap> = {};
+    for (const r of new Set(legacy.map((p) => p.row))) {
+      const row = rowBy.get(r);
+      const above = hDucts.find((d) => d.id === r);
+      if (!row || !above || above.removed) continue;
+      const inRow = layout.placed.filter((p) => p.row === r);
+
+      // 1. レールの高さ
+      let rail: number;
+      if (inRow.some((p) => !p.pinned || p.onRail)) {
+        rail = rowAxisY(row);
+      } else {
+        const axes = inRow
+          .filter((p) => p.pinned && p.onRail === undefined && p.mount === 'din')
+          .map((p) => {
+            const spec = devices.get(p.specId);
+            return spec ? axisOf(p, spec) : null;
+          })
+          .filter((v): v is number => v !== null);
+        if (axes.length === 0) continue;
+        let best = axes[0]!;
+        let bestN = 0;
+        for (const a of axes) {
+          const n = axes.filter((b) => Math.abs(b - a) < 0.5).length;
+          if (n > bestN) {
+            bestN = n;
+            best = a;
+          }
+        }
+        rail = best;
+      }
+
+      // 2. 印。乗っていないものは offMode で決める:
+      //    'false' は「外してある」印を付ける（段の高さを決めなくなる。段の中に立てたアースバーなど
+      //    背の高い直付けが段の基準線を押し下げていた場合はこちらでないと、余白を変えたときに
+      //    下のダクトがずれる）。'keep' は印なしのまま残す（その機器が下のダクトを支えているとき）
+      const on = new Set<string>();
+      const off: string[] = [];
+      for (const p of inRow) {
+        if (!(p.pinned && p.onRail === undefined)) continue;
+        const spec = devices.get(p.specId);
+        if (spec && Math.abs(axisOf(p, spec) - rail) < 0.5) on.add(p.uid);
+        else off.push(p.uid);
+      }
+      if (on.size === 0) continue;
+
+      // 3. 今の隙間を余白に写す
+      const mine = inRow.filter((p) => !p.pinned || p.onRail || on.has(p.uid));
+      let gapUp = Infinity;
+      let ok = true;
+      for (const p of mine) {
+        const spec = devices.get(p.specId);
+        if (!spec) continue;
+        const s = rotatedSize(spec.size, p.rot);
+        if (gapMode === 'under' && !crossing(above, p, s)) continue;
+        const g = above.y - (p.y + s.h);
+        // メーカー指定の離隔より近くに置いてある段は、印を付けると配置が直ってしまうので見送る
+        if (crossing(above, p, s) && g < (spec.clearance?.top ?? 0) - 0.01) ok = false;
+        gapUp = Math.min(gapUp, g);
+      }
+      if (!ok || !Number.isFinite(gapUp) || gapUp < -0.01) continue;
+      if (Math.abs(gapUp - ductGap(profile, r).below) > 0.01) {
+        gaps[r] = { ...(profile.duct.ductGaps?.[r] ?? {}), ...(gaps[r] ?? {}), below: r2(gapUp) };
+      }
+      const under = hDucts.find((d) => d.id === r + 1);
+      if (under && !under.removed) {
+        let gapDn = Infinity;
+        for (const p of mine) {
+          const spec = devices.get(p.specId);
+          if (!spec) continue;
+          const s = rotatedSize(spec.size, p.rot);
+          if (!crossing(under, p, s)) continue;
+          gapDn = Math.min(gapDn, p.y - (under.y + under.h));
+        }
+        if (Number.isFinite(gapDn) && gapDn >= 0 && Math.abs(gapDn - ductGap(profile, r + 1).above) > 0.01) {
+          gaps[r + 1] = { ...(profile.duct.ductGaps?.[r + 1] ?? {}), ...(gaps[r + 1] ?? {}), above: r2(gapDn) };
+        }
+      }
+      for (const uid of on) marks.push({ uid, onRail: true });
+      if (offMode === 'false') for (const uid of off) marks.push({ uid, onRail: false });
     }
-    if (onRail.size === 0) {
-      marks.push(...rowMarks);
+    return { marks, gaps };
+  };
+
+  /**
+   * 4. 付け直した状態で配置し直し、何も動かないことを確かめる。
+   *    ダクトだけが動くなら、そのダクトの「上の余白」を動いたぶん直してもう一度（最大 3 回）。
+   *    それでも動くなら null
+   */
+  const verify = (cand: { marks: { uid: string; onRail: boolean }[]; gaps: Record<number, DuctGap> }) => {
+    if (cand.marks.length === 0) return null;
+    const m = new Map(cand.marks.map((x) => [x.uid, x.onRail]));
+    const pinned2 = pinned.map((p) => (m.has(p.uid) ? { ...p, onRail: m.get(p.uid)! } : p));
+    const gaps = { ...cand.gaps };
+    let why = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const profile2: Profile = { ...profile, duct: { ...profile.duct, ductGaps: { ...profile.duct.ductGaps, ...gaps } } };
+      const sim = autoLayout(panel, profile2, face, items, pinned2, devices, removedDucts);
+      const byUid = new Map(sim.placed.map((p) => [p.uid, p]));
+      const moved: string[] = [];
+      for (const p of layout.placed) {
+        const q = byUid.get(p.uid);
+        if (!q || !near(p.x, q.x) || !near(p.y, q.y)) moved.push(`${p.specId}@${r2(p.x)},${r2(p.y)}→${q ? `${r2(q.x)},${r2(q.y)}` : '無'}`);
+      }
+      const ductDelta = new Map<number, number>();
+      if (sim.ducts.length !== layout.ducts.length) moved.push('ダクトの本数');
+      else {
+        for (let i = 0; i < layout.ducts.length; i++) {
+          const a = layout.ducts[i]!;
+          const b = sim.ducts[i]!;
+          if (!near(a.x, b.x) || !near(a.w, b.w) || !near(a.h, b.h)) moved.push(`ダクト${a.id + 1}: 位置`);
+          else if (!near(a.y, b.y)) ductDelta.set(a.id, b.y - a.y);
+        }
+      }
+      why = [...moved, ...[...ductDelta].map(([id, dl]) => `ダクト${id + 1}: ${r2(dl)}mm`)].slice(0, 6).join(' / ');
+      if (moved.length === 0 && ductDelta.size === 0) return { marks: cand.marks, gaps };
+      if (moved.length > 0) break;
+      // 横ダクト k の上端は段 k−1 の下端＋「上の余白」で決まる。余白を増やすとダクトは下がるので、
+      // 下へ動いた（delta < 0）なら余白を減らす
+      let adjusted = false;
+      for (const [id, delta] of ductDelta) {
+        if (id === 0 || !layout.ducts.some((q) => q.id === id && q.vert === undefined)) continue;
+        const cur = gaps[id]?.above ?? ductGap(profile, id).above;
+        const next = r2(cur + delta);
+        if (next < 0) continue;
+        gaps[id] = { ...(profile.duct.ductGaps?.[id] ?? {}), ...(gaps[id] ?? {}), above: next };
+        adjusted = true;
+      }
+      if (!adjusted) break;
+    }
+    return { fail: why };
+  };
+
+  const reasons: string[] = [];
+  const tries: ['under' | 'all', 'false' | 'keep'][] = [
+    ['under', 'false'],
+    ['all', 'false'],
+    ['under', 'keep'],
+    ['all', 'keep'],
+  ];
+  for (const [gapMode, offMode] of tries) {
+    const res = verify(build(gapMode, offMode));
+    if (!res) return empty;
+    if ('fail' in res) {
+      reasons.push(`${gapMode}/${offMode}: ${res.fail}`);
       continue;
     }
-    /*
-     * 段と一緒に動くもの（流し込み・印あり・いま印を付けたもの）の、上のダクトの下端の線までの
-     * いちばん狭い隙間。段の割り付け（packAuto）はその段の機器を**全部**この線から積むので、
-     * 同じ測り方にしておくと、印を付けても段の基準線が今と同じ位置に決まり、下のダクトも動かない
-     */
-    let gap = Infinity;
-    for (const p of layout.placed) {
-      if (p.row !== r) continue;
-      if (p.pinned && !p.onRail && !onRail.has(p.uid)) continue;
-      const spec = devices.get(p.specId);
-      if (!spec) continue;
-      gap = Math.min(gap, duct.y - (p.y + rotatedSize(spec.size, p.rot).h));
-    }
-    const cur = ductGap(profile, r).below;
-    // 今の隙間が設定より狭い（ダクトの線より上へ出ている機器がある）段は、印を付けると段が動くので触らない
-    if (!Number.isFinite(gap) || gap < cur - 0.01) continue;
-    marks.push(...rowMarks);
-    if (gap > cur + 0.01) below[r] = Math.round(gap * 100) / 100;
+    return res;
   }
-  return { marks, below };
+  console.info('[panel-studio] 座標置きの「レールに乗ったまま」の印の付け直しを見送りました（図が動くため）:', reasons.join(' ｜ '));
+  return empty;
 }
 
 /** 機器同士が実際に重なっていないか。手動配置で干渉させたときに気づけるようにする。 */
@@ -1610,7 +1772,8 @@ export function autoLayout(
     const spec = devices.get(p.specId);
     if (!spec || p.row === undefined || p.row < 0) return [];
     // 段の高さに入れるぶん。流し込みの機器と同じ計算（基準線の上下＋離隔）
-    const need = vertSpan(spec, p.mount, p.rot, effectiveClearance(spec, profile.clearance, rowGap(profile, p.row)));
+    const eff = effectiveClearance(spec, profile.clearance, rowGap(profile, p.row));
+    const need = vertSpan(spec, p.mount, p.rot, eff);
     return [
       {
         row: p.row,
@@ -1619,6 +1782,8 @@ export function autoLayout(
         stopper: isStopper(spec),
         up: need.up,
         down: need.down,
+        // レールから外してある（上下に動かした・レールの高さに無い直付け）ものは基準線を決めない
+        ...(p.onRail === false ? { offRail: true, floor: p.y - eff.bottom } : {}),
       },
     ];
   });
