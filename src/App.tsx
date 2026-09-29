@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { ConfigScreen } from './components/ConfigScreen';
 import { CoordPanel } from './components/CoordPanel';
 import { DevicePicker } from './components/DevicePicker';
@@ -15,7 +15,8 @@ import { BackupBar } from './components/BackupBar';
 import { DraftSwitcher } from './components/DraftSwitcher';
 import { StartScreen } from './components/StartScreen';
 import { FACE_BY_ID, FACE_LABEL } from './data/faces';
-import { autoLayout, effectiveDepth } from './lib/layout';
+import { autoLayout, effectiveDepth, legacyRailMigration } from './lib/layout';
+import { silently } from './lib/undo';
 import { deviceLookup, useStore, type Screen } from './store';
 import { APP_VERSION } from './version';
 
@@ -40,6 +41,18 @@ export default function App() {
   );
 
   const hasDucts = FACE_BY_ID.get(face)?.ducts ?? false;
+
+  /*
+   * 古いデータ（onRail の印が無い座標置き）を開いたら、いまの図から印を付け直す。
+   * 印が無いと、ダクトの余白を変えても座標置きの段が付いてこない（端子台の上に隙間を空けられない）。
+   * 図は 1mm も動かさず、控え（Ctrl+Z）も取らない。印が付けば結果が空になるので、繰り返さない
+   */
+  useEffect(() => {
+    if (screen !== 'layout' || !hasDucts || profile.duct.rowHeightMode !== 'auto') return;
+    const mig = legacyRailMigration(layout, lookup, profile);
+    if (mig.marks.length === 0) return;
+    silently(() => useStore.getState().applyRailMigration(mig.marks, mig.below));
+  }, [screen, hasDucts, layout, lookup, profile]);
 
   /**
    * 新規作成。作りかけは**捨てずに作業中案件へしまってから**白紙にする。

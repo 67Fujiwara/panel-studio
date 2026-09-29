@@ -1337,6 +1337,75 @@ function pushRowsUp(
   }
 }
 
+/**
+ * 古いデータの座標置き（onRail の印が無い）に、いまの図から印を付け直す。
+ *
+ * 印が無い座標置きは、段の設定（ダクトの余白）を変えても付いてこない。それどころか
+ * pushRowsUp が段のほうをその機器の高さへ引っ張るので、ダクトの「下の余白」を増やしても
+ * 段が元の高さに戻り、**端子台の上に隙間を空けられない**。
+ *
+ * ここでは、いまの図で段のレールの高さに乗っている座標置きに onRail の印を付け、
+ * 乗っていないものには「外してある」印（false）を付ける。
+ * 印を付けると pushRowsUp がその段を上へ詰めるので、いま空いている隙間が消えないように、
+ * 段の上のダクトの「下の余白」を**いまの隙間そのもの**に合わせて返す（図は 1mm も動かない）。
+ * 上のダクトを消してある段は詰める先が読めないので、印を付けずに残す。
+ *
+ * 戻り値が空なら古いデータは無い（毎回呼んでよい）
+ */
+export function legacyRailMigration(
+  layout: LayoutResult,
+  devices: DeviceLookup,
+  profile: Profile,
+): { marks: { uid: string; onRail: boolean }[]; below: Record<number, number> } {
+  const marks: { uid: string; onRail: boolean }[] = [];
+  const below: Record<number, number> = {};
+  const legacy = layout.placed.filter((p) => p.pinned && p.onRail === undefined);
+  if (legacy.length === 0) return { marks, below };
+
+  const rowBy = new Map(layout.rows.map((r) => [r.index, r]));
+  const rowsTouched = new Set(legacy.map((p) => p.row));
+  for (const r of rowsTouched) {
+    const row = rowBy.get(r);
+    const duct = layout.ducts.find((d) => d.vert === undefined && d.id === r);
+    // 段が無い（面の外など）か、上のダクトが消してあるなら触らない
+    if (!row || !duct || duct.removed) continue;
+    const rowMarks: { uid: string; onRail: boolean }[] = [];
+    const onRail = new Set<string>();
+    for (const p of legacy) {
+      if (p.row !== r) continue;
+      const spec = devices.get(p.specId);
+      // 段の流し込みが置く高さ（レール中心＋掛かり方、直付けは段の中心）にぴったり乗っているものだけ。
+      // 直付けの機器も、その高さに乗っていれば段の一員として一緒に動かす
+      const on = Boolean(spec) && Math.abs(p.y - placeY(row, spec!, p.mount, p.rot)) < 0.5;
+      rowMarks.push({ uid: p.uid, onRail: on });
+      if (on) onRail.add(p.uid);
+    }
+    if (onRail.size === 0) {
+      marks.push(...rowMarks);
+      continue;
+    }
+    /*
+     * 段と一緒に動くもの（流し込み・印あり・いま印を付けたもの）の、上のダクトの下端の線までの
+     * いちばん狭い隙間。段の割り付け（packAuto）はその段の機器を**全部**この線から積むので、
+     * 同じ測り方にしておくと、印を付けても段の基準線が今と同じ位置に決まり、下のダクトも動かない
+     */
+    let gap = Infinity;
+    for (const p of layout.placed) {
+      if (p.row !== r) continue;
+      if (p.pinned && !p.onRail && !onRail.has(p.uid)) continue;
+      const spec = devices.get(p.specId);
+      if (!spec) continue;
+      gap = Math.min(gap, duct.y - (p.y + rotatedSize(spec.size, p.rot).h));
+    }
+    const cur = ductGap(profile, r).below;
+    // 今の隙間が設定より狭い（ダクトの線より上へ出ている機器がある）段は、印を付けると段が動くので触らない
+    if (!Number.isFinite(gap) || gap < cur - 0.01) continue;
+    marks.push(...rowMarks);
+    if (gap > cur + 0.01) below[r] = Math.round(gap * 100) / 100;
+  }
+  return { marks, below };
+}
+
 /** 機器同士が実際に重なっていないか。手動配置で干渉させたときに気づけるようにする。 */
 function detectOverlaps(placed: PlacedDevice[], devices: DeviceLookup): Violation[] {
   const out: Violation[] = [];
