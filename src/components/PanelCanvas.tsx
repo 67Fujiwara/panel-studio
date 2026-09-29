@@ -220,7 +220,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         const k = e.shiftKey ? 10 : 1;
         let dy = step[1]! * k;
         if (d.vert === undefined && dy) {
-          // いちばん上のダクトは面の上端（余白）で決まる。全段そろえるモードは段の高さが固定なので動かせない
+          // いちばん上のダクトは面の上端（余白）で決まる。全段そろえるモードは段の高さが固定なので動かせない。
+          // 最下段は消したダクトも含めて決める（消してもその下に段は無いので）
           const lastId = Math.max(...layout.ducts.filter((q) => q.vert === undefined).map((q) => q.id));
           if (d.id === 0 || st.profile.duct.rowHeightMode === 'equal') dy = 0;
           st.nudgeDuct(targetOf(d), step[0]! * k, dy, d.id === lastId ? 'bottom' : undefined);

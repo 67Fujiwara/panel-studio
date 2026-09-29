@@ -114,11 +114,10 @@ export default function App() {
             <AiLayoutPanel layout={layout} devices={lookup} />
             {hasDucts ? (
               <SettingsPanel
-                ductCount={
-                  new Set(
-                    layout.ducts.filter((d) => !d.removed && d.w >= d.h).map((d) => d.id),
-                  ).size
-                }
+                ductIds={[...new Set(layout.ducts.filter((d) => !d.removed && d.vert === undefined).map((d) => d.id))].sort(
+                  (a, b) => a - b,
+                )}
+                lastDuctId={Math.max(-1, ...layout.ducts.filter((d) => d.vert === undefined).map((d) => d.id))}
               />
             ) : (
               <CoordPanel layout={layout} devices={lookup} />

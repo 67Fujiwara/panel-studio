@@ -36,7 +36,23 @@ function Num({
  * 中板の左ペイン。案件ごとに動かす余白とクリアランスだけを扱う。
  * ダクトの引き方・幅・固定穴と DINレールは設定画面（盤マスタと同じ場所）で登録する。
  */
-export function SettingsPanel({ ductCount }: { ductCount: number }) {
+export function SettingsPanel({
+  ductIds,
+  lastDuctId,
+}: {
+  /**
+   * 図に出ている横ダクトの通し番号（上から 0, 1, …）。消したダクトは入らない。
+   * 番号は図の「ダクト n」と同じにするため、本数でなく番号で受け取る
+   */
+  ductIds: number[];
+  /**
+   * いちばん下のダクトの番号（消したものも含めて）。その下には機器が無いので「下の余白」を出さない。
+   * 以前は「表示中の最後」を最下段としていたため、最下段のダクトを消すとその上のダクトが
+   * 最下段扱いになり、下の段があるのに下の余白を調整できなかった
+   */
+  lastDuctId: number;
+}) {
+  const ductCount = ductIds.length;
   const face = useStore((s) => s.face);
   const panel = useStore((s) => s.panel);
   const profile = useStore((s) => s.profile);
@@ -142,10 +158,10 @@ export function SettingsPanel({ ductCount }: { ductCount: number }) {
       {ductCount > 0 && (
         <>
           <h3>ダクトごとの調整（{ductCount} 本）</h3>
-          {Array.from({ length: ductCount }, (_, i) => {
+          {ductIds.map((i) => {
             const g = ductGaps[i];
             const first = i === 0;
-            const last = i === ductCount - 1;
+            const last = i === lastDuctId;
             return (
               <div key={i} className="rowgap">
                 <label className="check">
