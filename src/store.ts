@@ -430,11 +430,6 @@ export type State = {
   /** 機器の中心座標を指定して置く（中板以外の面で使う） */
   setCenter: (placed: PlacedDevice, size: { w: number; h: number }, cx: number, cy: number) => void;
   resetLayout: () => void;
-  /**
-   * 古いデータの座標置きに onRail の印を付け直し、段が動かないようにダクトの下の余白を今の隙間に合わせる。
-   * legacyRailMigration（layout.ts）の結果をそのまま渡す。図は変わらない
-   */
-  applyRailMigration: (marks: { uid: string; onRail: boolean }[], gaps: Record<number, DuctGap>) => void;
 };
 
 /**
@@ -1407,17 +1402,6 @@ export const useStore = create<State>((set) => ({
     })),
 
   resetLayout: () => set((s) => ({ pinned: s.pinned.filter((p) => p.face !== s.face) })),
-
-  applyRailMigration: (marks, gaps) =>
-    set((s) => {
-      const m = new Map(marks.map((x) => [x.uid, x.onRail]));
-      const pinned = s.pinned.map((p) => (m.has(p.uid) ? { ...p, onRail: m.get(p.uid)! } : p));
-      if (Object.keys(gaps).length === 0) return { pinned };
-      return {
-        pinned,
-        profile: { ...s.profile, duct: { ...s.profile.duct, ductGaps: { ...s.profile.duct.ductGaps, ...gaps } } },
-      };
-    }),
 }));
 
 /** 共通の部品表と My部品をまとめた検索用 Map。 */

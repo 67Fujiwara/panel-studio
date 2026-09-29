@@ -60,19 +60,6 @@ export function endUndoGroup() {
   groupHasEntry = false;
 }
 
-/**
- * 控えを取らずにストアを変える。古いデータの印の付け直しなど、図が変わらない整理に使う
- * （控えを取ると Ctrl+Z でそれが戻り、直後にまた付け直されて 1 手が空振りになる）
- */
-export function silently(fn: () => void) {
-  restoring = true;
-  try {
-    fn();
-  } finally {
-    restoring = false;
-  }
-}
-
 export function undo(): boolean {
   const prev = past.pop();
   if (!prev) return false;
