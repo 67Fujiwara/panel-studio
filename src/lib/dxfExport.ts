@@ -49,6 +49,15 @@ const LAYER_COLOR: Record<string, number> = {
 
 const n = (v: number) => (Number.isFinite(v) ? Number(v.toFixed(3)) : 0);
 
+/**
+ * ラジアン → DXF の度（0 以上 360 未満）。
+ * JS の % は負の値を負のまま返すので、負の角度（回した加工の弧など）は二重に丸めて正にする。
+ * 以前は `(deg + 360) % 360` で、-450° のような角度が負のまま書かれ、CAD によっては弧が消えていた
+ */
+const degOf = (a: number) => n(((((a * 180) / Math.PI) % 360) + 360) % 360);
+
+const TAU = Math.PI * 2;
+
 /** DXF は「グループコード\n値\n」の繰り返し。組み立てを1か所にまとめる。 */
 class DxfWriter {
   private out: string[] = [];
@@ -58,6 +67,8 @@ class DxfWriter {
   }
 
   line(layer: string, x1: number, y1: number, x2: number, y2: number) {
+    // 長さ 0 の線は CAD で「不正な図形」扱いになることがあるので書かない（見た目は変わらない）
+    if (n(x1) === n(x2) && n(y1) === n(y2)) return;
     this.pair(0, 'LINE');
     this.pair(8, layer);
     this.pair(10, n(x1));
@@ -85,18 +96,33 @@ class DxfWriter {
     this.pair(40, n(r));
   }
 
-  /** 角度はラジアンで受けて、DXF の度に直す。 */
+  /**
+   * 角度はラジアンで受けて、DXF の度に直す（a0 → a1 反時計回り）。
+   *
+   * 一周する弧（a1 − a0 = 2π、または始点＝終点）は始点と終点が同じ度数になり、
+   * CAD では「長さ 0 の弧」＝見えない線になっていた。そういう弧は CIRCLE で書く。
+   * PDF・ElectraCAD 側は前から一周を円として描いていたので、DXF だけ消えていた
+   */
   arc(layer: string, cx: number, cy: number, r: number, a0: number, a1: number) {
     if (r <= 0) return;
-    const deg = (a: number) => ((a * 180) / Math.PI + 360) % 360;
+    let sweep = a1 - a0;
+    while (sweep <= 0) sweep += TAU;
+    if (sweep >= TAU - 1e-6) {
+      this.circle(layer, cx, cy, r);
+      return;
+    }
+    const d0 = degOf(a0);
+    const d1 = degOf(a1);
+    // 丸めて同じ度数になるほど短い弧（0.00002 rad 未満）は見えないので書かない
+    if (d0 === d1) return;
     this.pair(0, 'ARC');
     this.pair(8, layer);
     this.pair(10, n(cx));
     this.pair(20, n(cy));
     this.pair(30, 0);
     this.pair(40, n(r));
-    this.pair(50, n(deg(a0)));
-    this.pair(51, n(deg(a1)));
+    this.pair(50, d0);
+    this.pair(51, d1);
   }
 
   text(layer: string, x: number, y: number, height: number, s: string, rotation = 0) {
@@ -173,23 +199,66 @@ function drawShape(
     return { x: at.x + x * cos - y * sin, y: at.y + x * sin + y * cos };
   };
 
+  /*
+   * 縦横の拡縮率が違うとき（取り込んだ絵の縦横比と部品の外形サイズが合わないとき）、
+   * 円・弧はつぶれて楕円になる。画面はそのまま楕円に描いているので、図面も同じ形に
+   * するため折れ線で近似する。率が同じなら CAD の円・弧のまま書く
+   */
+  const uneven = Math.abs(Math.abs(sx) - Math.abs(sy)) > 1e-3 * Math.max(Math.abs(sx), Math.abs(sy));
+  const arcAsPoly = (x: number, y: number, r: number, a0: number, a1: number, closed: boolean) => {
+    let sweep = a1 - a0;
+    while (sweep <= 0) sweep += TAU;
+    const steps = Math.max(8, Math.ceil(sweep / (Math.PI / 36)));
+    const pts: { x: number; y: number }[] = [];
+    for (let s = 0; s <= steps; s++) {
+      const a = a0 + (sweep * s) / steps;
+      pts.push(map(x + r * Math.cos(a), y + r * Math.sin(a)));
+    }
+    polyLines(w, layer, pts, closed);
+  };
+
   for (const e of shape.entities) {
     if (e.t === 'c') {
+      if (uneven) {
+        arcAsPoly(e.x, e.y, e.r, 0, TAU, false);
+        continue;
+      }
       const c = map(e.x, e.y);
       w.circle(layer, c.x, c.y, e.r * Math.abs(sx));
     } else if (e.t === 'a') {
+      if (uneven) {
+        // 図形の座標のまま点を取って map で写せば、反転・回転もそのまま付いてくる
+        arcAsPoly(e.x, e.y, e.r, e.a0, e.a1, false);
+        continue;
+      }
       const c = map(e.x, e.y);
       const r = (rot * Math.PI) / 180;
       // 反転すると弧の向きも変わる（角度は 180°−a）。折れ線にはしないので弧のまま
       if (mirror) w.arc(layer, c.x, c.y, e.r * Math.abs(sx), Math.PI - e.a1 + r, Math.PI - e.a0 + r);
       else w.arc(layer, c.x, c.y, e.r * Math.abs(sx), e.a0 + r, e.a1 + r);
     } else {
-      for (let i = 0; i + 3 < e.pts.length; i += 2) {
-        const a = map(e.pts[i]!, e.pts[i + 1]!);
-        const b = map(e.pts[i + 2]!, e.pts[i + 3]!);
-        w.line(layer, a.x, a.y, b.x, b.y);
-      }
+      const pts: { x: number; y: number }[] = [];
+      for (let i = 0; i + 1 < e.pts.length; i += 2) pts.push(map(e.pts[i]!, e.pts[i + 1]!));
+      polyLines(w, layer, pts, Boolean(e.c));
     }
+  }
+}
+
+/**
+ * 折れ線を LINE の並びにする。**閉じた折れ線は最後の点から先頭へ戻る辺も引く。**
+ *
+ * 外形線の軽量化（shapeLite）は、つながった線を「閉じた輪」（c: true、先頭の点は繰り返さない）に
+ * まとめる。画面の SVG は Z で閉じていたが、図面は最後の辺を引いておらず、
+ * 部品の外形や取り込んだ盤の図で**1 辺ずつ線が消えていた**（DXF・PDF・ElectraCAD すべて）
+ */
+function polyLines(w: Drawer, layer: string, pts: { x: number; y: number }[], closed: boolean) {
+  for (let i = 0; i + 1 < pts.length; i++) {
+    w.line(layer, pts[i]!.x, pts[i]!.y, pts[i + 1]!.x, pts[i + 1]!.y);
+  }
+  if (closed && pts.length >= 3) {
+    const a = pts[pts.length - 1]!;
+    const b = pts[0]!;
+    w.line(layer, a.x, a.y, b.x, b.y);
   }
 }
 
@@ -254,9 +323,9 @@ function drawBase(w: Drawer, shape: DeviceShape | undefined, ox: number, oy: num
     } else if (e.t === 'a') {
       w.arc(LAYER.outline, ox + e.x, oy + e.y, e.r, e.a0, e.a1);
     } else {
-      for (let i = 0; i + 3 < e.pts.length; i += 2) {
-        w.line(LAYER.outline, ox + e.pts[i]!, oy + e.pts[i + 1]!, ox + e.pts[i + 2]!, oy + e.pts[i + 3]!);
-      }
+      const pts: { x: number; y: number }[] = [];
+      for (let i = 0; i + 1 < e.pts.length; i += 2) pts.push({ x: ox + e.pts[i]!, y: oy + e.pts[i + 1]! });
+      polyLines(w, LAYER.outline, pts, Boolean(e.c));
     }
   }
 }
