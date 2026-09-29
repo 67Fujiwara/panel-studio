@@ -274,7 +274,7 @@ function drawMachining(
   oy: number,
   /**
    * キャビスタ向け。穴は「閉じた図形 1 つ＝穴 1 つ」として読まれるので、
-   * タップの二重丸は呼び径の円 1 つに、切り欠きの下穴（ドリルの目印）は出さない
+   * タップの二重丸（呼び径＋下穴）は呼び径の円 1 つにする。それ以外はふだんの図と同じ
    */
   forCabista = false,
 ) {
@@ -300,7 +300,7 @@ function drawMachining(
     if (p.t === 'line') w.line(layer, cx + p.x1, cy + p.y1, cx + p.x2, cy + p.y2);
     else w.arc(layer, cx + p.cx, cy + p.cy, p.r, p.a0, p.a1);
   }
-  if (forCabista) return;
+  // 取付穴（機器の穴パターンの小穴）は設計した穴そのもの。キャビスタ向けでも必ず出す
   const pd = pilotDia(m) / 2;
   if (pd > 0) for (const p of pilotPoints(m)) w.circle(LAYER.hole, cx + p.x, cy + p.y, pd);
 }
@@ -358,7 +358,7 @@ function drawFaceRect(w: Drawer, ox: number, oy: number, size: { w: number; h: n
  * - full   : 機器・ダクト・レール・加工を全部
  * - holes  : 加工穴だけ（加工屋へ渡す）。下地はメーカーの図
  * - cabista: 日東工業キャビスタの「DXF 図面データ取込み」向け。**面の外形は寸法どおりの四角 1 つ**にし、
- *            穴は「閉じた図形 1 つ＝穴 1 つ」（タップは呼び径の円 1 つ、切り欠きの下穴は出さない）。
+ *            穴は「閉じた図形 1 つ＝穴 1 つ」（タップは呼び径の円 1 つ）。穴の中身は holes と同じ。
  *            メーカーの図を下地にするとキャビスタが面を見つけられない（「キャビネットの解析に失敗しました」）
  */
 export type ExportKind = 'full' | 'holes' | 'cabista';
