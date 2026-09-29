@@ -5,7 +5,7 @@ import { autoLayout, computeRails } from './layout';
 import type { DeviceLookup, LayoutItem } from './layout';
 import { autoMachining, TAP_DRILL } from './machining';
 import { cutOutline, pilotDia, pilotPoints } from './holes';
-import { unfoldCells } from './unfold';
+import { UNFOLD_GAP, unfoldCells } from './unfold';
 import { LAYER, type Drawer } from './drawing';
 import { PdfWriter } from './pdfExport';
 import { ElectraSheetWriter, buildElectraFile } from './electraExport';
@@ -559,7 +559,9 @@ function drawPlate(w: Drawer, input: ExportInput, kind: ExportKind, withText: bo
 }
 
 /**
- * キャビスタ（日東工業）の面の呼び方。背面はキャビスタに無い（壁掛けの背面は加工しない）ので出さない。
+ * キャビスタ（日東工業）の面の呼び方。
+ * 背面はキャビスタの面の一覧に無いが、加工があれば伝える必要があるので出す
+ * （全体図ではキャビネットの並びから離して「背面」と書く。面ごとのファイルにも「背面」と書く）。
  * 「ボデー正面」（扉を開けた本体の前面）はこちらに面が無いので出さない
  */
 export const CABISTA_FACE: Partial<Record<FaceId, string>> = {
@@ -569,11 +571,19 @@ export const CABISTA_FACE: Partial<Record<FaceId, string>> = {
   top: '天面',
   bottom: '底面',
   plate: '基板',
+  back: '背面',
 };
 
+/** 背面の名前。面の四角の**外**（上）に書く。四角の中に文字を入れると穴や面の解析に紛れるため */
+function labelBack(w: Drawer, ox: number, oy: number, size: { w: number; h: number }) {
+  w.text(LAYER.note, ox, oy + size.h + 8, 12, `背面 ${size.w}x${size.h}`);
+}
+
 /**
- * キャビスタ向けの全体図。三面図の並び（背面は除く）で、面ごとに寸法どおりの四角＋穴だけ。
- * 文字は入れない（面の解析や穴の数に紛れないように）
+ * キャビスタ向けの全体図。三面図の並びで、面ごとに寸法どおりの四角＋穴だけ。
+ * 文字は入れない（面の解析や穴の数に紛れないように）。
+ * 背面だけは例外で、キャビネットの並び（右側面の右）からさらに離して置き、四角の外に「背面」と書く。
+ * キャビスタに背面は無いので、どれが背面かが図を見て分かるようにするため
  */
 export function cabistaDxf(input: ExportInput): string {
   const w = new DxfWriter();
@@ -581,6 +591,12 @@ export function cabistaDxf(input: ExportInput): string {
   for (const c of cells) {
     if (!CABISTA_FACE[c.id]) continue;
     const oy = h - (c.y + c.h);
+    if (c.id === 'back') {
+      const ox = c.x + UNFOLD_GAP * 2;
+      drawFace(w, input, c.id, ox, oy, 'cabista', false, null);
+      labelBack(w, ox, oy, { w: c.w, h: c.h });
+      continue;
+    }
     drawFace(w, input, c.id, c.x, oy, 'cabista', false, null);
   }
   return w.finish();
@@ -590,6 +606,7 @@ export function cabistaDxf(input: ExportInput): string {
 export function cabistaFaceDxf(input: ExportInput, face: FaceId): string {
   const w = new DxfWriter();
   drawFace(w, input, face, 0, 0, 'cabista', false, null);
+  if (face === 'back') labelBack(w, 0, 0, faceSize(input.panel, face));
   return w.finish();
 }
 
