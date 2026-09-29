@@ -267,13 +267,27 @@ function polyLines(w: Drawer, layer: string, pts: { x: number; y: number }[], cl
  * 形の定義は holes.ts が持ち、弧は折れ線にせず ARC のまま出す
  * （レーザー加工に渡す図なので、円弧は円弧で残す）。
  */
-function drawMachining(w: Drawer, m: Machining, ox: number, oy: number) {
+function drawMachining(
+  w: Drawer,
+  m: Machining,
+  ox: number,
+  oy: number,
+  /**
+   * キャビスタ向け。穴は「閉じた図形 1 つ＝穴 1 つ」として読まれるので、
+   * タップの二重丸は呼び径の円 1 つに、切り欠きの下穴（ドリルの目印）は出さない
+   */
+  forCabista = false,
+) {
   const cx = ox + m.x;
   const cy = oy + m.y;
 
   if (m.kind === 'hole' && m.tap) {
-    // 二重丸。外が呼び径、内が下穴
     const outer = Number(m.tap.slice(1));
+    if (forCabista) {
+      w.circle(LAYER.tap, cx, cy, outer / 2);
+      return;
+    }
+    // 二重丸。外が呼び径、内が下穴
     w.circle(LAYER.tap, cx, cy, outer / 2);
     w.circle(LAYER.tap, cx, cy, (TAP_DRILL[m.tap] ?? m.dia) / 2);
     return;
@@ -286,6 +300,7 @@ function drawMachining(w: Drawer, m: Machining, ox: number, oy: number) {
     if (p.t === 'line') w.line(layer, cx + p.x1, cy + p.y1, cx + p.x2, cy + p.y2);
     else w.arc(layer, cx + p.cx, cy + p.cy, p.r, p.a0, p.a1);
   }
+  if (forCabista) return;
   const pd = pilotDia(m) / 2;
   if (pd > 0) for (const p of pilotPoints(m)) w.circle(LAYER.hole, cx + p.x, cy + p.y, pd);
 }
@@ -313,7 +328,7 @@ export type ExportInput = {
  */
 function drawBase(w: Drawer, shape: DeviceShape | undefined, ox: number, oy: number, size: { w: number; h: number }) {
   if (!shape || shape.entities.length === 0) {
-    w.rect(LAYER.outline, ox, oy, size.w, size.h);
+    drawFaceRect(w, ox, oy, size);
     return;
   }
   // 取り込んだ図は面の左下を原点にした実寸なので、置き場所へずらすだけでよい
@@ -330,8 +345,23 @@ function drawBase(w: Drawer, shape: DeviceShape | undefined, ox: number, oy: num
   }
 }
 
-/** 書き出す中身。加工屋には穴だけ渡したいので切り替えられるようにする。 */
-export type ExportKind = 'full' | 'holes';
+/**
+ * 面の外形の四角。4 本の LINE で、角の端点は完全に一致させる
+ * （キャビスタは「閉じた図形」として面や穴を読むので、角が離れていると解析に失敗する）
+ */
+function drawFaceRect(w: Drawer, ox: number, oy: number, size: { w: number; h: number }) {
+  w.rect(LAYER.outline, ox, oy, size.w, size.h);
+}
+
+/**
+ * 書き出す中身。
+ * - full   : 機器・ダクト・レール・加工を全部
+ * - holes  : 加工穴だけ（加工屋へ渡す）。下地はメーカーの図
+ * - cabista: 日東工業キャビスタの「DXF 図面データ取込み」向け。**面の外形は寸法どおりの四角 1 つ**にし、
+ *            穴は「閉じた図形 1 つ＝穴 1 つ」（タップは呼び径の円 1 つ、切り欠きの下穴は出さない）。
+ *            メーカーの図を下地にするとキャビスタが面を見つけられない（「キャビネットの解析に失敗しました」）
+ */
+export type ExportKind = 'full' | 'holes' | 'cabista';
 
 /**
  * 風船番号を振る面。**盤の外観（中板以外の 6 面）だけ**。
@@ -383,8 +413,8 @@ function drawFace(
   const size = faceSize(panel, face);
   const layout = autoLayout(panel, profile, face, items, pinned, devices, removedDucts[face] ?? []);
 
-  // 下地は取り込んだ盤の図。無ければ外形の四角
-  drawBase(w, underlays[face], ox, oy, size);
+  // 下地は取り込んだ盤の図。無ければ外形の四角。キャビスタ向けは常に四角（面の解析に使われる）
+  drawBase(w, kind === 'cabista' ? undefined : underlays[face], ox, oy, size);
 
   if (kind === 'full') {
     for (const d of layout.ducts) {
@@ -473,9 +503,10 @@ function drawFace(
     }
   }
 
-  // 加工は full / holes のどちらにも出す。これが書き出しの主目的
-  for (const m of autoMachining(face, layout, devices, profile, input.ducts)) drawMachining(w, m, ox, oy);
-  for (const m of machining.filter((q) => q.face === face)) drawMachining(w, m, ox, oy);
+  // 加工はどの種類にも出す。これが書き出しの主目的
+  const cab = kind === 'cabista';
+  for (const m of autoMachining(face, layout, devices, profile, input.ducts)) drawMachining(w, m, ox, oy, cab);
+  for (const m of machining.filter((q) => q.face === face)) drawMachining(w, m, ox, oy, cab);
 }
 
 /** 何も描かない Drawer。表の大きさを測るのに使う */
@@ -525,6 +556,41 @@ function drawPlate(w: Drawer, input: ExportInput, kind: ExportKind, withText: bo
   const size = faceSize(input.panel, 'plate');
   drawFace(w, input, 'plate', 0, 0, kind, withText, null);
   return { w: size.w, h: size.h };
+}
+
+/**
+ * キャビスタ（日東工業）の面の呼び方。背面はキャビスタに無い（壁掛けの背面は加工しない）ので出さない。
+ * 「ボデー正面」（扉を開けた本体の前面）はこちらに面が無いので出さない
+ */
+export const CABISTA_FACE: Partial<Record<FaceId, string>> = {
+  door: '扉面',
+  left: '左側面',
+  right: '右側面',
+  top: '天面',
+  bottom: '底面',
+  plate: '基板',
+};
+
+/**
+ * キャビスタ向けの全体図。三面図の並び（背面は除く）で、面ごとに寸法どおりの四角＋穴だけ。
+ * 文字は入れない（面の解析や穴の数に紛れないように）
+ */
+export function cabistaDxf(input: ExportInput): string {
+  const w = new DxfWriter();
+  const { cells, h } = unfoldCells(input.panel);
+  for (const c of cells) {
+    if (!CABISTA_FACE[c.id]) continue;
+    const oy = h - (c.y + c.h);
+    drawFace(w, input, c.id, c.x, oy, 'cabista', false, null);
+  }
+  return w.finish();
+}
+
+/** キャビスタ向けの面 1 つぶん。左下を原点にして四角＋穴だけ。「加工面を指定」して取り込む用 */
+export function cabistaFaceDxf(input: ExportInput, face: FaceId): string {
+  const w = new DxfWriter();
+  drawFace(w, input, face, 0, 0, 'cabista', false, null);
+  return w.finish();
 }
 
 /** キャビネット（中板以外の6面）を三面図の並びで1枚に書き出す。 */
@@ -736,6 +802,12 @@ export function buildDxfSet(input: ExportInput, base: string, job?: ElectraJob):
     { name: `${base}_plate_holes.pdf`, bytes: platePdf(input, 'holes', title) },
     // ElectraCAD Studio へ差し込む用。図枠なしの中身だけを JSON（UTF-8）で
     { name: `${base}_electracad.json`, bytes: new TextEncoder().encode(electraJson(input, meta, balloons)) },
+    // 日東工業キャビスタの「DXF 図面データ取込み」向け。全体図 1 枚と、面ごとの 1 枚（加工面を指定して取り込む用）
+    { name: `cabista/${base}_全体図.dxf`, text: cabistaDxf(input) },
+    ...(Object.entries(CABISTA_FACE) as [FaceId, string][]).map(([face, label]) => ({
+      name: `cabista/${base}_${label}.dxf`,
+      text: cabistaFaceDxf(input, face),
+    })),
   ];
 }
 
