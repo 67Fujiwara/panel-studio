@@ -951,8 +951,16 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           );
         })}
 
-        {/* 機器 */}
-        {layout.placed.map((p) => {
+        {/*
+          機器。**大きいものから先に描く**（小さいものが上に来る）。
+          機器の塗りは不透明なので、置いた順のままだと、ファンの上にフィルタを重ねたような
+          「外側の部品を重ねて付ける」場面で、後から置いた大きいほうが小さいほうを隠してしまい、
+          片方が消えたように見えていた。同じ大きさなら置いた順のまま
+        */}
+        {[...layout.placed]
+          .map((p, i) => ({ p, i, area: (() => { const s = devices.get(p.specId); return s ? s.size.w * s.size.h : 0; })() }))
+          .sort((a, b) => b.area - a.area || a.i - b.i)
+          .map(({ p }) => {
           const spec = devices.get(p.specId);
           if (!spec) return null;
           const bad = violatingUids.has(p.uid);
