@@ -54,8 +54,10 @@ export function quoteRequestCsv(
   opts: { orderNo?: string; shipDate?: string } = {},
 ): string {
   const q = (v: string) => csvCell(v, ',');
+  // 品名は型番の前に入れる（社内で見るときに型番だけでは何か分からないため）。
+  // ミスミの「型番一括入力」に入れるときは、この列を Excel で消してから使う
   const rows = [
-    ['お客さま注文番号', '型番（必須）', 'メーカー名', '数量（必須）', '希望出荷日']
+    ['お客さま注文番号', '品名', '型番（必須）', 'メーカー名', '数量（必須）', '希望出荷日']
       .map(q)
       .join(','),
   ];
@@ -75,7 +77,7 @@ export function quoteRequestCsv(
     });
   for (const { l, maker, key } of ordered) {
     rows.push(
-      [q(opts.orderNo ?? ''), q(key), q(maker), q(String(l.qty)), q(opts.shipDate ?? '')].join(','),
+      [q(opts.orderNo ?? ''), q(l.name ?? ''), q(key), q(maker), q(String(l.qty)), q(opts.shipDate ?? '')].join(','),
     );
   }
   return rows.join('\r\n') + '\r\n';
