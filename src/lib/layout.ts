@@ -1334,6 +1334,39 @@ function pushRowsUp(
     if (shift <= 0.01) continue;
     row.axis = (row.axis ?? row.h / 2) + shift;
     for (const p of mine) p.y += shift;
+
+    /*
+     * 段が上へ詰まったら、**その段の下のダクトも同じだけ上げる**。
+     *
+     * ダクトの位置は段の割り付け（packAuto）が「段の機器を全部ダクトの線から積んだ」高さで決めている。
+     * ダクトを短くしてその先に背の高い機器が立つと、その機器はダクトに当たらないので段は上へ詰まるが、
+     * ダクトは割り付けの位置に残り、段とダクトの間に設定にない隙間が空いていた。
+     * そこへ「下の余白」を増やすと、段は上のダクトとの余白を守って動かず、割り付けの高さだけが下がって
+     * **余白が段の下（次のダクトの上）に出る**という見え方になっていた。
+     * ダクトが段に付いていけば、上の余白は上に、下の余白は下に、設定どおりに出る。
+     *
+     * 一緒に動かなかった機器（座標置き）の下をダクトが通るなら、その機器の下端−離隔までしか上げない。
+     * 全周囲いの最下段のダクトは面の下端に固定なので動かさない。段の高さが固定の equal モードも動かさない
+     */
+    if (profile.duct.rowHeightMode !== 'auto') continue;
+    const lastId = Math.max(-1, ...ducts.filter((d) => d.vert === undefined).map((d) => d.id));
+    const below = ducts.filter((d) => d.vert === undefined && d.id === row.index + 1);
+    if (below.length === 0 || (profile.duct.layout === 'perimeter' && row.index + 1 === lastId)) continue;
+    let up = shift;
+    for (const q of others) {
+      const o = box(q);
+      const spec = devices.get(q.specId);
+      if (!o || !spec) continue;
+      const clr = effectiveClearance(spec, profile.clearance, rowGap(profile, q.row)).bottom;
+      for (const d of below) {
+        if (d.x + d.w <= o.x0 + 0.01 || o.x1 <= d.x + 0.01) continue;
+        const ductTop = d.y + d.h;
+        if (o.y0 + 0.01 < ductTop) continue; // ダクトより下にある機器は関係ない（離れていく側）
+        up = Math.min(up, o.y0 - clr - ductTop);
+      }
+    }
+    if (up <= 0.01) continue;
+    for (const d of below) d.y += up;
   }
 }
 
