@@ -42,6 +42,30 @@ import { rotatedSize, hasTapCuts } from './types';
 let seq = 0;
 const nextId = (p: string) => `${p}${Date.now().toString(36)}${++seq}`;
 
+/**
+ * 新しい案件を始めるときの設定。
+ *
+ * 左のサイドバーで案件ごとに動かすもの（ダクトの引き方・段の高さ・段数・中板の端からの余白・
+ * ダクトごとの調整・クリアランス）は初期値へ戻す。前の案件の余白やダクトごとの調整が
+ * 次の案件に残っていると、新規なのに図が前の案件の癖を引きずる。
+ * 「うちはこう作る」の決め事（使うダクトの型式と幅・固定穴・DINレール・BOM の書式）は残す
+ */
+function freshProjectProfile(profile: Profile): Profile {
+  return {
+    ...profile,
+    duct: {
+      ...profile.duct,
+      layout: DEFAULT_PROFILE.duct.layout,
+      rowHeightMode: DEFAULT_PROFILE.duct.rowHeightMode,
+      rowCount: DEFAULT_PROFILE.duct.rowCount,
+      margin: { ...DEFAULT_PROFILE.duct.margin },
+      ductGaps: {},
+      vertGaps: {},
+    },
+    clearance: structuredClone(DEFAULT_PROFILE.clearance),
+  };
+}
+
 export type Screen = 'start' | 'faces' | 'layout' | 'config' | 'myconfig' | 'projects';
 
 /**
@@ -550,18 +574,8 @@ export const useStore = create<State>((set) => ({
 
   newDesign: () =>
     set((s) => ({
-      // 案件ごとに選ぶもの（ダクトの引き方・段ごとの余白）は初期値へ戻す。
-      // 登録した幅や固定穴は「うちはこう作る」の決め事なので残す
-      profile: {
-        ...s.profile,
-        duct: {
-          ...s.profile.duct,
-          layout: DEFAULT_PROFILE.duct.layout,
-          rowHeightMode: DEFAULT_PROFILE.duct.rowHeightMode,
-          ductGaps: {},
-          vertGaps: {},
-        },
-      },
+      // 案件ごとに選ぶもの（サイドバーの設定）は初期値へ戻す。登録した幅や固定穴は残す
+      profile: freshProjectProfile(s.profile),
       panel: structuredClone(BLANK_PANEL),
       items: [],
       pinned: [],
@@ -620,16 +634,8 @@ export const useStore = create<State>((set) => ({
       const stashed = stashDraft(s);
       return {
         ...stashed,
-        profile: {
-          ...s.profile,
-          duct: {
-            ...s.profile.duct,
-            layout: DEFAULT_PROFILE.duct.layout,
-            rowHeightMode: DEFAULT_PROFILE.duct.rowHeightMode,
-            ductGaps: {},
-            vertGaps: {},
-          },
-        },
+        // 左のサイドバーの設定（ダクト・余白・クリアランス）は初期値へ。作りかけの案件側には残っている
+        profile: freshProjectProfile(s.profile),
         panel: structuredClone(BLANK_PANEL),
         items: [],
         pinned: [],
