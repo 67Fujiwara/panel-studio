@@ -690,12 +690,34 @@ function packAuto(
           x: s.used ? s.cursor + gapAfter(s) : s.x0 + myEnds,
         };
       } else {
-        flow = buckets.length;
-        index = flow;
-        b = bucketAt(index);
-        eff = effectiveClearance(e.spec, c, rowGap(profile, index));
-        hit = findSlot(b);
-        if (!hit) return;
+        /*
+         * 次の段へ。以前は 1 段だけ試して駄目なら黙って捨てていた。
+         * 座標置きの機器が次の段の幅も塞いでいる（面の上に 2 台を重ねて付けたときなど）と、
+         * 流し込みの機器が図からも座標欄からも消えていた。置ける段が見つかるまで下へ探す。
+         * 座標置きの機器が塞いでいない段まで行けば必ず置ける（幅は上で確かめてある）
+         */
+        const lastBlocked = obstacles.reduce((m, o) => Math.max(m, o.row), -1);
+        let next = buckets.length;
+        hit = null;
+        while (!hit && next <= Math.max(lastBlocked, buckets.length) + 1) {
+          index = next;
+          b = bucketAt(index);
+          eff = effectiveClearance(e.spec, c, rowGap(profile, index));
+          hit = findSlot(b);
+          next++;
+        }
+        flow = index;
+        if (!hit) {
+          // ここへは来ないはずだが、来ても黙って消さずに知らせて置く
+          const s = b.slots[zoneOf(e, b.slots)] ?? b.slots[0];
+          if (!s) return;
+          violations.push({
+            uid: e.item.uid,
+            kind: 'overflow',
+            message: `${e.spec.model}: 置ける段が見つかりません（座標で置いた機器で塞がっています）`,
+          });
+          hit = { slot: s, x: s.used ? s.cursor + gapAfter(s) : s.x0 + myEnds };
+        }
       }
     }
 
