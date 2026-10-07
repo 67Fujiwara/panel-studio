@@ -10,6 +10,7 @@ import { LAYER, type Drawer } from './drawing';
 import { PdfWriter } from './pdfExport';
 import { ElectraSheetWriter, buildElectraFile } from './electraExport';
 import { balloonIndex, balloonRadius, drawBalloons, drawPartsTable, groupByNo } from './balloons';
+import { totalHeatW } from './bom';
 import { projectionsFor } from './projection';
 import type { Anchor, Balloons } from './balloons';
 import type { ElectraJob, ElectraSheet } from './electraExport';
@@ -634,27 +635,53 @@ export function platePdf(input: ExportInput, kind: ExportKind, title: string): U
  * ElectraCAD Studio 用のシート（図枠なし・中身だけ）。DXF・PDF と同じ描画を JSON に溜める。
  * 中板は PDF と同じく型式も入れる（ElectraCAD 側で図枠に入れて見る図なので、切断線の心配がない）。
  */
-export function cabinetElectra(input: ExportInput, kind: ExportKind, balloons: Balloons | null = null): ElectraSheet {
+export function cabinetElectra(
+  input: ExportInput,
+  kind: ExportKind,
+  balloons: Balloons | null = null,
+  heatW: number | null = null,
+): ElectraSheet {
   const w = new ElectraSheetWriter();
   const extent = drawCabinet(w, input, kind, balloons);
-  return w.finish(`cabinet_${kind}`, `キャビネット（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`, extent);
+  return w.finish(`cabinet_${kind}`, `キャビネット（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`, addHeatNote(w, extent, kind, heatW));
 }
 
-export function plateElectra(input: ExportInput, kind: ExportKind): ElectraSheet {
+export function plateElectra(input: ExportInput, kind: ExportKind, heatW: number | null = null): ElectraSheet {
   const w = new ElectraSheetWriter();
   const extent = drawPlate(w, input, kind, kind === 'full');
-  return w.finish(`plate_${kind}`, `中板（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`, extent);
+  return w.finish(`plate_${kind}`, `中板（${kind === 'full' ? '機器つき' : '加工穴のみ'}）`, addHeatNote(w, extent, kind, heatW));
+}
+
+/**
+ * 盤内総発熱の注記。機器つきの図の**左上の外側**に小さく書く（本文の線に紛れない・目立たない）。
+ * 文字のぶんだけ図の範囲を上へ広げる。加工穴だけの図には書かない（加工屋に渡す図なので）
+ */
+const HEAT_NOTE_H = 5;
+function addHeatNote(w: Drawer, extent: { w: number; h: number }, kind: ExportKind, heatW: number | null) {
+  if (kind !== 'full' || heatW === null) return extent;
+  w.text(LAYER.note, 0, extent.h + HEAT_NOTE_H, HEAT_NOTE_H, `盤内総発熱 ${heatW.toFixed(1)} W`);
+  return { w: extent.w, h: extent.h + HEAT_NOTE_H * 2.4 };
+}
+
+/** 全面の機器の発熱の合計 (W)。設計完了画面の「盤内総発熱」と同じ値 */
+export function exportHeatW(input: ExportInput): number {
+  return totalHeatW(
+    FACES.map((f) => autoLayout(input.panel, input.profile, f.id, input.items, input.pinned, input.devices, input.removedDucts[f.id] ?? [])),
+    input.devices,
+  );
 }
 
 /** ElectraCAD Studio へ差し込む 1 ファイル（JSON・UTF-8）。4 シートをまとめて持つ */
 export function electraJson(input: ExportInput, job: ElectraJob, balloons: Balloons | null = null): string {
+  // 盤内総発熱は JSON の panel にも、機器つきの図の隅にも入れる（ElectraCAD 側で図枠に出せるように）
+  const heatW = Math.round(exportHeatW(input) * 10) / 10;
   const file = buildElectraFile(
     job,
-    { model: input.panel.model, outer: { ...input.panel.outer }, plate: { ...input.panel.plate } },
+    { model: input.panel.model, outer: { ...input.panel.outer }, plate: { ...input.panel.plate }, heatW },
     [
-      cabinetElectra(input, 'full', balloons),
+      cabinetElectra(input, 'full', balloons, heatW),
       cabinetElectra(input, 'holes'),
-      plateElectra(input, 'full'),
+      plateElectra(input, 'full', heatW),
       plateElectra(input, 'holes'),
     ],
   );

@@ -84,7 +84,13 @@ export type ElectraFile = {
   coordinates: string;
   standardScales: readonly number[];
   job: ElectraJob;
-  panel: { model: string; outer: { w: number; h: number; d: number }; plate: { w: number; h: number } };
+  panel: {
+    model: string;
+    outer: { w: number; h: number; d: number };
+    plate: { w: number; h: number };
+    /** 盤内総発熱 (W)。全面の機器の発熱の合計。換気・冷却の要否判断に使う */
+    heatW: number;
+  };
   sheets: ElectraSheet[];
 };
 

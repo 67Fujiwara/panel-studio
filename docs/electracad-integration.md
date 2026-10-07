@@ -20,7 +20,7 @@ UTF-8 の JSON 1 つです。トップレベルは次のとおり。
 | `coordinates` | 座標系の説明文（左下原点・Y 上向き・角度は度で反時計回り） |
 | `standardScales` | 縮尺の候補 `[1, 2, 2.5, 5, 10, 20, 50]`（1:n の n） |
 | `job` | `company` `jobNo` `owner` `completedAt`(YYYY-MM-DD) `note` — 設計完了のときに入れた案件情報。図枠の表題欄に使う |
-| `panel` | `model`, `outer {w,h,d}`, `plate {w,h}` — 盤の型式と寸法 |
+| `panel` | `model`, `outer {w,h,d}`, `plate {w,h}`, `heatW` — 盤の型式と寸法、盤内総発熱 (W) |
 | `sheets[]` | 4 枚のシート（下記） |
 
 `sheets` は必ずこの順で 4 枚です。
@@ -91,7 +91,7 @@ Panel Studio（制御盤の機器配置ソフト）が書き出す JSON を読�
   ZIP のまま渡されることもあるので、ZIP を選んだら中の `*_electracad.json` を探して読む（無ければエラー表示）。
 - `format` が "panel-studio/electracad-sheets" で `version` が 1 のときだけ受け付ける。違えばエラーにする。
 - トップレベル: format, version, generator, exportedAt, units("mm"), coordinates(説明文), standardScales,
-  job {company, jobNo, owner, completedAt, note}, panel {model, outer{w,h,d}, plate{w,h}}, sheets[4]
+  job {company, jobNo, owner, completedAt, note}, panel {model, outer{w,h,d}, plate{w,h}, heatW}, sheets[4]
 - sheets は必ずこの順の 4 枚: cabinet_full / cabinet_holes / plate_full / plate_holes。
   各シート: id, title(日本語), extent{w,h}(実寸 mm), layers{名前: {color, aci}}, entities[], svg(文字列)
 - entities の型:
@@ -110,7 +110,8 @@ Panel Studio（制御盤の機器配置ソフト）が書き出す JSON を読�
    識別は job.jobNo と sheet.id の組で行う。
 4. 表題欄には job.company（納入先）、job.jobNo（案件番号）、job.owner（担当）、job.completedAt（日付）、
    panel.model（盤の型式）、panel.outer（W×H×D）、sheet.title（図の名前）、縮尺 1:n を入れる。
-   job.note が空でなければ備考欄に入れる。
+   job.note が空でなければ備考欄に入れる。panel.heatW（盤内総発熱 W）は備考欄に小さく添える程度でよい
+   （機器つきの 2 シートには図の左上の外側に「盤内総発熱 xx.x W」の注記も入っている）。
 5. 縮尺: 図枠の作図領域（表題欄・余白を除いた四角）の幅 area.w・高さ area.h(mm) に対して、
    standardScales [1,2,2.5,5,10,20,50] のうち extent.w/n <= area.w かつ extent.h/n <= area.h を
    満たす最小の n を選ぶ。どれも収まらないときは n = ceil(max(extent.w/area.w, extent.h/area.h)*10)/10。
