@@ -1431,6 +1431,81 @@ body.dragging * {
   pointer-events: none;
 }
 
+/* 完了案件の完成図。画面いっぱいの窓に、設計完了と同じ図（SVG）を出す */
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 28, 40, 0.5);
+}
+.preview {
+  display: flex;
+  flex-direction: column;
+  width: min(96vw, 1500px);
+  height: 92vh;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+.preview-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.preview-head .muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+.preview-head .tabs {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.preview-head .tabs button.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.preview-head .zoom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.preview-head .zoom input {
+  width: 120px;
+}
+.preview-head .close {
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 10px;
+}
+.preview-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  background: #fff;
+}
+.preview-body .sheet svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.preview-foot {
+  padding: 6px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--muted);
+}
+
 /* 矢印キーでダクトが動かせなかった理由。案内欄のすぐ上に出す */
 .nudge-note {
   flex: 0 0 auto;

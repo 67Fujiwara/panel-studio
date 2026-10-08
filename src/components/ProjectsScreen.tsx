@@ -6,6 +6,8 @@ import { buildDxfSet, downloadDxfSet } from '../lib/dxfExport';
 import { asciiFileName } from '../lib/csv';
 import { deviceLookup, useStore } from '../store';
 import type { Project } from '../store';
+import { ProjectPreview } from './ProjectPreview';
+import type { ExportInput } from '../lib/dxfExport';
 
 /** その案件の機器点数と型式数。一覧で規模がつかめるようにする。 */
 function scaleOf(p: Project) {
@@ -29,6 +31,8 @@ export function ProjectsScreen() {
   const removeProject = useStore((s) => s.removeProject);
 
   const [open, setOpen] = useState<string | null>(null);
+  /** 完成図を見ている案件 */
+  const [preview, setPreview] = useState<string | null>(null);
   const [owner, setOwner] = useState('');
   const [query, setQuery] = useState('');
 
@@ -57,6 +61,19 @@ export function ProjectsScreen() {
     devices: p.devices ? deviceLookup(p.devices, []) : lookup,
     ducts: p.ducts ?? ducts,
     frozen: Boolean(p.devices),
+  });
+
+  /** 図・DXF を組むための入力。完了時に固めた部品・ダクトで読む（無ければ現行マスタ） */
+  const inputOf = (p: Project): ExportInput => ({
+    panel: p.panel,
+    profile: p.profile,
+    items: p.items,
+    pinned: p.pinned,
+    machining: p.machining,
+    removedDucts: p.removedDucts,
+    underlays: p.underlays,
+    devices: mastersOf(p).devices,
+    ducts: mastersOf(p).ducts,
   });
 
   /** その案件の BOM。開いたときだけ組み立てる */
@@ -129,6 +146,7 @@ export function ProjectsScreen() {
                   <th />
                   <th />
                   <th />
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -160,18 +178,7 @@ export function ProjectsScreen() {
                               const base = asciiFileName(p.jobNo || p.panel.model, 'panel');
                               downloadDxfSet(
                                 buildDxfSet(
-                                  {
-                                    panel: p.panel,
-                                    profile: p.profile,
-                                    items: p.items,
-                                    pinned: p.pinned,
-                                    machining: p.machining,
-                                    removedDucts: p.removedDucts,
-                                    underlays: p.underlays,
-                                    // 完了時に固めた部品・ダクトで書き出す（無ければ現行マスタ）
-                                    devices: mastersOf(p).devices,
-                                    ducts: mastersOf(p).ducts,
-                                  },
+                                  inputOf(p),
                                   base,
                                   { company: p.company, jobNo: p.jobNo, owner: p.owner, completedAt: p.completedAt, note: p.note },
                                 ),
@@ -181,6 +188,14 @@ export function ProjectsScreen() {
                             title="キャビネット／中板 × 機器つき／加工穴のみ を DXF と PDF で。ElectraCAD Studio 用の JSON も同梱（9ファイルの ZIP）"
                           >
                             DXF
+                          </button>
+                        </td>
+                        <td>
+                          <button
+                            onClick={() => setPreview(p.id)}
+                            title="完成図をその場で見る（キャビネットは風船番号と部品表つき、中板はダクト・レール・機器・加工）"
+                          >
+                            完成図
                           </button>
                         </td>
                         <td>
@@ -196,7 +211,7 @@ export function ProjectsScreen() {
                       </tr>
                       {isOpen && (
                         <tr key={`${p.id}-detail`} className="detail">
-                          <td colSpan={10}>
+                          <td colSpan={11}>
                             <div className="grid4">
                               <label className="num">
                                 <span>会社名</span>
@@ -273,6 +288,10 @@ export function ProjectsScreen() {
           {shown.length === 0 && <p className="note">条件に合う案件がありません。</p>}
         </>
       )}
+      {preview && (() => {
+        const p = projects.find((x) => x.id === preview);
+        return p ? <ProjectPreview project={p} input={inputOf(p)} onClose={() => setPreview(null)} /> : null;
+      })()}
     </div>
   );
 }
