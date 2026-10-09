@@ -3,6 +3,7 @@ dist/
 *.local
 .DS_Store
 tsconfig.tsbuildinfo
+__pycache__/
 
 # メーカー配布の図面データは再配布禁止のため、リポジトリに含めない
 # （各自が N-TEC からダウンロードしてアプリに読み込む運用）
@@ -11,3 +12,6 @@ tsconfig.tsbuildinfo
 
 # ビルド時に scripts/version.mjs が書く（git のコミット数）
 src/version.ts
+
+# Fusion アドインが前回設定を書くファイル
+fusion/ExporterAddIn/last_settings.json

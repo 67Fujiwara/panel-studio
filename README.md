@@ -1338,6 +1338,13 @@ OS / ブラウザをダークにすると、画面ぜんたいが自動で暗い
 だけを持ち、図面ファイルは同梱しません。各自がメーカーサイトからダウンロードして
 アプリに読み込む運用にします（`.gitignore` で `*.dxf` / `*.dwg` を除外済み）。
 
+## Fusion から DXF を出す（アドイン）
+
+`fusion/ExporterAddIn/` に、Fusion のクラウド上の f2d 図面を **DXF / DWG / PDF** に一括書き出しする
+Fusion アドインを置いています（f3d の STEP / STL なども可）。入れ方と設定は
+[fusion/ExporterAddIn/README.md](fusion/ExporterAddIn/README.md) を見てください。
+出した DXF はそのまま「盤サイズ → DXF 取り込み」やキャンバスの下敷きに使えます。
+
 ## ドキュメント
 
 - [仕様レビューと技術判断](docs/01-spec-review.md)
