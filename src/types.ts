@@ -1,3 +1,4 @@
+import type { CoolingSettings } from './lib/cooling';
 
 // 盤内レイアウトと BOM が共有する唯一の型定義。
 // 各面の座標系は「面の左下を原点、X 右、Y 上、単位 mm」で統一する。
@@ -567,6 +568,11 @@ export type Profile = {
   rail: RailSettings;
   clearance: ClearanceSettings;
   bom: BomSettings;
+  /**
+   * ファン／盤クーラーの選定。input は案件ごとの入力（新規作成で消える）、
+   * consts は計算の定数（設定画面で変える決め事）。古いデータには無い
+   */
+  cooling?: CoolingSettings;
 };
 
 export type Rect = { x: number; y: number; w: number; h: number };

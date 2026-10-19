@@ -35,6 +35,7 @@ import type {
 } from './types';
 import { markBackupSeen } from './lib/backup';
 import { HEAT_THRESHOLD_W, autoLayout, effectiveDepth, vertBandOf } from './lib/layout';
+import type { CoolingConsts, CoolingInput } from './lib/cooling';
 import { faceSize } from './data/faces';
 import type { LayoutItem } from './lib/layout';
 import { rotatedSize, hasTapCuts } from './types';
@@ -63,6 +64,8 @@ function freshProjectProfile(profile: Profile): Profile {
       vertGaps: {},
     },
     clearance: structuredClone(DEFAULT_PROFILE.clearance),
+    // 冷却選定の入力は案件ごと。定数は決め事なので残す
+    cooling: profile.cooling?.consts ? { consts: profile.cooling.consts } : undefined,
   };
 }
 
@@ -314,6 +317,10 @@ export type State = {
   setRail: (patch: Partial<RailSettings>) => void;
   setClearance: (patch: Partial<ClearanceSettings>) => void;
   setBom: (patch: Partial<BomSettings>) => void;
+  /** ファン／クーラー選定の入力（案件ごと）を書き換える */
+  setCooling: (patch: Partial<CoolingInput>) => void;
+  /** ファン／クーラー選定の定数（決め事）を書き換える */
+  setCoolingConsts: (patch: Partial<CoolingConsts>) => void;
 
   addCategory: () => void;
   updateCategory: (id: string, patch: Partial<CategoryDef>) => void;
@@ -708,6 +715,14 @@ export const useStore = create<State>((set) => ({
   setClearance: (patch) =>
     set((s) => ({ profile: { ...s.profile, clearance: { ...s.profile.clearance, ...patch } } })),
   setBom: (patch) => set((s) => ({ profile: { ...s.profile, bom: { ...s.profile.bom, ...patch } } })),
+  setCooling: (patch) =>
+    set((s) => ({
+      profile: { ...s.profile, cooling: { ...s.profile.cooling, input: { ...s.profile.cooling?.input, ...patch } } },
+    })),
+  setCoolingConsts: (patch) =>
+    set((s) => ({
+      profile: { ...s.profile, cooling: { ...s.profile.cooling, consts: { ...s.profile.cooling?.consts, ...patch } } },
+    })),
 
   // --- ConfigFile: カテゴリ ---
   addCategory: () =>

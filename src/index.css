@@ -2493,3 +2493,236 @@ li.dev.plate-only .dev-badge {
     background: #3a2220;
   }
 }
+
+/* ---- ファン／クーラーの選定（ウィザード） ---- */
+.preview.cooling {
+  width: min(96vw, 1180px);
+  height: 90vh;
+}
+.preview-head .steps {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  list-style: none;
+}
+.preview-head .steps li button {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+.preview-head .steps li.on button {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.preview-head .steps li.off button {
+  opacity: 0.5;
+}
+.cooling-body {
+  background: var(--surface);
+}
+.cooling-body h3 {
+  margin: 0 0 6px;
+}
+.cooling-body .cards {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 14px;
+}
+.cooling-body .cards.mounts {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+.cooling-body .cards.envs {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.cooling-body .cards.materials {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+.cooling-body .card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.cooling-body .card:hover {
+  border-color: #9bbbe6;
+}
+.cooling-body .card.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.25);
+}
+.cooling-body .card strong {
+  font-size: 13px;
+}
+.cooling-body .card span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.cooling-body .card em {
+  font-size: 11px;
+  font-style: normal;
+  color: #555;
+}
+.cooling-body .card.small {
+  padding: 8px 10px;
+}
+.cooling-body .mount-art,
+.cooling-body .env-art {
+  width: 100%;
+  height: auto;
+  max-height: 150px;
+}
+.cooling-body .temps {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: 16px;
+  align-items: start;
+  max-width: 760px;
+}
+.cooling-body .thermo-art {
+  width: 220px;
+  height: auto;
+}
+.cooling-body .size-row {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 16px;
+  align-items: center;
+  max-width: 760px;
+}
+.cooling-body .size-art {
+  width: 240px;
+  height: auto;
+}
+.cooling-body label.num.bad input {
+  border-color: var(--bad);
+  box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.2);
+}
+.cooling-body .unit-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cooling-body .unit-wrap b {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 12px;
+}
+.cool-result .method {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  margin: 6px 0 10px;
+}
+.cool-result .method .method-art {
+  width: 72px;
+  height: 72px;
+  flex: 0 0 auto;
+}
+.cool-result .method .label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.cool-result .method .name {
+  font-size: 22px;
+  font-weight: 700;
+}
+.cool-result .method .main {
+  font-size: 16px;
+  margin-top: 4px;
+}
+.cool-result .method .main b {
+  font-size: 26px;
+}
+.cool-result .method .sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.cool-result .method.none {
+  border-color: #1f7a3a;
+  background: #f1faf3;
+}
+.cool-result .method.fan {
+  border-color: #2f6fb3;
+  background: #f0f5fc;
+}
+.cool-result .method.heat_exchanger {
+  border-color: #b9770e;
+  background: #fff8ec;
+}
+.cool-result .method.cooler {
+  border-color: #1b6ca8;
+  background: #eef7fc;
+}
+.cool-result .reason {
+  margin: 4px 0 8px;
+  font-weight: 600;
+}
+.cool-result .note-list,
+.warn-list {
+  margin: 6px 0 10px;
+  padding-left: 20px;
+  font-size: 12px;
+}
+.warn-list li {
+  color: #7a5a00;
+}
+.warn-list.bad li {
+  color: var(--bad);
+}
+.calc-steps,
+.edit-inputs {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+.calc-steps summary,
+.edit-inputs summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.calc-steps table {
+  margin-top: 8px;
+  font-size: 12px;
+  border-collapse: collapse;
+}
+.calc-steps td {
+  padding: 4px 10px 4px 0;
+  vertical-align: top;
+}
+.calc-steps td:first-child {
+  white-space: nowrap;
+  color: var(--muted);
+}
+.cooling-foot {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.cooling-foot .muted {
+  margin-left: auto;
+}
+.calc.heat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.calc.heat button {
+  font-size: 12px;
+}
+.calc.cooling-line {
+  font-size: 12px;
+}

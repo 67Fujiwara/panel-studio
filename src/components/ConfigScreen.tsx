@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { coolingConsts } from '../lib/cooling';
 import { PartEditor } from './PartEditor';
 import { EnclosureTable } from './EnclosureTable';
 import { DuctRailSettings } from './DuctRailSettings';
@@ -26,6 +27,9 @@ export function ConfigScreen() {
   const devices = useStore((s) => s.devices);
   const profile = useStore((s) => s.profile);
   const addCategory = useStore((s) => s.addCategory);
+  const setCoolingConsts = useStore((s) => s.setCoolingConsts);
+  const coolConstsRaw = useStore((s) => s.profile.cooling?.consts);
+  const coolConsts = coolingConsts(coolConstsRaw);
   const updateCategory = useStore((s) => s.updateCategory);
   const removeCategory = useStore((s) => s.removeCategory);
   const addPart = useStore((s) => s.addPart);
@@ -233,6 +237,31 @@ export function ConfigScreen() {
       <DuctRailSettings />
 
       <AiSettingsPanel />
+
+      <h3 className="section">ファン／クーラー選定の定数</h3>
+      <p className="note">
+        面選択画面の「ファン／クーラーを選定」で使う定数です。ふつうは変えません。
+      </p>
+      <div className="grid3">
+        <label className="num">
+          <span>
+            空気の熱特性係数 F_AIR<em>m³·K/(W·h)、標高 0〜100 m で 3.1</em>
+          </span>
+          <input type="number" step={0.1} value={coolConsts.fAir} onChange={(e) => setCoolingConsts({ fAir: Number(e.target.value) })} />
+        </label>
+        <label className="num">
+          <span>
+            余裕率<em>フィルターの目詰まり・圧損のぶん。選定風量 = 計算風量 × 余裕率</em>
+          </span>
+          <input type="number" step={0.05} value={coolConsts.margin} onChange={(e) => setCoolingConsts({ margin: Number(e.target.value) })} />
+        </label>
+        <label className="num">
+          <span>
+            ファン可の最小温度差<em>K。これ未満はクーラー</em>
+          </span>
+          <input type="number" step={1} value={coolConsts.minDtFan} onChange={(e) => setCoolingConsts({ minDtFan: Number(e.target.value) })} />
+        </label>
+      </div>
 
       <h3 className="section">部品表</h3>
       <div className="row-buttons">

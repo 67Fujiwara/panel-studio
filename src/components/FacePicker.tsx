@@ -19,6 +19,8 @@ import {
 import { ShapeGeometry } from './ShapeGeometry';
 import { AiAllFaces } from './AiAllFaces';
 import { deviceLookup, useStore } from '../store';
+import { CoolingWizard } from './CoolingWizard';
+import { coolingResultOf, coolingSummary } from '../lib/cooling';
 import { rotatedSize } from '../types';
 import type {
   BomSettings,
@@ -361,6 +363,9 @@ export function FacePicker() {
   const [jobOwner, setJobOwner] = useState('');
   const [jobNote, setJobNote] = useState('');
   const [withDxf, setWithDxf] = useState(true);
+  const [coolingOpen, setCoolingOpen] = useState(false);
+  const cooling = useStore((s) => s.profile.cooling);
+  const coolingResult = coolingResultOf(cooling?.input, cooling?.consts);
 
   const lookup = useMemo(() => deviceLookup(devices, myDevices), [devices, myDevices]);
 
@@ -523,7 +528,14 @@ export function FacePicker() {
           </>
         )}
 
-        <p className="calc">盤内総発熱 = {heat.toFixed(1)} W</p>
+        <p className="calc heat">
+          盤内総発熱 = {heat.toFixed(1)} W
+          <button type="button" onClick={() => setCoolingOpen(true)} title="設置条件・環境・盤サイズ・発熱から、必要風量と推奨方式（ファン不要／フィルターファン／熱交換器／盤用クーラー）を出します">
+            ファン／クーラーを選定
+          </button>
+        </p>
+        {coolingResult && <p className="calc cooling-line">冷却の目安: {coolingSummary(coolingResult)}</p>}
+        {coolingOpen && <CoolingWizard heatW={heat} onClose={() => setCoolingOpen(false)} />}
         {bom.length > 0 && (
           <p className={`calc${money.missing > 0 ? ' bad' : ''}`}>
             機器金額 = {money.total.toLocaleString('ja-JP')} 円
