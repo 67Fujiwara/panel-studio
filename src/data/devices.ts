@@ -134,52 +134,6 @@ export const DEFAULT_DEVICES: DeviceSpec[] = [
     clearance: { top: 50, bottom: 50 },
     heatW: 3,
   },
-  /*
-   * MELSEC iQ-R のユニット。単体では置かず、ベースユニット（R35B など）に載せる前提。
-   * ベース側を「ベースユニット（PLC）」にして、そこへ OP として載せると左から順に並ぶ。
-   * 寸法はカタログの外形 H106 × W27.8 × D110（ネットワーク内蔵 CPU は 2 スロット幅の W56）。
-   * 発熱はカタログの内部消費電流（DC5V）から 5V × 電流 で見た仮値
-   */
-  {
-    id: 'plc-r08encpu',
-    maker: '三菱電機',
-    model: 'R08ENCPU',
-    name: 'iQ-R CPUユニット（ネットワーク内蔵）',
-    category: 'plc',
-    source: 'config',
-    size: { w: 56, h: 106, d: 110 },
-    mount: ['direct'],
-    clearance: { top: 30, bottom: 30 },
-    heatW: 6,
-    // CPU スロットのほかに I/O スロット 0 も使う（2 スロット幅）
-    slotUse: 1,
-  },
-  {
-    id: 'plc-rx40c7-ts',
-    maker: '三菱電機',
-    model: 'RX40C7-TS',
-    name: 'iQ-R DC入力ユニット 16点（スプリング式）',
-    category: 'plc',
-    source: 'config',
-    size: { w: 27.8, h: 106, d: 110 },
-    mount: ['direct'],
-    clearance: { top: 30, bottom: 30 },
-    heatW: 2,
-    slotUse: 1,
-  },
-  {
-    id: 'plc-ry40nt5p-ts',
-    maker: '三菱電機',
-    model: 'RY40NT5P-TS',
-    name: 'iQ-R トランジスタ出力ユニット 16点（スプリング式）',
-    category: 'plc',
-    source: 'config',
-    size: { w: 27.8, h: 106, d: 110 },
-    mount: ['direct'],
-    clearance: { top: 30, bottom: 30 },
-    heatW: 3,
-    slotUse: 1,
-  },
   {
     id: 'psu-24v-5a',
     maker: 'オムロン',
