@@ -44,6 +44,17 @@ let seq = 0;
 const nextId = (p: string) => `${p}${Date.now().toString(36)}${++seq}`;
 
 /**
+ * 初期値の部品表にあって、いまの部品表に無い部品。
+ * id が同じもののほか、**型式が同じ**ものも「ある」とみなす
+ * （人が同じ型式を手で登録してあれば二重にしない）
+ */
+export function missingDefaults(devices: DeviceSpec[]): DeviceSpec[] {
+  const ids = new Set(devices.map((d) => d.id));
+  const models = new Set(devices.map((d) => d.model.trim().toLowerCase()));
+  return DEFAULT_DEVICES.filter((d) => !ids.has(d.id) && !models.has(d.model.trim().toLowerCase()));
+}
+
+/**
  * 新しい案件を始めるときの設定。
  *
  * 左のサイドバーで案件ごとに動かすもの（ダクトの引き方・段の高さ・段数・中板の端からの余白・
@@ -327,6 +338,12 @@ export type State = {
   removeCategory: (id: string) => void;
 
   addPart: (source: 'config' | 'my', category: string, owner?: string) => string;
+  /**
+   * 初期値の部品表にあって、いまの部品表に無い部品を足す。足した型式を返す。
+   * 部品表はブラウザに残っているので、アプリを更新しても初期値に足した部品は
+   * 勝手には増えない。人が押して取り込む
+   */
+  addMissingDefaults: () => string[];
   updatePart: (id: string, patch: Partial<DeviceSpec>) => void;
   removePart: (id: string) => void;
 
@@ -762,6 +779,17 @@ export const useStore = create<State>((set) => ({
         : { devices: [...s.devices, part] };
     });
     return id;
+  },
+  addMissingDefaults: () => {
+    const missing = missingDefaults(useStore.getState().devices);
+    if (missing.length === 0) return [];
+    set((s) => {
+      const catIds = new Set(s.categories.map((c) => c.id));
+      // 分類ごと消してあれば「その他」へ寄せる（分類を消しても部品は消さない方針と同じ）
+      const added = missing.map((d) => (catIds.has(d.category) ? d : { ...d, category: 'other' }));
+      return { devices: [...s.devices, ...structuredClone(added)] };
+    });
+    return missing.map((d) => d.model);
   },
   updatePart: (id, patch) =>
     set((s) => ({

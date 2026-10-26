@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { coolingConsts } from '../lib/cooling';
 import { PartEditor } from './PartEditor';
 import { EnclosureTable } from './EnclosureTable';
@@ -10,6 +10,7 @@ import { AiSettingsPanel } from './AiSettingsPanel';
 import {
   loadBundle,
   makeBundle,
+  missingDefaults,
   useStore,
   type BackupBundle,
   type ConfigFile,
@@ -33,6 +34,11 @@ export function ConfigScreen() {
   const updateCategory = useStore((s) => s.updateCategory);
   const removeCategory = useStore((s) => s.removeCategory);
   const addPart = useStore((s) => s.addPart);
+  const addMissingDefaults = useStore((s) => s.addMissingDefaults);
+  // 初期値にあってこの部品表に無い部品。devices が変わったときだけ数え直す
+  const missing = useMemo(() => missingDefaults(devices), [devices]);
+  /** 「初期値の部品を足す」で足した型式。押した手応えとして出す */
+  const [seeded, setSeeded] = useState<string[]>([]);
   const loadConfig = useStore((s) => s.loadConfig);
   const enclosures = useStore((s) => s.enclosures);
   const ducts = useStore((s) => s.ducts);
@@ -266,7 +272,28 @@ export function ConfigScreen() {
       <h3 className="section">部品表</h3>
       <div className="row-buttons">
         <button onClick={addCategory}>＋ 分類を追加</button>
+        <button
+          disabled={missing.length === 0}
+          title={
+            missing.length === 0
+              ? '初期値の部品はすべて入っています'
+              : `初期値にあって、この部品表に無い部品:\n${missing.map((d) => `・${d.model} ${d.name}`).join('\n')}`
+          }
+          onClick={() => setSeeded(addMissingDefaults())}
+        >
+          初期値の部品を足す（{missing.length} 件）
+        </button>
       </div>
+      <p className="note">
+        部品表はこのブラウザに残っているので、アプリを更新しても初期値に増えた部品は勝手には入りません。
+        「初期値の部品を足す」で、まだ無い型式だけを足します（同じ型式を手で登録してあれば足しません）。
+        {seeded.length > 0 && (
+          <>
+            <br />
+            足しました: <b>{seeded.join('、')}</b>
+          </>
+        )}
+      </p>
 
       <ul className="tree big">
         {categories.map((c) => {
