@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FACES, faceSize } from '../data/faces';
 import { buildBom, totalHeatW } from '../lib/bom';
 import { asciiFileName, bomToCsv, downloadCsv } from '../lib/csv';
@@ -245,6 +245,51 @@ type HoverDevice = {
   headBottom: number;
 };
 
+/** 長い文字列は途中で切って … を付ける。吹き出しが図より横長になるのを防ぐ */
+export function ellipsis(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, Math.max(1, max - 1))}…` : s;
+}
+
+/** 型式はこの字数まで。品名はもう少し短く（型式のほうが見分けに効く） */
+const MODEL_MAX = 24;
+const NAME_MAX = 16;
+
+/**
+ * マウスを載せている機器の型式・品名の吹き出し。
+ * 白地に黒枠、薄い影で図から少し浮かせる。機器のすぐ上に置き、面の見出しに
+ * 掛かるときは機器の下へ。図の左右端では内側に寄せてはみ出させない。
+ * 幅は描いた文字を測って決める（全角・半角まじりの字幅は推定では合わない）
+ */
+function HoverLabel({ d, fs, minX, maxX }: { d: HoverDevice; fs: number; minX: number; maxX: number }) {
+  const f = fs * 0.62;
+  const model = ellipsis(d.model, MODEL_MAX);
+  const name = ellipsis(d.name, NAME_MAX);
+  const text = name ? `${model}　${name}` : model;
+  const ref = useRef<SVGTextElement>(null);
+  // 初回は字数からの見込み幅で描き、描けたら実測で置き換える
+  const [textW, setTextW] = useState(text.length * f * 0.6);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el) setTextW(el.getComputedTextLength());
+  }, [text, f]);
+  const padX = f * 0.5;
+  const boxW = textW + padX * 2;
+  const boxH = f * 1.5;
+  const half = boxW / 2;
+  const cx = Math.min(Math.max(d.x, minX + half), maxX - half);
+  // 機器のすぐ上。面の見出しに掛かるときは機器の下に置く
+  const aboveTop = d.y - f * 0.35 - boxH;
+  const top = aboveTop < d.headBottom ? d.y2 + f * 0.35 : aboveTop;
+  return (
+    <g className="ufhover" filter="url(#ufhover-shadow)">
+      <rect x={cx - half} y={top} width={boxW} height={boxH} rx={f * 0.25} />
+      <text ref={ref} x={cx} y={top + boxH / 2} fontSize={f}>
+        {text}
+      </text>
+    </g>
+  );
+}
+
 function FaceContents({
   cell,
   size,
@@ -473,6 +518,12 @@ export function FacePicker() {
         </div>
 
         <svg className="unfold" viewBox={`${-fs} ${-fs} ${diagW + fs * 2} ${diagH + fs * 2}`}>
+          <defs>
+            {/* 機器の吹き出しを図から浮かせる薄い影。図の寸法に合わせた大きさにする */}
+            <filter id="ufhover-shadow" x="-10%" y="-20%" width="120%" height="160%">
+              <feDropShadow dx="0" dy={fs * 0.05} stdDeviation={fs * 0.06} floodColor="#000" floodOpacity="0.28" />
+            </filter>
+          </defs>
           {cells.map((c) => {
             const def = FACES.find((f) => f.id === c.id)!;
             const size = faceSize(panel, c.id);
@@ -534,22 +585,7 @@ export function FacePicker() {
             マウスを載せている機器の型式と品名。機器のすぐ上に、見出しより小さく添える。
             セルの上に重ねるので最後に描く。図の端では中へ寄せてはみ出させない
           */}
-          {hoverDev &&
-            (() => {
-              const text = hoverDev.name ? `${hoverDev.model}　${hoverDev.name}` : hoverDev.model;
-              const f = fs * 0.62;
-              // 全角まじりの幅は大まかに 1 文字 0.7em と見る
-              const half = (text.length * f * 0.7) / 2;
-              const x = Math.min(Math.max(hoverDev.x, -fs + half), diagW + fs - half);
-              // 機器のすぐ上。面の見出しに掛かるときは機器の下に置く
-              const above = hoverDev.y - f * 0.45;
-              const y = above - f < hoverDev.headBottom ? hoverDev.y2 + f * 1.1 : above;
-              return (
-                <text className="ufhover" x={x} y={y} fontSize={f}>
-                  {text}
-                </text>
-              );
-            })()}
+          {hoverDev && <HoverLabel d={hoverDev} fs={fs} minX={-fs} maxX={diagW + fs} />}
         </svg>
       </div>
 

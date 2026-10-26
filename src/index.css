@@ -225,17 +225,21 @@ svg.unfold {
   stroke: var(--accent);
   stroke-width: 1;
 }
-/* 載せている機器の型式・品名。見出しより小さく、縁取りだけで読ませる控えめな文字 */
+/* 載せている機器の型式・品名の吹き出し。白地に黒枠、影で図から少し浮かせる */
 svg.unfold .ufhover {
   pointer-events: none;
+}
+svg.unfold .ufhover rect {
+  fill: #fff;
+  stroke: #222;
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+svg.unfold .ufhover text {
   text-anchor: middle;
-  dominant-baseline: auto;
-  fill: var(--text);
+  dominant-baseline: central;
+  fill: #111;
   font-family: inherit;
-  paint-order: stroke fill;
-  stroke: var(--surface);
-  stroke-width: 3px;
-  stroke-linejoin: round;
 }
 /*
   CAD の外形線を取り込んである機器。レイアウト画面と同じく、外形線そのものを機器の姿にする。
