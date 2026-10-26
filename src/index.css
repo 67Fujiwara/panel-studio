@@ -206,6 +206,38 @@ svg.unfold {
   stroke-width: 0.75;
 }
 /*
+  機器はマウスを載せると型式・品名を出す（.ufhover）。中身の絵は pointer-events を切ってあるので、
+  機器（箱）と外形線機器の当たり判定の箱だけ受け付ける。押せば今までどおり面が開く
+*/
+.ufcell .ufbody .ufdev,
+.ufcell .ufbody .ufhit {
+  pointer-events: all;
+}
+.ufcell .ufbody .ufhit {
+  fill: transparent;
+  stroke: none;
+}
+.ufcell .ufbody .ufdev:hover {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.ufcell .ufbody .ufhit:hover {
+  stroke: var(--accent);
+  stroke-width: 1;
+}
+/* 載せている機器の型式・品名。見出しより小さく、縁取りだけで読ませる控えめな文字 */
+svg.unfold .ufhover {
+  pointer-events: none;
+  text-anchor: middle;
+  dominant-baseline: auto;
+  fill: var(--text);
+  font-family: inherit;
+  paint-order: stroke fill;
+  stroke: var(--surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+/*
   CAD の外形線を取り込んである機器。レイアウト画面と同じく、外形線そのものを機器の姿にする。
   中板の枠は破線なので、中身まで破線を継がないよう打ち消す。
   この縮尺で実寸の線幅を引くと潰れるため、太さは拡大率によらない。

@@ -229,6 +229,22 @@ function CutShape({ m }: { m: Machining }) {
  * 分からない。盤ぜんたいの絵として見えていないと、面を1つずつ開いて確かめる羽目になる。
  * ここでは形と量が伝わればよいので、文字は入れない（この縮尺では潰れて読めない）。
  */
+/**
+ * 展開図でマウスを載せている機器。型式と品名を小さく出すための控え。
+ * 位置は展開図の座標（セルの外に置く文字なので、面の座標ではなく図全体の座標で持つ）
+ */
+type HoverDevice = {
+  uid: string;
+  model: string;
+  name: string;
+  /** 機器の中心 x、上端 y、下端 y2（展開図の座標） */
+  x: number;
+  y: number;
+  y2: number;
+  /** 面の見出し（名前・寸法）が占める下端。ここに掛かるなら文字は機器の下へ */
+  headBottom: number;
+};
+
 function FaceContents({
   cell,
   size,
@@ -237,6 +253,8 @@ function FaceContents({
   devices,
   categories,
   railMargin,
+  headH,
+  onHover,
 }: {
   cell: Cell;
   size: { w: number; h: number };
@@ -245,6 +263,9 @@ function FaceContents({
   devices: DeviceLookup;
   categories: CategoryDef[];
   railMargin: number;
+  /** セルの見出し（面の名前と寸法）の高さ。型式の文字をそこに重ねないため */
+  headH: number;
+  onHover: (d: HoverDevice | null) => void;
 }) {
   if (size.w <= 0 || size.h <= 0) return null;
   const rails = computeRails(layout, devices, railMargin);
@@ -252,7 +273,22 @@ function FaceContents({
 
   const colorOf = (cat: string) => categories.find((c) => c.id === cat)?.color ?? '#7d8894';
   // 面の座標（左下原点・Y上向き）をセルの中へ。Y を反転して重ねる
-  const transform = `translate(${cell.x} ${cell.y + cell.h}) scale(${cell.w / size.w} ${-cell.h / size.h})`;
+  const sx = cell.w / size.w;
+  const sy = cell.h / size.h;
+  const transform = `translate(${cell.x} ${cell.y + cell.h}) scale(${sx} ${-sy})`;
+  /**
+   * 機器にマウスを載せたら、型式と品名を知らせる。
+   * 展開図の機器は小さくて、どれが何かは色でしか分からない。面を開かずに確かめたい
+   */
+  const hoverOf = (uid: string, spec: { model: string; name: string }, x: number, y: number, w: number, h: number): HoverDevice => ({
+    uid,
+    model: spec.model,
+    name: spec.name,
+    x: cell.x + (x + w / 2) * sx,
+    y: cell.y + cell.h - (y + h) * sy,
+    y2: cell.y + cell.h - y * sy,
+    headBottom: cell.y + headH,
+  });
 
   return (
     <g className="ufbody" transform={transform}>
@@ -276,6 +312,10 @@ function FaceContents({
         if (!spec) return null;
         const s = rotatedSize(spec.size, p.rot);
         const color = colorOf(spec.category);
+        const hover = {
+          onMouseEnter: () => onHover(hoverOf(p.uid, spec, p.x, p.y, s.w, s.h)),
+          onMouseLeave: () => onHover(null),
+        };
         if (!spec.shape) {
           return (
             <rect
@@ -288,6 +328,7 @@ function FaceContents({
               // セルの塗り（.ufcell rect）に負けないよう、分類の色は style で当てる。
               // fill 属性は presentation attribute なので CSS に上書きされてしまう
               style={{ fill: color }}
+              {...hover}
             />
           );
         }
@@ -303,6 +344,8 @@ function FaceContents({
         const cy = p.y + s.h / 2;
         return (
           <g key={p.uid} className="ufshape">
+            {/* 外形線は塗りが無く線の上でしか拾えないので、当たり判定用の透明な箱を敷く */}
+            <rect className="ufhit" x={p.x} y={p.y} width={s.w} height={s.h} {...hover} />
             <g transform={`rotate(${p.rot ?? 0} ${cx} ${cy})`}>
               <g
                 transform={`translate(${cx - spec.size.w / 2} ${cy - spec.size.h / 2}) scale(${
@@ -364,6 +407,8 @@ export function FacePicker() {
   const [jobNote, setJobNote] = useState('');
   const [withDxf, setWithDxf] = useState(true);
   const [coolingOpen, setCoolingOpen] = useState(false);
+  /** 展開図でマウスを載せている機器。型式・品名を小さく添える */
+  const [hoverDev, setHoverDev] = useState<HoverDevice | null>(null);
   const cooling = useStore((s) => s.profile.cooling);
   const coolingResult = coolingResultOf(cooling?.input, cooling?.consts);
 
@@ -467,6 +512,8 @@ export function FacePicker() {
                   devices={lookup}
                   categories={categories}
                   railMargin={profile.rail.endMargin}
+                  headH={fs * 2.8}
+                  onHover={setHoverDev}
                 />
                 {/* 見出しは絵に重なるので、帯は敷かず文字自身を縁取って読ませる（CSS） */}
                 <text x={cx} y={c.y + fs * 1.1} fontSize={fName} className="name">
@@ -483,6 +530,26 @@ export function FacePicker() {
               </g>
             );
           })}
+          {/*
+            マウスを載せている機器の型式と品名。機器のすぐ上に、見出しより小さく添える。
+            セルの上に重ねるので最後に描く。図の端では中へ寄せてはみ出させない
+          */}
+          {hoverDev &&
+            (() => {
+              const text = hoverDev.name ? `${hoverDev.model}　${hoverDev.name}` : hoverDev.model;
+              const f = fs * 0.62;
+              // 全角まじりの幅は大まかに 1 文字 0.7em と見る
+              const half = (text.length * f * 0.7) / 2;
+              const x = Math.min(Math.max(hoverDev.x, -fs + half), diagW + fs - half);
+              // 機器のすぐ上。面の見出しに掛かるときは機器の下に置く
+              const above = hoverDev.y - f * 0.45;
+              const y = above - f < hoverDev.headBottom ? hoverDev.y2 + f * 1.1 : above;
+              return (
+                <text className="ufhover" x={x} y={y} fontSize={f}>
+                  {text}
+                </text>
+              );
+            })()}
         </svg>
       </div>
 
