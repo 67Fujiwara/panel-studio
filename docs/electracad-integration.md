@@ -150,3 +150,20 @@ Panel Studio（制御盤の機器配置ソフト）が書き出す JSON を読�
 - `src/lib/dxfExport.ts` — `cabinetElectra` / `plateElectra` / `electraJson`。`buildDxfSet(input, base, job)` が
   9 ファイル目として `<案件番号>_electracad.json` を足す
 - 設計完了（面選択画面）と完了案件の行の「DXF」の両方から出ます。完了案件からは、完了時に入れた案件情報が入ります
+
+
+## BOM Pro への部品表（`<案件番号>_bom.json`）
+
+設計完了の ZIP には、購買・見積のツール **BOM Pro** へ渡す部品表 `<案件番号>_bom.json` も入ります
+（画面の部品表と同じ行。機器本体 `device` と、DIN レール・ダクト・エンドストッパなどの派生部品 `derived`）。
+BOM Pro の「新規作成 → Panel Studio から取り込む」に ZIP（または中の JSON）を選ぶと、案件と部品の行がまとめて入ります。
+
+```jsonc
+{
+  "format": "panel-studio/bom", "version": 1, "generator": "Panel Studio", "exportedAt": "…",
+  "job": { "company": "…", "jobNo": "A123456", "owner": "…", "completedAt": "YYYY-MM-DD", "note": "…" },
+  "deviceName": "",                    // 装置名は設計完了では聞かない。BOM Pro の取り込み画面で入れる
+  "panel": { "model": "盤の型式" },
+  "lines": [ { "model": "…", "key": "…", "maker": "…", "name": "…", "qty": 2, "unit": "個", "source": "device" } ]
+}
+```

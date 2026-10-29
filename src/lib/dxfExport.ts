@@ -10,7 +10,8 @@ import { LAYER, type Drawer } from './drawing';
 import { PdfWriter } from './pdfExport';
 import { ElectraSheetWriter, buildElectraFile } from './electraExport';
 import { balloonIndex, balloonRadius, drawBalloons, drawPartsTable, groupByNo } from './balloons';
-import { totalHeatW } from './bom';
+import { buildBom, totalHeatW } from './bom';
+import { bomJson } from './bomJson';
 import { projectionsFor } from './projection';
 import type { Anchor, Balloons } from './balloons';
 import type { ElectraJob, ElectraSheet } from './electraExport';
@@ -835,6 +836,8 @@ export function buildDxfSet(input: ExportInput, base: string, job?: ElectraJob):
     { name: `${base}_plate_holes.pdf`, bytes: platePdf(input, 'holes', title) },
     // ElectraCAD Studio へ差し込む用。図枠なしの中身だけを JSON（UTF-8）で
     { name: `${base}_electracad.json`, bytes: new TextEncoder().encode(electraJson(input, meta, balloons)) },
+    // BOM Pro（購買・見積）へ渡す部品表。案件と部品の行がそのまま取り込める
+    { name: `${base}_bom.json`, bytes: new TextEncoder().encode(bomJson(buildBom(FACES.map((f) => autoLayout(input.panel, input.profile, f.id, input.items, input.pinned, input.devices, input.removedDucts[f.id] ?? [])), input.profile, input.devices, input.ducts), meta, input.panel)) },
     // 日東工業キャビスタの「DXF 図面データ取込み」向け。全体図 1 枚と、面ごとの 1 枚（加工面を指定して取り込む用）
     { name: `cabista/${base}_全体図.dxf`, text: cabistaDxf(input) },
     ...(Object.entries(CABISTA_FACE) as [FaceId, string][]).map(([face, label]) => ({
