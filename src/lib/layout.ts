@@ -1210,9 +1210,14 @@ export function computeRails(
       */
       const key = `${row.index}:${groupNo++}`;
       const adj = adjust?.[key];
+      /*
+        面の外へは出さない。座標置きの機器を面の端まで寄せると、余長のぶんレールが
+        面からはみ出して描かれ、切断長も実物より長く数えていた
+      */
+      const faceRight = layout.size?.w ?? Infinity;
       const bounds = {
         left: { min: Math.min(limitLeft, devLeft), max: devLeft },
-        right: { min: devRight, max: Math.max(limitRight, devRight) },
+        right: { min: devRight, max: Math.max(Math.min(limitRight, faceRight), devRight) },
       };
       const left = Math.max(bounds.left.min, Math.min(bounds.left.max, devLeft - endMargin - (adj?.left ?? 0)));
       const right = Math.min(bounds.right.max, Math.max(bounds.right.min, devRight + endMargin + (adj?.right ?? 0)));
@@ -1679,6 +1684,7 @@ export function autoLayout(
     rows: result.rows,
     ducts,
     placed,
+    size: faceSize(panel, face),
     violations: [
       ...result.violations,
       ...depthViolations(panel, face, placed, devices),

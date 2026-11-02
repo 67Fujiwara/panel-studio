@@ -540,6 +540,44 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
    * 印があるものは、ダクトの余白を変えて段が動いてもレールに付いていく。
    * 上下に動かしてレールから外したものは印なし（その高さに留まる）
    */
+  /**
+   * ドラッグ中の DIN 機器を、いちばん近い段のレールの x に置いたとき誰とも干渉しないか。
+   * 干渉しなければその置き場（左下角と段番号）を返す。
+   * 当たりに数えるのは、その段の他の機器（機器⇔機器の離隔ぶんを足す）と、生きているダクト。
+   * 面の左右の端からは出さない
+   */
+  const freeSpotOnRail = (
+    x: number,
+    cursorY: number,
+    size: { w: number; h: number },
+    self: PlacedDevice,
+  ): { x: number; y: number; row: number } | null => {
+    const spec = devices.get(self.specId);
+    if (!spec || layout.rows.length === 0) return null;
+    const row = layout.rows.reduce((best, r) =>
+      Math.abs(cursorY - (r.y + r.h / 2)) < Math.abs(cursorY - (best.y + best.h / 2)) ? r : best,
+    );
+    const y = rowAxisY(row) - size.h / 2 + (spec.dinOffset ?? 0);
+    const nx = Math.max(0, Math.min(faceW - size.w, x));
+    const gap = profile.clearance.deviceToDevice.sameRow;
+    const x0 = nx - gap;
+    const x1 = nx + size.w + gap;
+    const y0 = y;
+    const y1 = y + size.h;
+    for (const q of layout.placed) {
+      if (q.uid === self.uid) continue;
+      const qs = devices.get(q.specId);
+      if (!qs) continue;
+      const s = rotatedSize(qs.size, q.rot);
+      if (q.x < x1 && x0 < q.x + s.w && q.y < y1 && y0 < q.y + s.h) return null;
+    }
+    for (const dd of layout.ducts) {
+      if (dd.removed) continue;
+      if (dd.x < nx + size.w && nx < dd.x + dd.w && dd.y < y1 && y0 < dd.y + dd.h) return null;
+    }
+    return { x: nx, y, row: row.index };
+  };
+
   const pinAt = (p: PlacedDevice, x: number, y: number) => {
     const spec = devices.get(p.specId);
     const row = layout.rows.find((r) => r.index === p.row);
@@ -632,6 +670,25 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         d.snapped = false;
         unpin(d.uid);
         return;
+      }
+      /*
+       * DIN 機器を**誰とも干渉しない空いた場所**へ持っていったら、並べ替えではなく
+       * その段のレールのその位置に座標置き（onRail）する。
+       *
+       * 並べ替えだけだと、段の末尾の機器は右へ引いても「入れ込む先」が変わらず動かず、
+       * 空いているのに動かせない。さらに段がほぼ埋まっていると、放した機器が流し込みに
+       * 戻されて次の段の左端へ飛び、レールがばらけて見えた。
+       * 隣に掛かる位置なら今までどおり並べ替える（詰めて並べたいときはそのほうが自然）
+       */
+      if (at && at.self.mount === 'din' && hasRows) {
+        const free = freeSpotOnRail(at.x, at.y, at.size, at.placed);
+        if (free) {
+          d.lastBefore = undefined;
+          d.lastRow = undefined;
+          d.lastZone = undefined;
+          pin({ ...at.placed, x: free.x, y: free.y, row: free.row, onRail: true });
+          return;
+        }
       }
       // 既定: 他の機器の間へ入れ込む。並び順が変わると配置がその場で組み直される。
       // 上下に動かしたときは段の指定も付け替える（並び順だけでは段は変わらないため）
@@ -1235,21 +1292,34 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         })}
 
         {/*
-          DINレールの両端のつまみ。レール本体は機器に覆われていて押しづらいので、
-          端だけを機器より上の層に出す。押すとその端が選ばれ、← → で伸び縮みする
+          DINレールの両端のつまみ。レール本体は機器に覆われていて押しづらいので、端だけを機器より上の層に出す。
+          つまみはレールの余長（機器の外側）の範囲に収め、余長が無く端が機器と重なるときは
+          2mm の細い帯だけにして、面の端まで寄せた機器を掴めなくしない。
+          押すとその端が選ばれ、← → で伸び縮みする
         */}
         {rails.map((r, ri) => {
           if (r.solo || r.key === undefined) return null;
           const top = toSvgY(faceH, r.y + DIN_RAIL_WIDTH / 2, 0);
           const g = Math.max(4, Math.min(10, r.length / 3));
           const sel = selectedRail?.key === r.key ? selectedRail.end : null;
+          const devL = r.bounds?.left.max ?? r.x + g;
+          const devR = r.bounds?.right.min ?? r.x + r.length - g;
+          const span = (end: 'left' | 'right') => {
+            if (end === 'left') {
+              const x1 = Math.max(r.x + 2, Math.min(r.x + g, devL));
+              return { x: r.x, w: x1 - r.x };
+            }
+            const x1 = r.x + r.length;
+            const x0 = Math.min(x1 - 2, Math.max(x1 - g, devR));
+            return { x: x0, w: x1 - x0 };
+          };
           return (['left', 'right'] as const).map((end) => (
             <rect
               key={`grip${ri}${end}`}
               className={`rail-grip${sel === end ? ' on' : ''}`}
-              x={end === 'left' ? r.x : r.x + r.length - g}
+              x={span(end).x}
               y={top}
-              width={g}
+              width={span(end).w}
               height={DIN_RAIL_WIDTH}
               onPointerDown={(e) => {
                 if (e.button !== 0) return;

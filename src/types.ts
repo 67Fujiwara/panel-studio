@@ -695,6 +695,8 @@ export type LayoutResult = {
   ducts: Duct[];
   placed: PlacedDevice[];
   violations: Violation[];
+  /** 面の寸法(mm)。DINレールを面の外へ出さないために持つ（古い呼び出しでは無い） */
+  size?: { w: number; h: number };
 };
 
 export type BomLine = {
