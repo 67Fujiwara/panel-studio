@@ -30,6 +30,7 @@ import type {
   LayoutResult,
   Machining,
   PanelSpec,
+  RailSettings,
 } from '../types';
 
 /** 面と面のすき間(mm 相当) */
@@ -298,6 +299,7 @@ function FaceContents({
   devices,
   categories,
   railMargin,
+  railAdjust,
   headH,
   onHover,
 }: {
@@ -308,12 +310,14 @@ function FaceContents({
   devices: DeviceLookup;
   categories: CategoryDef[];
   railMargin: number;
+  /** レールごとの手直し（矢印キーで伸び縮みさせたぶん）。作図と同じ長さにする */
+  railAdjust: RailSettings['adjust'];
   /** セルの見出し（面の名前と寸法）の高さ。型式の文字をそこに重ねないため */
   headH: number;
   onHover: (d: HoverDevice | null) => void;
 }) {
   if (size.w <= 0 || size.h <= 0) return null;
-  const rails = computeRails(layout, devices, railMargin);
+  const rails = computeRails(layout, devices, railMargin, railAdjust);
   if (layout.placed.length === 0 && layout.ducts.length === 0 && cuts.length === 0) return null;
 
   const colorOf = (cat: string) => categories.find((c) => c.id === cat)?.color ?? '#7d8894';
@@ -563,6 +567,7 @@ export function FacePicker() {
                   devices={lookup}
                   categories={categories}
                   railMargin={profile.rail.endMargin}
+                  railAdjust={profile.rail.adjust}
                   headH={fs * 2.8}
                   onHover={setHoverDev}
                 />

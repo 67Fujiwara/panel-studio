@@ -66,7 +66,7 @@ export function undo(): boolean {
   const s = useStore.getState();
   future.push(pick(s));
   restoring = true;
-  useStore.setState({ ...prev, selectedUid: null, selectedCut: null, selectedDuct: null });
+  useStore.setState({ ...prev, selectedUid: null, selectedCut: null, selectedDuct: null, selectedRail: null });
   restoring = false;
   lastChangeAt = 0;
   publish();
@@ -79,7 +79,7 @@ export function redo(): boolean {
   const s = useStore.getState();
   past.push(pick(s));
   restoring = true;
-  useStore.setState({ ...next, selectedUid: null, selectedCut: null, selectedDuct: null });
+  useStore.setState({ ...next, selectedUid: null, selectedCut: null, selectedDuct: null, selectedRail: null });
   restoring = false;
   lastChangeAt = 0;
   publish();

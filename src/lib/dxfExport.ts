@@ -412,7 +412,7 @@ function drawFace(
       if (d.removed) continue;
       w.rect(LAYER.duct, ox + d.x, oy + d.y, d.w, d.h);
     }
-    for (const r of computeRails(layout, devices, profile.rail.endMargin)) {
+    for (const r of computeRails(layout, devices, profile.rail.endMargin, profile.rail.adjust)) {
       w.rect(LAYER.rail, ox + r.x, oy + r.y - DIN_RAIL_WIDTH / 2, r.length, DIN_RAIL_WIDTH);
     }
     /** 風船を付ける相手。親の機器は隣り合う同型式をまとめ、OP・ユニットは 1 台ずつ */

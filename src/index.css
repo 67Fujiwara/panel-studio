@@ -1653,6 +1653,37 @@ body.dragging * {
   stroke-width: 1;
   pointer-events: none;
 }
+/* 段の共通レールは端を選んで矢印キーで伸び縮みさせられる。独立レールは機器に付くので触れない */
+.rail.adj {
+  pointer-events: all;
+  cursor: pointer;
+}
+.rail.adj:hover {
+  stroke: var(--accent);
+}
+.rail.selected {
+  stroke: #ff8f1f;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+/* 両端のつまみ。ふだんは薄く、載せると濃く、選ぶとオレンジ。どちらの端が動くかを示す */
+.rail-grip {
+  fill: #7d8894;
+  fill-opacity: 0.35;
+  stroke: #5b6b7f;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+}
+.rail-grip:hover {
+  fill: var(--accent);
+  fill-opacity: 0.6;
+}
+.rail-grip.on {
+  fill: #ff8f1f;
+  fill-opacity: 0.9;
+  stroke: #c45f00;
+}
 /*
   独立DINレール。段の共通レールと同じ帯だと「1本を分け合っている」と読めてしまうので、
   枠を破線にして「この1台だけの短いレール」と分かるようにする

@@ -400,7 +400,7 @@ export function autoMachining(
     ...fixingMachining(
       face,
       layout.ducts,
-      computeRails(layout, devices, profile.rail.endMargin),
+      computeRails(layout, devices, profile.rail.endMargin, profile.rail.adjust),
       profile,
       ductMaster,
     ),

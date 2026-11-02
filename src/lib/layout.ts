@@ -23,6 +23,7 @@ import type {
   PanelSpec,
   PlacedDevice,
   Profile,
+  RailAdjust,
   Rotation,
   Sides,
   Violation,
@@ -991,6 +992,13 @@ export type RailRun = {
   length: number;
   /** 独立レール（段の共通レールではない1本）か */
   solo?: boolean;
+  /** 手直しの控えのキー（段の共通レールだけ）。RailSettings.adjust を引く */
+  key?: string;
+  /**
+   * 端を動かせる範囲（段の共通レールだけ）。左端は x の範囲、右端は x+length の範囲。
+   * 内側は機器の端まで、外側はダクト・直付け機器・独立レールに当たるまで（右は無限のこともある）
+   */
+  bounds?: { left: { min: number; max: number }; right: { min: number; max: number } };
 };
 
 /**
@@ -1099,6 +1107,8 @@ export function computeRails(
   layout: LayoutResult,
   devices: DeviceLookup,
   endMargin: number = RAIL_END_MARGIN,
+  /** レールごとの手直し（RailSettings.adjust）。無ければ余長どおり */
+  adjust?: Record<string, RailAdjust>,
 ): RailRun[] {
   const out: RailRun[] = [];
 
@@ -1184,6 +1194,7 @@ export function computeRails(
       else g.push(e);
     }
 
+    let groupNo = 0;
     for (const g of groups) {
       const devLeft = Math.min(...g.map((e) => e.p.x));
       const devRight = Math.max(...g.map((e) => e.p.x + rotatedSize(e.spec.size, e.p.rot).w));
@@ -1192,8 +1203,19 @@ export function computeRails(
         Infinity,
         ...cuts.filter((c) => c.x0 >= devRight - 0.01).map((c) => c.x0),
       );
-      const left = Math.max(limitLeft, devLeft - endMargin);
-      const right = Math.min(limitRight, devRight + endMargin);
+      /*
+        手直し（図の上で端を矢印キーで動かしたぶん）は余長に足す。
+        縮めるのは機器の端まで、伸ばすのは切れ目まで。範囲を越えた控えはここで丸める
+        （機器を動かしたあとに控えが効きすぎないように）
+      */
+      const key = `${row.index}:${groupNo++}`;
+      const adj = adjust?.[key];
+      const bounds = {
+        left: { min: Math.min(limitLeft, devLeft), max: devLeft },
+        right: { min: devRight, max: Math.max(limitRight, devRight) },
+      };
+      const left = Math.max(bounds.left.min, Math.min(bounds.left.max, devLeft - endMargin - (adj?.left ?? 0)));
+      const right = Math.min(bounds.right.max, Math.max(bounds.right.min, devRight + endMargin + (adj?.right ?? 0)));
       /*
         機器のあいだに独立レールが挟まっているときは、切れ目で分けきれないことがある
         （余長どうしが噛み合って「間に収まる」と読めない場合）。最後に差し引いて、
@@ -1204,7 +1226,7 @@ export function computeRails(
         // 直付け機器の上も同じ。余長が機器に掛かったぶんは切り落とす
         ...directBlocks,
       ]);
-      for (const q of pieces) out.push({ row: row.index, x: q.x0, y, length: q.x1 - q.x0 });
+      for (const q of pieces) out.push({ row: row.index, x: q.x0, y, length: q.x1 - q.x0, key, bounds });
     }
   }
 

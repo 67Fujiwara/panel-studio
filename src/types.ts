@@ -505,11 +505,23 @@ export type FixingSettings = {
   endOffset: number;
 };
 
+/**
+ * 段の共通レール1本ぶんの手直し(mm)。図の上でレールの端を選んで矢印キーで動かすと入る。
+ * 値は**外へ伸ばす向きが＋**（left=+10 なら左端が 10mm 左へ）。縮めるのは機器の端まで、
+ * 伸ばすのはダクト・直付け機器・独立レールに当たるまで
+ */
+export type RailAdjust = { left?: number; right?: number };
+
 /** DINレールの設定。長さの余長と固定穴。 */
 export type RailSettings = {
   /** 機器の端からレール端までの余長(mm)。エンドストッパのぶん */
   endMargin: number;
   fixing: FixingSettings;
+  /**
+   * レールごとの手直し。キーは「段番号:その段の何本目か（左から 0 始まり）」。
+   * 機器を増減して本数が変わると別のレールに掛かることがある（そのときは選び直して直す）
+   */
+  adjust?: Record<string, RailAdjust>;
 };
 
 export type ClearanceSettings = {

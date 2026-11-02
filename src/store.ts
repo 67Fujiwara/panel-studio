@@ -64,6 +64,8 @@ function freshProjectProfile(profile: Profile): Profile {
       vertGaps: {},
     },
     clearance: structuredClone(DEFAULT_PROFILE.clearance),
+    // レールの余長・固定穴は決め事なので残し、レールごとの手直しだけ白紙にする
+    rail: { ...profile.rail, adjust: {} },
     // 冷却選定の入力は案件ごと。定数は決め事なので残す
     cooling: profile.cooling?.consts ? { consts: profile.cooling.consts } : undefined,
   };
@@ -268,6 +270,11 @@ export type State = {
   /** 選択中のダクトの通し番号。Delete キーで消すのに使う */
   selectedDuct: number | null;
   /**
+   * 選択中の DINレールの端。矢印キー ←→ でその端を伸び縮みさせる。
+   * key は RailRun.key（段番号:何本目）。レールの左半分を押せば left、右半分なら right
+   */
+  selectedRail: { key: string; end: 'left' | 'right' } | null;
+  /**
    * 矢印キーでダクトが動かせなかった理由。図の下の案内欄に出す。
    * 動かせたとき・別の操作をしたときに消える（保存しない）
    */
@@ -401,6 +408,13 @@ export type State = {
    * - 縦ダクト ←→: 帯ごとずらす（機器はよけ直す）
    */
   nudgeDuct: (target: DuctTarget, dx: number, dy: number, edge?: 'bottom') => void;
+  /** DINレールの端を選ぶ（null で解除）。選ぶと案内欄に操作の説明を出す */
+  selectRail: (sel: { key: string; end: 'left' | 'right'; row: number } | null) => void;
+  /**
+   * 選択中のレールの端を外へ delta mm 伸ばす（負なら縮める）。範囲内に丸めたあとの値を渡すこと。
+   * 動かせなかったときは note（理由）だけを案内欄に出す
+   */
+  nudgeRail: (key: string, end: 'left' | 'right', delta: number, note: string | null) => void;
 
   /** 単価表。型番をキーに持つ。ミスミの一括見積 CSV から取り込む */
   prices: PriceBook;
@@ -570,7 +584,7 @@ export const useStore = create<State>((set) => ({
   pinned: [],
   selectedUid: null,
   selectedCut: null,
-  selectedDuct: null,
+  selectedDuct: null, selectedRail: null,
   nudgeNote: null,
   removedDucts: {},
   underlays: {},
@@ -591,7 +605,7 @@ export const useStore = create<State>((set) => ({
       removedDucts: {},
       selectedUid: null,
       selectedCut: null,
-      selectedDuct: null,
+      selectedDuct: null, selectedRail: null,
       aiReview: null,
       aiFeedback: '',
       face: 'plate' as FaceId,
@@ -628,7 +642,7 @@ export const useStore = create<State>((set) => ({
         currentDraftId: to.id,
         selectedUid: null,
         selectedCut: null,
-        selectedDuct: null,
+        selectedDuct: null, selectedRail: null,
         aiReview: null,
         aiFeedback: '',
         // しまったときの面へ戻す。中板の続きなら中板が開く
@@ -651,7 +665,7 @@ export const useStore = create<State>((set) => ({
         removedDucts: {},
         selectedUid: null,
         selectedCut: null,
-        selectedDuct: null,
+        selectedDuct: null, selectedRail: null,
         aiReview: null,
         aiFeedback: '',
         face: 'plate' as FaceId,
@@ -690,7 +704,7 @@ export const useStore = create<State>((set) => ({
         removedDucts: {},
         selectedUid: null,
         selectedCut: null,
-        selectedDuct: null,
+        selectedDuct: null, selectedRail: null,
         aiReview: null,
         aiFeedback: '',
         face: 'plate' as FaceId,
@@ -701,7 +715,7 @@ export const useStore = create<State>((set) => ({
 
   setUnderlay: (face, shape) =>
     set((s) => ({ underlays: { ...s.underlays, [face]: shape } })),
-  openFace: (face) => set({ face, screen: 'layout', selectedUid: null, selectedDuct: null }),
+  openFace: (face) => set({ face, screen: 'layout', selectedUid: null, selectedDuct: null, selectedRail: null }),
 
   setPanel: (patch) => set((s) => ({ panel: { ...s.panel, ...patch } })),
   setOuter: (patch) => set((s) => ({ panel: { ...s.panel, outer: { ...s.panel.outer, ...patch } } })),
@@ -836,7 +850,7 @@ export const useStore = create<State>((set) => ({
         removedDucts: {},
         selectedUid: null,
         selectedCut: null,
-        selectedDuct: null,
+        selectedDuct: null, selectedRail: null,
         face: 'plate' as FaceId,
         screen: 'projects' as Screen,
         sizeLocked: false,
@@ -869,7 +883,7 @@ export const useStore = create<State>((set) => ({
         underlays: structuredClone(p.underlays),
         selectedUid: null,
         selectedCut: null,
-        selectedDuct: null,
+        selectedDuct: null, selectedRail: null,
         screen: 'faces' as Screen,
         // 複製元は完了した設計なので、寸法は確定済みとして始める
         sizeLocked: true,
@@ -1214,6 +1228,25 @@ export const useStore = create<State>((set) => ({
       return { profile: { ...s.profile, duct: { ...duct, ductGaps: gaps } }, nudgeNote: null };
     }),
 
+  selectRail: (sel) =>
+    set({
+      selectedRail: sel ? { key: sel.key, end: sel.end } : null,
+      selectedUid: null,
+      selectedCut: null,
+      selectedDuct: null,
+      nudgeNote: sel
+        ? `DINレール ${sel.row + 1} 段目の${sel.end === 'left' ? '左端' : '右端'}を選びました。← → で 1mm（Shift で 10mm）伸び縮みします。反対の端はレールのそちら側の半分を押して選びます`
+        : null,
+    }),
+  nudgeRail: (key, end, delta, note) =>
+    set((s) => {
+      if (!delta) return { nudgeNote: note };
+      const adjust = { ...s.profile.rail.adjust };
+      const cur = adjust[key] ?? {};
+      adjust[key] = { ...cur, [end]: (cur[end] ?? 0) + delta };
+      return { profile: { ...s.profile, rail: { ...s.profile.rail, adjust } }, nudgeNote: null };
+    }),
+
   mergePrices: (book) => set((s) => ({ prices: { ...s.prices, ...book } })),
   clearPrices: () => set({ prices: {} }),
 
@@ -1327,7 +1360,7 @@ export const useStore = create<State>((set) => ({
         const cur = s.removedDucts[s.face] ?? [];
         return {
           removedDucts: { ...s.removedDucts, [s.face]: [...cur, s.selectedDuct] },
-          selectedDuct: null,
+          selectedDuct: null, selectedRail: null,
         };
       }
       if (!s.selectedUid) return s;
@@ -1344,7 +1377,7 @@ export const useStore = create<State>((set) => ({
         ...s.removedDucts,
         [s.face]: id === undefined ? [] : (s.removedDucts[s.face] ?? []).filter((d) => d !== id),
       },
-      selectedDuct: null,
+      selectedDuct: null, selectedRail: null,
     })),
 
   setDuctGap: (ductIndex, gap) =>
@@ -1355,8 +1388,8 @@ export const useStore = create<State>((set) => ({
       return { profile: { ...s.profile, duct: { ...s.profile.duct, ductGaps: next } } };
     }),
 
-  select: (uid) => set({ selectedUid: uid, selectedCut: null, selectedDuct: null, nudgeNote: null }),
-  selectCut: (id) => set({ selectedCut: id, selectedUid: null, selectedDuct: null }),
+  select: (uid) => set({ selectedUid: uid, selectedCut: null, selectedDuct: null, selectedRail: null, nudgeNote: null }),
+  selectCut: (id) => set({ selectedCut: id, selectedUid: null, selectedDuct: null, selectedRail: null }),
   selectDuct: (id) => set({ selectedDuct: id, selectedUid: null, selectedCut: null, nudgeNote: null }),
 
   rotateItem: (uid) =>

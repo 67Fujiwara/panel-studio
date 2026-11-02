@@ -127,6 +127,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const selectedCut = useStore((s) => s.selectedCut);
   const selectDuct = useStore((s) => s.selectDuct);
   const selectedDuct = useStore((s) => s.selectedDuct);
+  const selectedRail = useStore((s) => s.selectedRail);
+  const selectRail = useStore((s) => s.selectRail);
   const removeSelected = useStore((s) => s.removeSelected);
   const rotateItem = useStore((s) => s.rotateItem);
   const setDuctSpecAt = useStore((s) => s.setDuctSpecAt);
@@ -212,6 +214,43 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
       const el = document.activeElement;
       if (el instanceof HTMLElement && /INPUT|TEXTAREA|SELECT/.test(el.tagName)) return;
       const st = useStore.getState();
+      /*
+       * DINレールの端を選んでいれば、その端を ←→ で伸び縮みさせる。
+       * 縮めるのは機器の端まで、伸ばすのはダクト・直付け機器・独立レール・面の端まで。
+       * 上下はその段のダクトで決まるので、ここでは動かさず案内だけ出す
+       */
+      if (st.selectedRail) {
+        const sel = st.selectedRail;
+        e.preventDefault();
+        // レールはその場で計算する（描画用の rails は effect の外で作っていて古いことがある）
+        const r = computeRails(layout, devices, st.profile.rail.endMargin, st.profile.rail.adjust).find(
+          (q) => q.key === sel.key && q.bounds,
+        );
+        if (!r || !r.bounds) return;
+        const no = `DINレール ${r.row + 1} 段目`;
+        if (step[1]) {
+          st.nudgeRail(sel.key, sel.end, 0, `${no}の上下は段のダクトで決まります。ダクトを選んで ↑↓ で動かしてください`);
+          return;
+        }
+        const k = e.shiftKey ? 10 : 1;
+        const dx = step[0]! * k;
+        // 左端は x、右端は x+length を動かす。面の外へは出さない
+        const b = sel.end === 'left' ? r.bounds.left : r.bounds.right;
+        const cur = sel.end === 'left' ? r.x : r.x + r.length;
+        const next = Math.max(Math.max(0, b.min), Math.min(Math.min(faceW, b.max), cur + dx));
+        const moved = next - cur;
+        // 控えは「外へ伸ばす向きが＋」。左端は左へ動くほど＋
+        const delta = sel.end === 'left' ? -moved : moved;
+        let note: string | null = null;
+        if (!moved) {
+          const outward = sel.end === 'left' ? dx < 0 : dx > 0;
+          note = outward
+            ? `${no}の${sel.end === 'left' ? '左端' : '右端'}はこれ以上伸ばせません（ダクト・直付け機器・独立レール・面の端に当たります）`
+            : `${no}の${sel.end === 'left' ? '左端' : '右端'}は機器より内側へは縮められません`;
+        }
+        st.nudgeRail(sel.key, sel.end, delta, note);
+        return;
+      }
       // ダクトを選んでいれば、そのダクトを動かす（横: ←→で全体・↑↓で上下の余白の付け替え、縦: ←→）
       if (st.selectedDuct !== null) {
         const d = layout.ducts.find((q) => q.id === st.selectedDuct);
@@ -267,7 +306,7 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
   const violatingUids = new Set(layout.violations.map((v) => v.uid));
   const autoCuts = autoMachining(face, layout, devices, profile, ductMaster);
   const manualCuts = manual.filter((m) => m.face === face);
-  const rails = computeRails(layout, devices, profile.rail.endMargin);
+  const rails = computeRails(layout, devices, profile.rail.endMargin, profile.rail.adjust);
   // 加工有効範囲。登録が無い面は null（面いっぱい使える扱い）
   const area = resolveArea(panel, face);
 
@@ -894,21 +933,43 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           段の共通レールのほかに、独立レール（din-solo）の1台ぶんも混ざる。
           ゾーン分割では1段に複数本になるので、key は段番号でなく通し番号で振る
         */}
-        {rails.map((r, ri) => (
-          <rect
-            key={`rail${ri}`}
-            x={r.x}
-            y={toSvgY(faceH, r.y + DIN_RAIL_WIDTH / 2, 0)}
-            width={r.length}
-            height={DIN_RAIL_WIDTH}
-            className={`rail${r.solo ? ' solo' : ''}`}
-          >
-            <title>
-              {r.solo ? '独立DINレール' : `DINレール ${r.row + 1} 段目`} — 切断長{' '}
-              {Math.round(r.length)}mm
-            </title>
-          </rect>
-        ))}
+        {rails.map((r, ri) => {
+          const adj = !r.solo && r.key !== undefined;
+          const sel = adj && selectedRail?.key === r.key ? selectedRail : null;
+          const top = toSvgY(faceH, r.y + DIN_RAIL_WIDTH / 2, 0);
+          return (
+            <g key={`rail${ri}`}>
+              <rect
+                x={r.x}
+                y={top}
+                width={r.length}
+                height={DIN_RAIL_WIDTH}
+                className={`rail${r.solo ? ' solo' : ''}${adj ? ' adj' : ''}${sel ? ' selected' : ''}`}
+                onPointerDown={
+                  adj
+                    ? (e) => {
+                        if (e.button !== 0) return;
+                        // 押した側の端を選ぶ（左半分なら左端、右半分なら右端）。背景の選択解除には渡さない
+                        e.stopPropagation();
+                        e.preventDefault();
+                        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+                        const box = (e.currentTarget as SVGRectElement).getBoundingClientRect();
+                        const end = e.clientX < box.left + box.width / 2 ? 'left' : 'right';
+                        if (sel && sel.end === end) selectRail(null);
+                        else selectRail({ key: r.key!, end, row: r.row });
+                      }
+                    : undefined
+                }
+              >
+                <title>
+                  {r.solo ? '独立DINレール' : `DINレール ${r.row + 1} 段目`} — 切断長{' '}
+                  {Math.round(r.length)}mm
+                  {adj ? '（端を押して選び、← → で伸び縮み）' : ''}
+                </title>
+              </rect>
+            </g>
+          );
+        })}
 
         {/*
           中板・扉の機器の投影（左右側面のみ）。奥行き方向の当たりを目で確認する
@@ -1171,6 +1232,40 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
               */}
             </g>
           );
+        })}
+
+        {/*
+          DINレールの両端のつまみ。レール本体は機器に覆われていて押しづらいので、
+          端だけを機器より上の層に出す。押すとその端が選ばれ、← → で伸び縮みする
+        */}
+        {rails.map((r, ri) => {
+          if (r.solo || r.key === undefined) return null;
+          const top = toSvgY(faceH, r.y + DIN_RAIL_WIDTH / 2, 0);
+          const g = Math.max(4, Math.min(10, r.length / 3));
+          const sel = selectedRail?.key === r.key ? selectedRail.end : null;
+          return (['left', 'right'] as const).map((end) => (
+            <rect
+              key={`grip${ri}${end}`}
+              className={`rail-grip${sel === end ? ' on' : ''}`}
+              x={end === 'left' ? r.x : r.x + r.length - g}
+              y={top}
+              width={g}
+              height={DIN_RAIL_WIDTH}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.stopPropagation();
+                e.preventDefault();
+                // 検索欄などに残ったフォーカスを外す。残っていると矢印キーがそちらへ行き、レールが動かない
+                if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+                if (sel === end) selectRail(null);
+                else selectRail({ key: r.key!, end, row: r.row });
+              }}
+            >
+              <title>
+                DINレール {r.row + 1} 段目の{end === 'left' ? '左端' : '右端'} — 押して選び、← → で伸び縮み
+              </title>
+            </rect>
+          ));
         })}
 
         {/* 加工（穴・切り欠き）。機器の上に重ねて描き、隠れないようにする */}

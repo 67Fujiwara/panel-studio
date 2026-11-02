@@ -64,7 +64,7 @@ export function buildBom(
    * 独立DINレール（機器1台ぶんの短いレール）も同じ数え方に混ぜる。
    * 短くても1本は1本で、両端をエンドストッパで挟むため。
    */
-  const rails = layouts.flatMap((l) => computeRails(l, devices, profile.rail.endMargin));
+  const rails = layouts.flatMap((l) => computeRails(l, devices, profile.rail.endMargin, profile.rail.adjust));
   const railTotal = rails.reduce((s, r) => s + Math.ceil(r.length), 0);
   const railCount = rails.length;
   /*
