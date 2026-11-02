@@ -1723,11 +1723,6 @@ body.dragging * {
   stroke: var(--bad);
   stroke-dasharray: 5 4;
 }
-.pin {
-  fill: #fff;
-  stroke: #333;
-  stroke-width: 1;
-}
 /* 目盛り。原点は左下 (0,0) */
 .ruler line {
   stroke: var(--muted);
@@ -2504,10 +2499,6 @@ li.dev.plate-only .dev-badge {
   .device.selected rect,
   .device.shaped.selected rect {
     stroke: #e4e8ee;
-  }
-  .pin {
-    fill: #1e2228;
-    stroke: #9aa4b2;
   }
   /* 未登録の行。ほぼ白の地は暗いテーマで反転して見えなくなる */
   table.workarea tr.off td {

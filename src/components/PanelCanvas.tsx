@@ -1164,9 +1164,11 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
                   {label}
                 </text>
               )}
-              {p.pinned && (
-                <circle cx={p.x + 5} cy={toSvgY(faceH, p.y, size.h) + 5} r={3} className="pin" />
-              )}
+              {/*
+                座標で置いた（手で動かした）機器の印として左上に小さな丸を出していたが、
+                外形線のある機器では部品の一部（穴やネジ）に見えて紛らわしいので出さない。
+                座標で置いたかどうかは右の座標表（青い行）で分かる
+              */}
             </g>
           );
         })}
