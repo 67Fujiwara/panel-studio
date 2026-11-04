@@ -37,6 +37,12 @@ const DRAG_SLOP = 3;
 /** 独立DINレールの隣へ吸い付く距離(mm)。これより離れていれば普通に動く */
 const SNAP_RAIL = 25;
 /**
+ * ふつうのドラッグで DIN 機器を放したとき、隣の機器からこの距離(mm)以内なら
+ * 「横に並べたい」と読んで並べ替え（流し込み）に入れる。これより離れていれば
+ * その場に座標置き（レールに乗ったまま）
+ */
+const JOIN_DIST = 20;
+/**
  * 目盛りは 10mm 刻みが基準。
  * ただし縮小すると数字も線も潰れるので、画面上の間隔を見て段階的に間引く。
  */
@@ -560,8 +566,13 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     const y = rowAxisY(row) - size.h / 2 + (spec.dinOffset ?? 0);
     const nx = Math.max(0, Math.min(faceW - size.w, x));
     const gap = profile.clearance.deviceToDevice.sameRow;
-    const x0 = nx - gap;
-    const x1 = nx + size.w + gap;
+    /*
+     * 隣の機器の**近く**（JOIN_DIST 以内）に放したら「横に並べたい」と読んで並べ替えに回す。
+     * ぴったり重ねないと並ばない、では、端子台の横へ持っていったのに 5mm スナップのぶん
+     * 隙間が空いて座標置きになり、「端子台どうしで間隔が空く」になる
+     */
+    const x0 = nx - gap - JOIN_DIST;
+    const x1 = nx + size.w + gap + JOIN_DIST;
     const y0 = y;
     const y1 = y + size.h;
     for (const q of layout.placed) {
@@ -569,7 +580,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
       const qs = devices.get(q.specId);
       if (!qs) continue;
       const s = rotatedSize(qs.size, q.rot);
-      if (q.x < x1 && x0 < q.x + s.w && q.y < y1 && y0 < q.y + s.h) return null;
+      const sameRow = q.row === row.index || (q.y < y1 && y0 < q.y + s.h);
+      if (sameRow && q.x < x1 && x0 < q.x + s.w) return null;
     }
     for (const dd of layout.ducts) {
       if (dd.removed) continue;
