@@ -10,7 +10,10 @@
     "typecheck": "node scripts/version.mjs && tsc -b --noEmit",
     "build:single": "node scripts/version.mjs && tsc -b && vite build --mode single && node scripts/finish-single.mjs",
     "icons": "node scripts/make-icons.mjs",
-    "ver": "node scripts/version.mjs"
+    "ver": "node scripts/version.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "dxf-parser": "^1.1.2",
@@ -20,12 +23,14 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@types/encoding-japanese": "^2.2.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
     "typescript": "^5.9.3",
     "vite": "^8.2.0",
-    "vite-plugin-singlefile": "^2.3.3"
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^5.1.0"
   }
 }

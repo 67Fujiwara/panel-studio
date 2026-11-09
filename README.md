@@ -22,6 +22,18 @@ npm run build:single   # release/panel-studio.html を出力（HTML 1ファイ�
 
 出力された HTML 1ファイルを共有フォルダに置けば、ダブルクリックで開けます。
 
+### テスト
+
+```bash
+npm test            # 単体テスト（Vitest）。配置・DINレール・冷却選定・CSV・DXF の計算
+npm run test:e2e    # 画面テスト（Playwright）。ビルド済み release/panel-studio.html を開いて操作する
+```
+
+画面テストは**配布物そのもの**を file:// で開いて試すので、先に `npm run build:single` を通してください
+（初回は `npx playwright install chromium` でブラウザが要ります）。
+バグを直すときは、先にそのバグを再現するテストを `tests/unit` か `tests/e2e` に足してから直します。
+分割の進め方は [docs/refactoring-plan.md](docs/refactoring-plan.md) にまとめてあります。
+
 ### バージョン表示
 
 タイトルの横に **V91** のような整数のバージョンが出ます。ビルド時に `scripts/version.mjs` が
@@ -1403,6 +1415,7 @@ OS / ブラウザをダークにすると、画面ぜんたいが自動で暗い
 - [仕様レビューと技術判断](docs/01-spec-review.md)
 - [既存図面から読み取った作図規則](docs/02-drawing-conventions.md)
 - [引き継ぎ用の元仕様書](docs/00-original-spec.md)
+- [リファクタリング計画（バグの出どころと分割の順番）](docs/refactoring-plan.md)
 
 ※ `docs/01-spec-review.md` は検討時点の記録のため、取付板を「基板」と表記しています。
 実際の図面の表記に合わせ、以降は**「中板」**を正式な呼称とします。

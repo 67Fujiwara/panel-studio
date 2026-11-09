@@ -11,3 +11,7 @@ tsconfig.tsbuildinfo
 
 # ビルド時に scripts/version.mjs が書く（git のコミット数）
 src/version.ts
+
+# テストの出力
+test-results/
+playwright-report/
