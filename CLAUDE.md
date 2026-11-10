@@ -30,7 +30,9 @@
 - `src/lib/layout/drag.ts` と `nudge.ts` がドラッグ・矢印キーの判定（純粋な関数）。画面は答えを書くだけ。
   微調整を直すときは `tests/unit/interact.combo.test.ts`（手順どおり）と `interact.fuzz.test.ts`（でたらめな順番）に
   シナリオを足す。
-- `src/store.ts` 状態と操作（zustand）。`src/components/PanelCanvas.tsx` 図とドラッグ・キー操作。
+- `src/store/` 状態と操作（zustand、5 スライス: layout / config / projects / settings / ai）。
+  操作を足すときは `types.ts` の該当スライスの型に書いてから、同名ファイルに本文を書く。
+  `src/components/PanelCanvas.tsx` 図とドラッグ・キー操作。
 - 分割の進め方は `docs/refactoring-plan.md`。
 
 ## ビルドと配布
