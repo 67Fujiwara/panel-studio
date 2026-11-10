@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DIN_RAIL_WIDTH } from '../data/enclosures';
 import { FACE_BY_ID, FACE_LABEL, faceSize } from '../data/faces';
-import { computeRails, independentRails, isStopper, SOLO_RAIL_MARGIN } from '../lib/layout';
+import { computeRails, decideDrag, ductKeyMove, nudgeDevice, planRailNudge } from '../lib/layout';
+import type { DragContext, Dragged } from '../lib/layout';
 import { beginUndoGroup, endUndoGroup, redo, undo, useUndoCounts } from '../lib/undo';
 import { sideSilhouettes } from '../lib/sideView';
 import { projectionsFor } from '../lib/projection';
@@ -11,17 +12,8 @@ import { cutOutline, outlinePolys, pilotDia, pilotPoints } from '../lib/holes';
 import { resolveArea } from '../lib/workArea';
 import type { DeviceLookup } from '../lib/layout';
 import { useStore } from '../store';
-import { baseSlots, ductSpecAt, isRailMount, rotatedSize, rowAxisY, slotUseOf, splitModels } from '../types';
-import type {
-  CategoryDef,
-  Duct,
-  DuctTarget,
-  FaceId,
-  LayoutResult,
-  Machining,
-  PanelSpec,
-  PlacedDevice,
-} from '../types';
+import { baseSlots, ductSpecAt, rotatedSize, slotUseOf, splitModels } from '../types';
+import type { CategoryDef, Duct, DuctTarget, FaceId, LayoutResult, Machining, PanelSpec } from '../types';
 
 /** 手動配置時のスナップ間隔(mm) */
 const SNAP = 5;
@@ -34,14 +26,6 @@ const SNAP = 5;
  * ここを超えるまでは何もしない。
  */
 const DRAG_SLOP = 3;
-/** 独立DINレールの隣へ吸い付く距離(mm)。これより離れていれば普通に動く */
-const SNAP_RAIL = 25;
-/**
- * ふつうのドラッグで DIN 機器を放したとき、隣の機器からこの距離(mm)以内なら
- * 「横に並べたい」と読んで並べ替え（流し込み）に入れる。これより離れていれば
- * その場に座標置き（レールに乗ったまま）
- */
-const JOIN_DIST = 20;
 /**
  * 目盛りは 10mm 刻みが基準。
  * ただし縮小すると数字も線も潰れるので、画面上の間隔を見て段階的に間引く。
@@ -233,28 +217,9 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
           (q) => q.key === sel.key && q.bounds,
         );
         if (!r || !r.bounds) return;
-        const no = `DINレール ${r.row + 1} 段目`;
-        if (step[1]) {
-          st.nudgeRail(sel.key, sel.end, 0, `${no}の上下は段のダクトで決まります。ダクトを選んで ↑↓ で動かしてください`);
-          return;
-        }
         const k = e.shiftKey ? 10 : 1;
-        const dx = step[0]! * k;
-        // 左端は x、右端は x+length を動かす。面の外へは出さない
-        const b = sel.end === 'left' ? r.bounds.left : r.bounds.right;
-        const cur = sel.end === 'left' ? r.x : r.x + r.length;
-        const next = Math.max(Math.max(0, b.min), Math.min(Math.min(faceW, b.max), cur + dx));
-        const moved = next - cur;
-        // 控えは「外へ伸ばす向きが＋」。左端は左へ動くほど＋
-        const delta = sel.end === 'left' ? -moved : moved;
-        let note: string | null = null;
-        if (!moved) {
-          const outward = sel.end === 'left' ? dx < 0 : dx > 0;
-          note = outward
-            ? `${no}の${sel.end === 'left' ? '左端' : '右端'}はこれ以上伸ばせません（ダクト・直付け機器・独立レール・面の端に当たります）`
-            : `${no}の${sel.end === 'left' ? '左端' : '右端'}は機器より内側へは縮められません`;
-        }
-        st.nudgeRail(sel.key, sel.end, delta, note);
+        const plan = planRailNudge(r, sel.end, step[0]! * k, step[1]! * k, faceW);
+        st.nudgeRail(sel.key, sel.end, plan.delta, plan.note);
         return;
       }
       // ダクトを選んでいれば、そのダクトを動かす（横: ←→で全体・↑↓で上下の余白の付け替え、縦: ←→）
@@ -263,29 +228,21 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         if (!d) return;
         e.preventDefault();
         const k = e.shiftKey ? 10 : 1;
-        let dy = step[1]! * k;
-        if (d.vert === undefined && dy) {
-          // いちばん上のダクトは面の上端（余白）で決まる。全段そろえるモードは段の高さが固定なので動かせない。
-          // 最下段は消したダクトも含めて決める（消してもその下に段は無いので）
-          const lastId = Math.max(...layout.ducts.filter((q) => q.vert === undefined).map((q) => q.id));
-          if (d.id === 0 || st.profile.duct.rowHeightMode === 'equal') dy = 0;
-          st.nudgeDuct(targetOf(d), step[0]! * k, dy, d.id === lastId ? 'bottom' : undefined);
-          return;
-        }
-        st.nudgeDuct(targetOf(d), step[0]! * k, dy);
+        const mv = ductKeyMove(layout, st.profile, d, step[0]! * k, step[1]! * k);
+        st.nudgeDuct(mv.target, mv.dx, mv.dy, mv.edge);
         return;
       }
       const uid = st.selectedUid;
       if (!uid) return;
       const p = layout.placed.find((q) => q.uid === uid);
-      const spec = p && devices.get(p.specId);
-      if (!p || !spec) return;
+      if (!p) return;
       e.preventDefault();
-      const size = rotatedSize(spec.size, p.rot);
       const k = e.shiftKey ? 10 : 1;
-      const x = Math.max(0, Math.min(faceW - size.w, p.x + step[0]! * k));
-      const y = Math.max(0, Math.min(faceH - size.h, p.y + step[1]! * k));
-      pinAt(p, x, y);
+      const moved = nudgeDevice(layout, devices, { w: faceW, h: faceH }, p, step[0]! * k, step[1]! * k);
+      if (!moved) return;
+      pin(moved.placed);
+      // DIN 機器を上下に動かしてもレールの高さに戻るときは、その理由を出す
+      st.noteNudge(moved.note);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -323,48 +280,6 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     if (!svg || !ctm) return { x: 0, y: 0 };
     const p = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
     return { x: p.x, y: faceH - p.y };
-  };
-
-  /**
-   * ドラッグ中の位置から、入れ込む先の段と「どの機器の直前に入れるか」を決める。
-   *
-   * 段はいちばん近いものを選ぶ。ダクトの上に落としたときに段が決まらず
-   * 1段目へ飛んでしまうのを避けるため、範囲に入っているかではなく距離で見る。
-   */
-  const dropTarget = (clientX: number, clientY: number, dragUid: string) => {
-    const at = toFace(clientX, clientY);
-    const rows = layout.rows;
-    let targetRow = 0;
-    if (rows.length > 0) {
-      // 段の中心までの距離がいちばん短い段
-      const nearest = rows.reduce((best, r) =>
-        Math.abs(at.y - (r.y + r.h / 2)) < Math.abs(at.y - (best.y + best.h / 2)) ? r : best,
-      );
-      targetRow = nearest.index;
-    }
-    const others = layout.placed
-      .filter((p) => p.uid !== dragUid)
-      .sort((a, b) => a.row - b.row || a.x - b.x);
-    const before = others.find((p) => {
-      const spec = devices.get(p.specId);
-      const w = spec ? rotatedSize(spec.size, p.rot).w : 0;
-      return p.row > targetRow || (p.row === targetRow && at.x < p.x + w / 2);
-    });
-    /*
-      ゾーン分割では、マウスがどの区画（縦ダクトの左右）にあるかも見る。
-      区画は既定で分類（動力=左・制御=右）から決まるため、これを渡さないと
-      右の列へドラッグしても元の列へ戻ってしまい、マウスでは移せない。
-    */
-    let zone: number | undefined;
-    if (profile.duct.layout === 'zoned') {
-      const vducts = layout.ducts
-        .filter((dd) => !dd.removed && dd.h > dd.w)
-        .sort((a, b) => a.x - b.x);
-      if (vducts.length > 0) {
-        zone = vducts.filter((dd) => dd.x + dd.w / 2 < at.x).length;
-      }
-    }
-    return { row: targetRow, before: before?.uid ?? null, zone };
   };
 
   /** 画面上の px を mm に変換する係数 */
@@ -423,183 +338,8 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     select(null);
   };
 
-  /**
-   * 手動配置（Shift ドラッグ）でダクトの上に落とさないよう、近い側へ避ける。
-   * 物理的にダクトの上へ機器は付かないので、重ねて置きたい人はいない。
-   * 横ダクトは上下へ、縦ダクトは左右へ、近いほうへ押し出す。
-   * 押し出した先が別のダクトに掛かる（段の隙間が機器より狭い）ときは
-   * あきらめてそのまま置き、チェック（ダクト干渉）に任せる。
-   */
-  const dodgeDucts = (x: number, y: number, size: { w: number; h: number }) => {
-    const live = layout.ducts.filter((dd) => !dd.removed);
-    let nx = x;
-    let ny = y;
-    // 押し出しで別のダクトに掛かることがあるので、数回まで追いかける
-    for (let pass = 0; pass < 3; pass++) {
-      const hit = live.find(
-        (dd) => nx < dd.x + dd.w && dd.x < nx + size.w && ny < dd.y + dd.h && dd.y < ny + size.h,
-      );
-      if (!hit) return { x: nx, y: ny };
-      if (hit.w >= hit.h) {
-        // 横ダクト: 中心が上寄りなら上へ、下寄りなら下へ
-        ny = ny + size.h / 2 > hit.y + hit.h / 2 ? hit.y + hit.h : hit.y - size.h;
-        ny = Math.max(0, Math.min(faceH - size.h, ny));
-      } else {
-        nx = nx + size.w / 2 > hit.x + hit.w / 2 ? hit.x + hit.w : hit.x - size.w;
-        nx = Math.max(0, Math.min(faceW - size.w, nx));
-      }
-    }
-    const still = live.some(
-      (dd) => nx < dd.x + dd.w && dd.x < nx + size.w && ny < dd.y + dd.h && dd.y < ny + size.h,
-    );
-    return still ? { x, y } : { x: nx, y: ny };
-  };
-
-  /**
-   * 独立DINレールの上へ持っていったら、その並びに吸い付かせる。
-   *
-   * 独立レールは両端をエンドストッパで挟んで機器を並べるものなので、隣に置く機器は
-   * **レールの高さに揃えて、ストッパのぶんだけ空けて**付けたい。
-   * 目分量で 1mm ずつ寄せる作業になるのを避けるための吸着。
-   *
-   * - 縦: レールの中心が揃う位置へ（掛かり方＝dinOffset は機器ごとに違うので考慮する）
-   * - 横: レールの端に、自分のレールの余長ぶんだけ空けて付ける
-   * どちらも近づいたときだけ効く。離れているあいだは普通に動く。
-   *
-   * 吸い付く先は**自分を抜いて**数え直す。自分のレールは吸い付いた相手と1本に
-   * つながるので、それを相手として見ると付いたり離れたりを繰り返してしまう。
-   */
-  const snapToSoloRails = (
-    x: number,
-    y: number,
-    size: { w: number; h: number },
-    self: { uid: string; mount: string; dinOffset: number },
-  ) => {
-    const targets = independentRails(layout, devices, self.uid).filter((r) => r.length > 0);
-    if (targets.length === 0) return null;
-    // 自分のレール中心（レールに乗らない機器は機器の中心）
-    const myRailY = y + size.h / 2 - self.dinOffset;
-    const myMargin = SOLO_RAIL_MARGIN;
-
-    let best: { d: number; x: number; y: number } | null = null;
-    for (const r of targets) {
-      if (Math.abs(r.y - myRailY) > SNAP_RAIL) continue;
-      const ny = r.y - size.h / 2 + self.dinOffset;
-      // レールの右隣・左隣のうち、いま近いほう
-      for (const nx of [r.x + r.length + myMargin, r.x - myMargin - size.w]) {
-        const d = Math.abs(nx - x);
-        if (d > SNAP_RAIL) continue;
-        if (!best || d < best.d) best = { d, x: nx, y: ny };
-      }
-    }
-    if (!best) return null;
-    const cx = Math.max(0, Math.min(faceW - size.w, best.x));
-    const cy = Math.max(0, Math.min(faceH - size.h, best.y));
-    // 吸い付いた先がダクトに掛かるなら、吸着はあきらめる
-    const onDuct = layout.ducts.some(
-      (dd) =>
-        !dd.removed && cx < dd.x + dd.w && dd.x < cx + size.w && cy < dd.y + dd.h && dd.y < cy + size.h,
-    );
-    return onDuct ? null : { x: cx, y: cy };
-  };
-
-  /**
-   * 止め金具（エンドストッパ）を機器の横へ持っていったら、その機器に**密着**させる。
-   *
-   * 止め金具は機器をレール上で止めるクリップなので、離隔（メーカー指定・機器⇔機器）は
-   * 効かせず、機器のすぐ隣に付くのが正しい。目分量で 1mm ずつ寄せずに済むよう、
-   * 近づいたときだけ吸い付かせる（レールの高さも相手に揃える）。
-   */
-  const snapStopperToDevice = (
-    x: number,
-    y: number,
-    size: { w: number; h: number },
-    self: { uid: string; dinOffset: number },
-  ) => {
-    const myRailY = y + size.h / 2 - self.dinOffset;
-    let best: { d: number; x: number; y: number } | null = null;
-    for (const q of layout.placed) {
-      if (q.uid === self.uid) continue;
-      const qs = devices.get(q.specId);
-      if (!qs || isStopper(qs)) continue;
-      const qsize = rotatedSize(qs.size, q.rot);
-      const qOff = q.mount === 'direct' ? 0 : (qs.dinOffset ?? 0);
-      const qRailY = q.y + qsize.h / 2 - qOff;
-      if (Math.abs(qRailY - myRailY) > SNAP_RAIL) continue;
-      const ny = qRailY - size.h / 2 + self.dinOffset;
-      // 相手の右隣・左隣のうち、いま近いほう
-      for (const nx of [q.x + qsize.w, q.x - size.w]) {
-        const d = Math.abs(nx - x);
-        if (d > SNAP_RAIL) continue;
-        if (!best || d < best.d) best = { d, x: nx, y: ny };
-      }
-    }
-    if (!best) return null;
-    return {
-      x: Math.max(0, Math.min(faceW - size.w, best.x)),
-      y: Math.max(0, Math.min(faceH - size.h, best.y)),
-    };
-  };
-
-  /**
-   * 座標で置く。置いた高さが段のレールの高さなら「レールに乗ったまま」（onRail）の印を付ける。
-   * 印があるものは、ダクトの余白を変えて段が動いてもレールに付いていく。
-   * 上下に動かしてレールから外したものは印なし（その高さに留まる）
-   */
-  /**
-   * ドラッグ中の DIN 機器を、いちばん近い段のレールの x に置いたとき誰とも干渉しないか。
-   * 干渉しなければその置き場（左下角と段番号）を返す。
-   * 当たりに数えるのは、その段の他の機器（機器⇔機器の離隔ぶんを足す）と、生きているダクト。
-   * 面の左右の端からは出さない
-   */
-  const freeSpotOnRail = (
-    x: number,
-    cursorY: number,
-    size: { w: number; h: number },
-    self: PlacedDevice,
-  ): { x: number; y: number; row: number } | null => {
-    const spec = devices.get(self.specId);
-    if (!spec || layout.rows.length === 0) return null;
-    const row = layout.rows.reduce((best, r) =>
-      Math.abs(cursorY - (r.y + r.h / 2)) < Math.abs(cursorY - (best.y + best.h / 2)) ? r : best,
-    );
-    const y = rowAxisY(row) - size.h / 2 + (spec.dinOffset ?? 0);
-    const nx = Math.max(0, Math.min(faceW - size.w, x));
-    const gap = profile.clearance.deviceToDevice.sameRow;
-    /*
-     * 隣の機器の**近く**（JOIN_DIST 以内）に放したら「横に並べたい」と読んで並べ替えに回す。
-     * ぴったり重ねないと並ばない、では、端子台の横へ持っていったのに 5mm スナップのぶん
-     * 隙間が空いて座標置きになり、「端子台どうしで間隔が空く」になる
-     */
-    const x0 = nx - gap - JOIN_DIST;
-    const x1 = nx + size.w + gap + JOIN_DIST;
-    const y0 = y;
-    const y1 = y + size.h;
-    for (const q of layout.placed) {
-      if (q.uid === self.uid) continue;
-      const qs = devices.get(q.specId);
-      if (!qs) continue;
-      const s = rotatedSize(qs.size, q.rot);
-      const sameRow = q.row === row.index || (q.y < y1 && y0 < q.y + s.h);
-      if (sameRow && q.x < x1 && x0 < q.x + s.w) return null;
-    }
-    for (const dd of layout.ducts) {
-      if (dd.removed) continue;
-      if (dd.x < nx + size.w && nx < dd.x + dd.w && dd.y < y1 && y0 < dd.y + dd.h) return null;
-    }
-    return { x: nx, y, row: row.index };
-  };
-
-  const pinAt = (p: PlacedDevice, x: number, y: number) => {
-    const spec = devices.get(p.specId);
-    const row = layout.rows.find((r) => r.index === p.row);
-    let onRail = false;
-    if (spec && row && p.mount === 'din') {
-      const axis = y + rotatedSize(spec.size, p.rot).h / 2 - (spec.dinOffset ?? 0);
-      onRail = Math.abs(axis - rowAxisY(row)) < 0.5;
-    }
-    pin({ ...p, x, y, onRail });
-  };
+  /** ドラッグとキー操作の判定に渡す文脈。判定そのものは lib/layout/drag.ts と nudge.ts */
+  const dragCtx: DragContext = { layout, devices, profile, face: { w: faceW, h: faceH }, hasRows };
 
   /** ドラッグ中の1台の、いまのポインタ位置に対応する面の座標（左下角）。 */
   const draggedPos = (e: React.PointerEvent, d: NonNullable<typeof dragRef.current>) => {
@@ -611,18 +351,15 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
     const nx = Math.round((d.ox + (e.clientX - d.startX) * k) / SNAP) * SNAP;
     // SVG は Y 下向きなので、面の座標では符号が反転する
     const ny = Math.round((d.oy - (e.clientY - d.startY) * k) / SNAP) * SNAP;
-    return {
+    const cur = toFace(e.clientX, e.clientY);
+    const at: Dragged = {
       placed,
       size,
-      self: {
-        uid: placed.uid,
-        mount: placed.mount,
-        dinOffset: placed.mount === 'direct' ? 0 : (spec.dinOffset ?? 0),
-        stopper: isStopper(spec),
-      },
       x: Math.max(0, Math.min(faceW - size.w, nx)),
       y: Math.max(0, Math.min(faceH - size.h, ny)),
+      cursor: cur,
     };
+    return at;
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -639,79 +376,35 @@ export function PanelCanvas({ panel, face, layout, devices, categories }: Props)
         d.moved = true;
       }
       const at = draggedPos(e, d);
-      if (d.free) {
-        // Shift 併用: 座標を自由に動かして固定する
-        if (!at) return;
-        const dodged = dodgeDucts(at.x, at.y, at.size);
-        // 止め金具は機器の横へ密着、それ以外は独立レールの隣に持っていったらその並びへ吸い付かせる
-        const snapped =
-          (at.self.stopper ? snapStopperToDevice(dodged.x, dodged.y, at.size, at.self) : null) ??
-          snapToSoloRails(dodged.x, dodged.y, at.size, at.self) ??
-          dodged;
-        pinAt(at.placed, snapped.x, snapped.y);
+      if (!at) return;
+      // 何をするかは純粋な判定（lib/layout/drag.ts）に任せ、ここは結果を書くだけ
+      const decision = decideDrag(dragCtx, at, d.free, d.snapped);
+      if (decision.kind === 'pin') {
+        d.snapped = decision.snapped;
+        if (!decision.snapped && !d.free) {
+          // 空いた場所への座標置き。次に並べ替えへ戻ったとき入れ込みが効くよう控えを消す
+          d.lastBefore = undefined;
+          d.lastRow = undefined;
+          d.lastZone = undefined;
+        }
+        pin(decision.placed);
         return;
       }
-      /*
-       * 止め金具は、ふつうのドラッグでも機器の横へ近づけたらそこへ密着させる（座標置きになる）。
-       * 段の流れに入れてもクリアランス 0 で隣に付くが、狙った機器の**どちら側**に付くかを
-       * 目で決められるほうが分かりやすい
-       */
-      if (at && at.self.stopper) {
-        const snapped = snapStopperToDevice(at.x, at.y, at.size, at.self);
-        if (snapped) {
-          d.snapped = true;
-          pinAt(at.placed, snapped.x, snapped.y);
-          return;
-        }
-      }
-      /*
-       * ふつうのドラッグでも、独立レールの上へ持っていったら**そこに並べる**。
-       * 段への入れ込みのままだと、レールに乗せたつもりの機器が段に残り、
-       * 共通レールがその位置まで引き伸ばされてしまう。
-       */
-      if (at && isRailMount(at.self.mount)) {
-        const snapped = snapToSoloRails(at.x, at.y, at.size, at.self);
-        if (snapped) {
-          d.snapped = true;
-          pinAt(at.placed, snapped.x, snapped.y);
-          return;
-        }
-      }
-      if (d.snapped) {
-        // レールから離れたら段の流れへ戻す
+      if (decision.kind === 'unpin') {
+        // 吸い付きから離れたら段の流れへ戻す
         d.snapped = false;
         unpin(d.uid);
         return;
       }
-      /*
-       * DIN 機器を**誰とも干渉しない空いた場所**へ持っていったら、並べ替えではなく
-       * その段のレールのその位置に座標置き（onRail）する。
-       *
-       * 並べ替えだけだと、段の末尾の機器は右へ引いても「入れ込む先」が変わらず動かず、
-       * 空いているのに動かせない。さらに段がほぼ埋まっていると、放した機器が流し込みに
-       * 戻されて次の段の左端へ飛び、レールがばらけて見えた。
-       * 隣に掛かる位置なら今までどおり並べ替える（詰めて並べたいときはそのほうが自然）
-       */
-      if (at && at.self.mount === 'din' && hasRows) {
-        const free = freeSpotOnRail(at.x, at.y, at.size, at.placed);
-        if (free) {
-          d.lastBefore = undefined;
-          d.lastRow = undefined;
-          d.lastZone = undefined;
-          pin({ ...at.placed, x: free.x, y: free.y, row: free.row, onRail: true });
-          return;
-        }
-      }
-      // 既定: 他の機器の間へ入れ込む。並び順が変わると配置がその場で組み直される。
+      // 並べ替え。並び順が変わると配置がその場で組み直される。
       // 上下に動かしたときは段の指定も付け替える（並び順だけでは段は変わらないため）
-      const { row, before, zone } = dropTarget(e.clientX, e.clientY, d.uid);
-      const movedRow = row !== d.fromRow ? row : undefined;
-      if (before !== d.lastBefore || movedRow !== d.lastRow || zone !== d.lastZone) {
-        d.lastBefore = before;
+      const movedRow = decision.row !== d.fromRow ? decision.row : undefined;
+      if (decision.before !== d.lastBefore || movedRow !== d.lastRow || decision.zone !== d.lastZone) {
+        d.lastBefore = decision.before;
         d.lastRow = movedRow;
-        d.lastZone = zone;
+        d.lastZone = decision.zone;
         // つかむ前の段割りを渡して、動かした1台以外は今の段にとどめる
-        moveItem(d.uid, before, movedRow, d.rowsAtGrab, zone);
+        moveItem(d.uid, decision.before, movedRow, d.rowsAtGrab, decision.zone);
       }
       return;
     }

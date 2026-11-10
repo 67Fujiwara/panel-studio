@@ -27,6 +27,9 @@
 
 - `src/lib/layout/` 配置計算。`pack.ts` は「枠を作る → 置き場所を探す → 段とダクトを決める」の 3 手順。
   `push.ts` が段を上へ詰め、`rails.ts` が DINレール、`checks.ts` が検査。入口は `index.ts`（`autoLayout`）。
+- `src/lib/layout/drag.ts` と `nudge.ts` がドラッグ・矢印キーの判定（純粋な関数）。画面は答えを書くだけ。
+  微調整を直すときは `tests/unit/interact.combo.test.ts`（手順どおり）と `interact.fuzz.test.ts`（でたらめな順番）に
+  シナリオを足す。
 - `src/store.ts` 状態と操作（zustand）。`src/components/PanelCanvas.tsx` 図とドラッグ・キー操作。
 - 分割の進め方は `docs/refactoring-plan.md`。
 

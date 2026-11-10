@@ -34,9 +34,8 @@ import type {
   Rotation,
 } from './types';
 import { markBackupSeen } from './lib/backup';
-import { HEAT_THRESHOLD_W, autoLayout, effectiveDepth, vertBandOf } from './lib/layout';
+import { autoLayout, effectiveDepth, planDuctNudge, planVertNudge } from './lib/layout';
 import type { CoolingConsts, CoolingInput } from './lib/cooling';
-import { faceSize } from './data/faces';
 import type { LayoutItem } from './lib/layout';
 import { rotatedSize, hasTapCuts } from './types';
 
@@ -415,6 +414,8 @@ export type State = {
    * 動かせなかったときは note（理由）だけを案内欄に出す
    */
   nudgeRail: (key: string, end: 'left' | 'right', delta: number, note: string | null) => void;
+  /** 図の下の案内欄に理由を出す（矢印キーで動かせなかったときなど）。null で消す */
+  noteNudge: (note: string | null) => void;
 
   /** 単価表。型番をキーに持つ。ミスミの一括見積 CSV から取り込む */
   prices: PriceBook;
@@ -1146,85 +1147,26 @@ export const useStore = create<State>((set) => ({
 
   nudgeDuct: (target, dx, dy, edge) =>
     set((s) => {
+      // どこまで動かせるかは lib/layout/nudge.ts が決める。ここは答えを書くだけ
       const duct = s.profile.duct;
       if (typeof target !== 'number') {
-        if (target === 'all' || !dx) return s;
-        // 面の外へ出る分は溜めない（戻すときに空振りしないように）
-        const band = vertBandOf(s.panel, s.face, s.profile, target.vert);
-        const w = faceSize(s.panel, s.face).w;
-        const step = band ? Math.max(-band.x0, Math.min(w - band.x1, dx)) : dx;
+        if (target === 'all') return s;
+        const step = planVertNudge(s.panel, s.face, s.profile, target.vert, dx);
         if (!step) return s;
         const gaps = { ...duct.vertGaps };
         const cur = gaps[target.vert] ?? {};
         gaps[target.vert] = { ...cur, dx: (cur.dx ?? 0) + step };
         return { profile: { ...s.profile, duct: { ...duct, vertGaps: gaps } }, nudgeNote: null };
       }
+      const lookup = deviceLookup(s.devices, s.myDevices);
+      // 上下の判定だけ配置が要る（その段の機器の離隔を見る）
+      const lay = dy
+        ? autoLayout(s.panel, s.profile, s.face, s.items, s.pinned, lookup, s.removedDucts[s.face] ?? [])
+        : { rows: [], ducts: [], placed: [], violations: [] };
+      const plan = planDuctNudge(s.profile, lay, lookup, target, dx, dy, edge);
+      if (!plan.patch) return plan.note ? { nudgeNote: plan.note } : s;
       const gaps = { ...duct.ductGaps };
-      const cur = gaps[target] ?? {};
-      const left = cur.left ?? duct.margin.left;
-      const right = cur.right ?? duct.margin.right;
-      // 左右は余白を同時に動かして全体をずらす。面の外へは出さない
-      const shift = Math.max(-left, Math.min(right, dx));
-      /*
-       * 上下は「上の余白」を削って「下の余白」に足す（逆も）。
-       *
-       * 余白は**下限**で、実際に効くのは max(余白, その段の機器のメーカー指定の最小離隔・発熱の追加離隔)。
-       * 余白をその値より小さくしてもダクトは動かないので、動かせるのは余白がその値を上回っている分だけ。
-       * 以前はここを見ずに余白を付け替えていたため、上の機器の離隔が効いている状態で ↑ を押すと
-       * ダクトは動かないのに下の余白だけ増え、下の段（と次のダクト）が下がっていた。
-       * 最下段のダクトは下に段が無いので上の余白だけ動かす
-       */
-      const above = cur.above ?? s.profile.clearance.deviceToDuct.bottom;
-      const below = cur.below ?? s.profile.clearance.deviceToDuct.top;
-      let up = 0;
-      let effAbove = above;
-      let effBelow = below;
-      let nudgeNote: string | null = null;
-      if (dy) {
-        const lookup = deviceLookup(s.devices, s.myDevices);
-        const lay = autoLayout(s.panel, s.profile, s.face, s.items, s.pinned, lookup, s.removedDucts[s.face] ?? []);
-        /** その段の機器が求める最小離隔（メーカー指定・発熱）のいちばん大きいものと、その機器 */
-        const demand = (row: number, side: 'top' | 'bottom') => {
-          let best = { v: 0, model: '' };
-          for (const p of lay.placed) {
-            if (p.row !== row) continue;
-            const spec = lookup.get(p.specId);
-            if (!spec) continue;
-            const heat = (spec.heatW ?? 0) >= HEAT_THRESHOLD_W ? s.profile.clearance.heatExtra : 0;
-            const v = Math.max(spec.clearance?.[side] ?? 0, heat);
-            if (v > best.v) best = { v, model: spec.model };
-          }
-          return best;
-        };
-        // ダクト target の上の段は target-1、下の段は target
-        const over = demand(target - 1, 'bottom');
-        const under = demand(target, 'top');
-        const upMax = Math.max(0, above - over.v);
-        const downMax = edge === 'bottom' ? Infinity : Math.max(0, below - under.v);
-        up = Math.max(-downMax, Math.min(upMax, dy));
-        // 実際に効いている余白（max(余白, 離隔)）を基準に付け替える。余白が離隔より小さいまま
-        // 数字だけ増やしても（15→16、離隔 30）ダクトは動かないので、効いている値から動かす
-        effAbove = Math.max(above, over.v);
-        effBelow = Math.max(below, under.v);
-        const no = `ダクト ${target + 1} 本目`;
-        if (dy > 0 && !up) {
-          nudgeNote =
-            over.v > 0 && over.v >= above
-              ? `${no}はこれ以上上へ動かせません。上の段の ${over.model} のメーカー指定の最小離隔（下 ${over.v}mm）が効いています。部品編集で離隔を直すか、その機器を動かしてください`
-              : `${no}はこれ以上上へ動かせません（上の余白が 0 です）`;
-        } else if (dy < 0 && !up) {
-          nudgeNote =
-            under.v > 0 && under.v >= below
-              ? `${no}はこれ以上下へ動かせません。下の段の ${under.model} のメーカー指定の最小離隔（上 ${under.v}mm）が効いています。部品編集で離隔を直すか、その機器を動かしてください`
-              : `${no}はこれ以上下へ動かせません（下の余白が 0 です）`;
-        }
-      }
-      if (!shift && !up) return nudgeNote ? { nudgeNote } : s;
-      gaps[target] = {
-        ...cur,
-        ...(shift ? { left: left + shift, right: right - shift } : {}),
-        ...(up ? { above: effAbove - up, ...(edge === 'bottom' ? {} : { below: effBelow + up }) } : {}),
-      };
+      gaps[target] = { ...(gaps[target] ?? {}), ...plan.patch };
       return { profile: { ...s.profile, duct: { ...duct, ductGaps: gaps } }, nudgeNote: null };
     }),
 
@@ -1238,6 +1180,7 @@ export const useStore = create<State>((set) => ({
         ? `DINレール ${sel.row + 1} 段目の${sel.end === 'left' ? '左端' : '右端'}を選びました。← → で 1mm（Shift で 10mm）伸び縮みします。反対の端はレールのそちら側の半分を押して選びます`
         : null,
     }),
+  noteNudge: (note) => set({ nudgeNote: note }),
   nudgeRail: (key, end, delta, note) =>
     set((s) => {
       if (!delta) return { nudgeNote: note };

@@ -65,6 +65,48 @@ test.describe('中板のレイアウト操作', () => {
   });
 });
 
+test.describe('ダクトの微調整', () => {
+  test('ダクトを選んで ↓ でダクトだけ下がり、下の段の機器は動かない。↑ は上の段の離隔で止まり理由が出る', async ({ page }) => {
+    await openPlate(page);
+    await addDevice(page, 'NF63', 'NF63-SV 3P 60A', 2);
+    await addDevice(page, 'UT 2.5', 'UT 2.5', 4);
+    // 端子台を 2 段目へ
+    await page.locator('input.search').first().fill('UT 2.5');
+    await page.locator('li.dev', { has: page.locator('strong', { hasText: 'UT 2.5' }) }).first().locator('select').first().selectOption({ label: '2段' });
+    await page.locator('input.search').first().fill('');
+    await page.waitForTimeout(300);
+    const ductY = async (i: number) => page.locator('svg rect.duct').nth(i).evaluate((el) => +el.getAttribute('y')!);
+    const tbY = async () => (await devices(page)).filter((d) => Math.abs(d.w - 5.2) < 0.01).map((d) => d.y)[0]!;
+    const d1 = await ductY(1);
+    const tb0 = await tbY();
+    await page.locator('svg rect.duct').nth(1).click();
+    await expect(page.locator('svg rect.duct.selected')).toHaveCount(1);
+    await page.keyboard.press('Shift+ArrowDown');
+    // SVG は Y 下向きなので、下がると y が増える
+    expect(await ductY(1)).toBeCloseTo(d1 + 10, 5);
+    expect(await tbY()).toBeCloseTo(tb0, 5);
+    // 上の段の遮断器は下の離隔 20 > 余白 15 なので上へは動かず、理由に型式が出る
+    for (let i = 0; i < 12; i++) await page.keyboard.press('ArrowUp');
+    await expect(page.locator('.nudge-note')).toContainText('NF63-SV 3P 60A');
+    expect(await ductY(1)).toBeCloseTo(d1 + 0, 5);
+  });
+
+  test('Shift ドラッグでダクトの上に落とすと、近い側へ避けて置かれる', async ({ page }) => {
+    await openPlate(page);
+    await addDevice(page, 'NF63', 'NF63-SV 3P 60A', 1);
+    const s = await toScreen(page);
+    const dev = (await devices(page))[0]!;
+    const duct = await page.locator('svg rect.duct').nth(1).evaluate((el) => ({ x: +el.getAttribute('x')!, y: +el.getAttribute('y')!, w: +el.getAttribute('width')!, h: +el.getAttribute('height')! }));
+    await page.keyboard.down('Shift');
+    await drag(page, { x: s.x(dev.x + dev.w / 2), y: s.y(dev.y + dev.h / 2) }, { x: s.x(300), y: s.y(duct.y + duct.h / 2) });
+    await page.keyboard.up('Shift');
+    const after = (await devices(page))[0]!;
+    const overlaps = after.x < duct.x + duct.w && duct.x < after.x + after.w && after.y < duct.y + duct.h && duct.y < after.y + after.h;
+    expect(overlaps).toBe(false);
+    await expect(page.locator('button.on.primary', { hasText: '座標で置く' })).toHaveCount(1);
+  });
+});
+
 test.describe('面選択画面', () => {
   test('展開図の機器に載せると型式と品名の吹き出しが出て、離すと消える', async ({ page }) => {
     await openPlate(page);

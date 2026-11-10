@@ -16,7 +16,8 @@ import type { FaceId, LayoutResult, PanelSpec, PlacedDevice, Profile } from '../
 import { effectiveClearance, isStopper, placeY, rowGap, vertSpan } from './clearance';
 import { buildQueue, packAuto, packEqual } from './pack';
 import { pushRowsUp } from './push';
-import { baseUnitViolations, depthViolations, detectOverlaps, ductOverlaps } from './checks';
+import { baseUnitViolations, depthViolations, detectOverlaps, ductOverlaps, railOverlaps } from './checks';
+import { computeRails } from './rails';
 import type { DeviceLookup, LayoutItem, Obstacle } from './types';
 
 export type { DeviceLookup, LayoutItem, Segment, VertBand } from './types';
@@ -34,6 +35,19 @@ export {
 } from './clearance';
 export { computeRows, vertBandOf } from './ducts';
 export { computeRails, independentRails, rowOfPinnedRail } from './rails';
+export {
+  clearanceDemand,
+  ductKeyMove,
+  isOnRowRail,
+  nudgeDevice,
+  pinnedAt,
+  planDuctNudge,
+  planRailNudge,
+  planVertNudge,
+} from './nudge';
+export type { DuctNudgePlan, RailNudgePlan } from './nudge';
+export { decideDrag, dodgeDucts, dropTarget, freeSpotOnRail, snapStopperToDevice, snapToSoloRails } from './drag';
+export type { DragContext, DragDecision, Dragged } from './drag';
 
 /**
  * 自動配置。
@@ -139,6 +153,14 @@ export function autoLayout(
       ...baseUnitViolations(placed, devices),
       ...detectOverlaps(placed, devices),
       ...ductOverlaps(placed, ducts, devices),
+      // DINレールどうしの重なり（レールのある面だけ）
+      ...(FACE_BY_ID.get(face)?.ducts
+        ? railOverlaps(
+            computeRails({ rows: result.rows, ducts, placed, violations: [], size: faceSize(panel, face) }, devices, profile.rail.endMargin, profile.rail.adjust),
+            devices,
+            placed,
+          )
+        : []),
       // タップ穴加工付きの部品は中板専用。足す口は塞いであるが、
       // AI の配置や古いデータで紛れ込んだときにここで知らせる
       ...(face === 'plate'

@@ -1,7 +1,9 @@
 /** 配置の検査。重なり・ダクトとの干渉・ベースユニットのスロット・奥行き。 */
+import { DIN_RAIL_WIDTH } from '../../data/enclosures';
 import { baseSlots, rotatedSize, slotUseOf } from '../../types';
 import type { DeviceSpec, Duct, FaceId, PanelSpec, PlacedDevice, Violation } from '../../types';
 import { deviceProjection, effectiveDepth } from './clearance';
+import type { RailRun } from './rails';
 import type { DeviceLookup } from './types';
 
 /** 機器同士が実際に重なっていないか。手動配置で干渉させたときに気づけるようにする。 */
@@ -107,6 +109,35 @@ export function baseUnitViolations(placed: PlacedDevice[], devices: DeviceLookup
           `${spec.model}: 載せたユニットがベースからはみ出します` +
           `（幅 ${spec.size.w}mm に対して ${Math.round(right * 10) / 10}mm）`,
       });
+    }
+  }
+  return out;
+}
+
+/**
+ * DINレールどうしの重なり。
+ *
+ * 帯（35mm）が上下に重なり、左右にも掛かる 2 本は同じ場所に付けられない。
+ * 起きるのは、座標置きの DIN 機器をレールの帯の外ぎりぎり（18〜34mm）まで上下に動かして
+ * 独立レールになり、それが段の共通レールに掛かったとき。機器の側を名指しして知らせる
+ */
+export function railOverlaps(rails: RailRun[], devices: DeviceLookup, placed: PlacedDevice[]): Violation[] {
+  const out: Violation[] = [];
+  const seen = new Set<string>();
+  for (const a of rails) {
+    if (!a.solo || !a.uid || seen.has(a.uid)) continue;
+    for (const b of rails) {
+      if (a === b) continue;
+      if (Math.abs(a.y - b.y) >= DIN_RAIL_WIDTH) continue;
+      if (a.x + a.length <= b.x + 0.01 || b.x + b.length <= a.x + 0.01) continue;
+      const spec = devices.get(placed.find((p) => p.uid === a.uid)?.specId ?? '');
+      out.push({
+        uid: a.uid,
+        kind: 'overlap',
+        message: `${spec?.model ?? a.uid}: DINレールが他のレールに重なっています（上下の位置をレール 1 本ぶん以上離すか、元の段のレールの高さに戻してください）`,
+      });
+      seen.add(a.uid);
+      break;
     }
   }
   return out;

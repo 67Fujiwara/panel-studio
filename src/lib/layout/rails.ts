@@ -2,6 +2,7 @@
 import { DIN_RAIL_WIDTH } from '../../data/enclosures';
 import { isRailMount, rotatedSize, rowAxisY } from '../../types';
 import type { DeviceRow, DeviceSpec, LayoutResult, PlacedDevice, RailAdjust } from '../../types';
+import { isStopper } from './clearance';
 import { RAIL_END_MARGIN, SAME_AXIS_MM, SOLO_RAIL_MARGIN } from './constants';
 import type { DeviceLookup } from './types';
 
@@ -12,6 +13,8 @@ export type RailRun = {
   length: number;
   /** 独立レール（段の共通レールではない1本）か */
   solo?: boolean;
+  /** 独立レールなら、それを持つ機器（検査で名指しするため） */
+  uid?: string;
   /** 手直しの控えのキー（段の共通レールだけ）。RailSettings.adjust を引く */
   key?: string;
   /**
@@ -85,7 +88,7 @@ export function independentRails(
     );
     const left = Math.max(limitLeft, p.x - SOLO_RAIL_MARGIN);
     const right = Math.min(limitRight, p.x + s.w + SOLO_RAIL_MARGIN);
-    runs.push({ row: p.row, x: left, y, length: Math.max(0, right - left), solo: true });
+    runs.push({ row: p.row, x: left, y, length: Math.max(0, right - left), solo: true, uid: p.uid });
   }
   /*
    * 同じ高さで接している独立レールは1本につなげる。並べた機器はどう見ても
@@ -230,11 +233,24 @@ export function computeRails(
         （余長どうしが噛み合って「間に収まる」と読めない場合）。最後に差し引いて、
         レールの上にレールが乗った図が残らないようにする。
       */
-      const pieces = subtractSpans({ x0: left, x1: right }, [
-        ...solo.filter((r) => sameBand(r.y, y)).map((r) => ({ x0: r.x, x1: r.x + r.length })),
-        // 直付け機器の上も同じ。余長が機器に掛かったぶんは切り落とす
-        ...directBlocks,
-      ]);
+      /*
+        ただし、**この段の機器の下を通る切れ目では切らない**。機器の下のレールを削ると、その機器が
+        レールに乗っていない図になる。上下に少し動かした機器の独立レールが隣の機器の下に掛かるのが
+        その例で、以前はそこで共通レールが切り刻まれて隣の機器のレールが消えていた。
+        重なったレールそのものは検査（railOverlaps）で知らせる
+      */
+      // 止め金具は数えない。独立レールの隣に付けた止め金具は、そのレールの端を押さえるクリップで、
+      // 共通レールと独立レールの継ぎ目に跨るのが正しい姿
+      const underDevice = (c: { x0: number; x1: number }) =>
+        g.some((e) => !isStopper(e.spec) && c.x0 < e.p.x + rotatedSize(e.spec.size, e.p.rot).w - 0.01 && e.p.x + 0.01 < c.x1);
+      const pieces = subtractSpans(
+        { x0: left, x1: right },
+        [
+          ...solo.filter((r) => sameBand(r.y, y)).map((r) => ({ x0: r.x, x1: r.x + r.length })),
+          // 直付け機器の上も同じ。余長が機器に掛かったぶんは切り落とす
+          ...directBlocks,
+        ].filter((c) => !underDevice(c)),
+      );
       for (const q of pieces) out.push({ row: row.index, x: q.x0, y, length: q.x1 - q.x0, key, bounds });
     }
   }

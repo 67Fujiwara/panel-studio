@@ -54,12 +54,20 @@
 - 残り: 座標置きの扱い（`pinned` / `onRail`）はまだ `index.ts`・`push.ts`・`rails.ts`・`PanelCanvas` に
   散っている。次に `PanelCanvas` の操作を切り出すときに 1 か所へ寄せる。
 
-### 2. 操作の切り出し（`src/components/PanelCanvas.tsx`）
+### 2. 操作の切り出し（済・2026-11）
 
-- ドラッグの判定（並べ替え／空き場所へ座標置き／独立レールへ吸い付き／止め金具の密着）を
-  `src/lib/drag.ts` のような純粋な関数にして、座標と配置を渡すと「何をするか」が返る形にする。
-  画面を通さず単体テストで試せるようになる。
-- 矢印キーの処理（機器・ダクト・レール）も同じく関数に出す。
+- `src/lib/layout/drag.ts` — ドラッグ 1 コマの判定 `decideDrag`（Shift の座標置き／止め金具の密着／
+  独立レールへの吸い付き／空いた場所への座標置き／並べ替え）。ダクト避け・吸い付き・入れ込み先も
+  それぞれ関数。`PanelCanvas` はポインタを面の座標に直して渡し、返った決定を書くだけ。
+- `src/lib/layout/nudge.ts` — 矢印キーの判定。機器 `nudgeDevice`、横ダクト `planDuctNudge`
+  （どこまで動かせるか・理由）、縦ダクト `planVertNudge`、レールの端 `planRailNudge`、
+  図のダクトとキーの読み替え `ductKeyMove`。ストアの `nudgeDuct` は答えを書くだけになった。
+- 座標置きの判定は `pinnedAt` / `snapToRowRail` / `isOnRowRail` の 1 か所に寄せた。
+- テスト: `tests/unit/nudge.test.ts`、`drag.test.ts`、`interact.combo.test.ts`（人の手順どおりの組み合わせ）、
+  `interact.fuzz.test.ts`（でたらめな順番で 60 手 × 5 種を繰り返しても崩れない不変条件）。
+- 見つけて直したバグ: DIN 機器を 1mm 上下に動かすと独立レールになって段の共通レールを切り刻み、
+  隣の機器のレールが消えていた。レールの帯に掛かる高さなら段のレールに吸い付かせ、帯の外ぎりぎりで
+  掛かるものは隣のレールを削らず「レールが重なっている」と検査に出すようにした（`railOverlaps`）。
 
 ### 3. ストアの分割（`src/store.ts`）
 
