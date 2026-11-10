@@ -33,13 +33,26 @@
   矢印キー・ドラッグ・レールの伸び縮み・吹き出しを操作する。
 - **以後、バグを直すときは先にそのバグを再現するテストを足してから直す。**
 
-### 1. 配置計算の分割（`src/lib/layout.ts`）
+### 1. 配置計算の分割（済・2026-11）
 
-- `packAuto` を「段の枠（slots）を作る」「1 台を置く場所を探す」「ダクトを決める」「段を上へ詰める」の
-  4 つに分け、それぞれを単体テストで固定する。
-- 座標置きの扱い（`pinned` / `onRail`）を 1 か所に寄せる。いまは `autoLayout`・`pushRowsUp`・
-  `computeRails`・`PanelCanvas` のそれぞれが「レールに乗っているか」を判定している。
-- 期待する動きは既存の README の記述と、このテストで決める。**数値の答えが変わる変更はしない。**
+`src/lib/layout.ts`（1,707 行）を `src/lib/layout/` に分けた。他のファイルからの import は変えていない。
+
+| ファイル | 中身 |
+| --- | --- |
+| `constants.ts` | しきい値と固定値 |
+| `types.ts` | `DeviceLookup`・`LayoutItem`・`Entry`・`Obstacle` など |
+| `clearance.ts` | 離隔・寸法・段の余白・基準線の上下に要る高さ |
+| `ducts.ts` | レイアウト規則、縦ダクトの帯、段の区画、equal モードの段割り |
+| `pack.ts` | 流し込み。**`rowSlots`（枠を作る）→ `findSlot`（置き場所を探す）→ `resolveRows`（段とダクトを決める）** |
+| `push.ts` | 段を上のダクトの手前まで詰める |
+| `rails.ts` | DINレール（共通・独立・手直し） |
+| `checks.ts` | 重なり・干渉・スロット・奥行きの検査 |
+| `index.ts` | `autoLayout` と公開する名前 |
+
+- 数値の答えは `tests/unit/layout.golden.test.ts`（10 シナリオのスナップショット）で分割前と同じことを確かめた。
+- 3 手順それぞれの保証は `tests/unit/pack.test.ts` に書いた。
+- 残り: 座標置きの扱い（`pinned` / `onRail`）はまだ `index.ts`・`push.ts`・`rails.ts`・`PanelCanvas` に
+  散っている。次に `PanelCanvas` の操作を切り出すときに 1 か所へ寄せる。
 
 ### 2. 操作の切り出し（`src/components/PanelCanvas.tsx`）
 
